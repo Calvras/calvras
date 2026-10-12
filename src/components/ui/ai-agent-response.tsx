@@ -43,7 +43,7 @@ function renderDynamicIcon(icon: any, className?: string): React.ReactNode {
 const CHEVRON_DELAYS = Array.from({ length: 9 }, (_, i) => {
   const r = Math.floor(i / 3);
   const c = i % 3;
-  return (c + Math.abs(r - 1)) * 90;
+  return (c + Math.abs(r - 1)) * 70;
 });
 
 export function PixelDotsLoader({ className }: { className?: string }) {
@@ -61,7 +61,7 @@ export function PixelDotsLoader({ className }: { className?: string }) {
           className="size-[3px] rounded-full bg-foreground/80 transition-opacity motion-reduce:animate-none"
           style={{
             opacity: 0.2,
-            animation: `agent-pixel-on 650ms cubic-bezier(0.23, 1, 0.32, 1) ${delay}ms infinite`,
+            animation: `agent-pixel-on 1600ms cubic-bezier(0.23, 1, 0.32, 1) ${delay}ms infinite`,
           }}
         />
       ))}
@@ -492,7 +492,12 @@ export function NestedReasoningBlock({
   React.useEffect(() => {
     if (!isActive || isFinished) return;
 
-    const cadence = delays || sentences.map(() => 1800 + Math.floor(Math.random() * 400));
+    // Steady cadence derived from the phase duration: random gaps make the reveal lurch.
+    const perLine = Math.max(
+      700,
+      Math.round((durationSeconds * 1000) / Math.max(sentences.length, 1))
+    );
+    const cadence = delays || sentences.map(() => perLine);
     const totalMs = cadence.reduce((a, b) => a + b, 0);
 
     const timers: ReturnType<typeof setTimeout>[] = [];
@@ -514,20 +519,24 @@ export function NestedReasoningBlock({
     );
 
     return () => timers.forEach(clearTimeout);
-  }, [isActive, isFinished, delays, sentences]);
+  }, [isActive, isFinished, delays, sentences, durationSeconds]);
 
   const expanded = isFinished ? manualOpen : isActive;
   const count = isFinished ? sentences.length : revealedCount;
+  // Reserve the block's final height on the first frame so the layout never grows
+  // while lines stream in — only the text window slides.
+  const finalH = sentences.length * SENT_H + Math.max(0, sentences.length - 1) * GAP;
   const contentH = count > 0 ? count * SENT_H + (count - 1) * GAP : 0;
-  const capped = contentH > MAX_H;
-  const viewH = capped ? MAX_H : contentH;
+  const capped = finalH > MAX_H;
+  const overflowing = contentH > MAX_H;
+  const viewH = capped ? MAX_H : finalH;
   const scrollable = isFinished && manualOpen;
-  const translate = scrollable ? 0 : capped ? MAX_H - FADE - contentH : 0;
+  const translate = scrollable ? 0 : Math.min(0, MAX_H - FADE - contentH);
 
-  const showTop = scrollable ? fade.top : capped;
-  const showBottom = scrollable ? fade.bottom : capped;
+  const showTop = scrollable ? fade.top : overflowing;
+  const showBottom = scrollable ? fade.bottom : overflowing;
 
-  const mask = capped
+  const mask = overflowing
     ? `linear-gradient(to bottom, transparent 0, #000 ${
         showTop ? FADE : 0
       }px, #000 calc(100% - ${showBottom ? FADE : 0}px), transparent 100%)`
@@ -582,17 +591,7 @@ export function NestedReasoningBlock({
               Thought for <span className="tabular-nums font-mono text-[11.5px]">{durationSeconds}s</span>
             </span>
           ) : (
-            <span
-              className="bg-clip-text text-transparent font-medium"
-              style={{
-                backgroundImage:
-                  "linear-gradient(90deg, var(--color-muted-foreground, oklch(0.55 0 0)) 35%, var(--color-foreground, oklch(0.95 0 0)) 50%, var(--color-muted-foreground, oklch(0.55 0 0)) 65%)",
-                backgroundSize: "200% 100%",
-                animation: "agent-shimmer 1.8s linear infinite",
-              }}
-            >
-              Thinking…
-            </span>
+            <span className="font-medium text-muted-foreground">Thinking…</span>
           )}
         </span>
       </button>
@@ -1008,16 +1007,16 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
       >
         <style>{`
           @keyframes agent-pixel-on {
-            0%, 100% { opacity: 0.15; transform: scale(0.9); }
-            50% { opacity: 0.95; transform: scale(1.1); }
+            0%, 100% { opacity: 0.35; transform: scale(0.96); }
+            50% { opacity: 0.85; transform: scale(1.04); }
           }
           @keyframes agent-shimmer {
             0% { background-position: 200% 0; }
             100% { background-position: -200% 0; }
           }
           @keyframes agent-fade {
-            from { opacity: 0; transform: translateY(2px); }
-            to { opacity: 1; transform: translateY(0); }
+            from { opacity: 0; }
+            to { opacity: 1; }
           }
         `}</style>
 
@@ -1036,17 +1035,7 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
 
           <span className="text-[13.5px] font-normal transition-colors">
             {isWorking ? (
-              <span
-                className="bg-clip-text text-transparent font-medium"
-                style={{
-                  backgroundImage:
-                    "linear-gradient(90deg, var(--color-muted-foreground, oklch(0.55 0 0)) 35%, var(--color-foreground, oklch(0.95 0 0)) 50%, var(--color-muted-foreground, oklch(0.55 0 0)) 65%)",
-                  backgroundSize: "200% 100%",
-                  animation: "agent-shimmer 1.5s linear infinite",
-                }}
-              >
-                {workingLabel}
-              </span>
+              <span className="font-medium text-muted-foreground">{workingLabel}</span>
             ) : (
               <span>
                 Worked for <span className="tabular-nums font-mono text-[12px]">{elapsedSeconds}</span> {elapsedSeconds === 1 ? "second" : "seconds"}

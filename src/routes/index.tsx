@@ -36,7 +36,8 @@ function Index() {
     <main className="chat-page antialiased">
       {messages.length === 0 && (
         <div className="chat-welcome">
-          <h1 className="text-2xl font-semibold">Ask anything</h1>
+          <h1 className="text-2xl font-semibold">What should we build?</h1>
+          <p className="mt-2 text-sm text-muted-foreground">Describe a bug, a refactor, or a feature.</p>
         </div>
       )}
       <div className="chat-history" aria-label="Conversation" aria-live="polite">
@@ -47,12 +48,12 @@ function Index() {
                 {message.text}
               </div>
             </div>
-            <AgentWorkflow phases={MULTI_ROUND_AGENT_WORKFLOW} tools={CUSTOM_TOOLS} workingLabel="Working..." />
+            <AgentWorkflow phases={MULTI_ROUND_AGENT_WORKFLOW} tools={CUSTOM_TOOLS} workingLabel="Analyzing the codebase..." />
           </div>
         ))}
       </div>
       <div className="chat-composer" data-active={messages.length > 0}>
-        <PromptInput onSubmit={handleSubmit} placeholder="Ask anything..." />
+        <PromptInput onSubmit={handleSubmit} placeholder={'Try: "fix the failing auth test"'} />
       </div>
     </main>
   );
