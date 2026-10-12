@@ -850,7 +850,7 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
             <div
               className={cn(
                 "absolute bottom-2 left-3 right-12 z-[10] flex items-center gap-0 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
-                expanded && !isRecording ? "opacity-100 blur-0 translate-y-0 pointer-events-auto" : "opacity-0 blur-sm translate-y-2 pointer-events-none"
+                expanded && !isRecording ? "opacity-100 translate-y-0 pointer-events-auto" : "opacity-0 translate-y-1 pointer-events-none"
               )}
             >
               <div className="relative">
