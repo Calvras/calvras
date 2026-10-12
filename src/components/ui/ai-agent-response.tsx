@@ -43,7 +43,7 @@ function renderDynamicIcon(icon: any, className?: string): React.ReactNode {
 const CHEVRON_DELAYS = Array.from({ length: 9 }, (_, i) => {
   const r = Math.floor(i / 3);
   const c = i % 3;
-  return (c + Math.abs(r - 1)) * 90;
+  return (c + Math.abs(r - 1)) * 70;
 });
 
 export function PixelDotsLoader({ className }: { className?: string }) {
@@ -61,7 +61,7 @@ export function PixelDotsLoader({ className }: { className?: string }) {
           className="size-[3px] rounded-full bg-foreground/80 transition-opacity motion-reduce:animate-none"
           style={{
             opacity: 0.2,
-            animation: `agent-pixel-on 650ms cubic-bezier(0.23, 1, 0.32, 1) ${delay}ms infinite`,
+            animation: `agent-pixel-on 1600ms cubic-bezier(0.23, 1, 0.32, 1) ${delay}ms infinite`,
           }}
         />
       ))}
@@ -1007,16 +1007,16 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
       >
         <style>{`
           @keyframes agent-pixel-on {
-            0%, 100% { opacity: 0.15; transform: scale(0.9); }
-            50% { opacity: 0.95; transform: scale(1.1); }
+            0%, 100% { opacity: 0.35; transform: scale(0.96); }
+            50% { opacity: 0.85; transform: scale(1.04); }
           }
           @keyframes agent-shimmer {
             0% { background-position: 200% 0; }
             100% { background-position: -200% 0; }
           }
           @keyframes agent-fade {
-            from { opacity: 0; transform: translateY(2px); }
-            to { opacity: 1; transform: translateY(0); }
+            from { opacity: 0; }
+            to { opacity: 1; }
           }
         `}</style>
 
@@ -1035,17 +1035,7 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
 
           <span className="text-[13.5px] font-normal transition-colors">
             {isWorking ? (
-              <span
-                className="bg-clip-text text-transparent font-medium"
-                style={{
-                  backgroundImage:
-                    "linear-gradient(90deg, var(--color-muted-foreground, oklch(0.55 0 0)) 35%, var(--color-foreground, oklch(0.95 0 0)) 50%, var(--color-muted-foreground, oklch(0.55 0 0)) 65%)",
-                  backgroundSize: "200% 100%",
-                  animation: "agent-shimmer 1.5s linear infinite",
-                }}
-              >
-                {workingLabel}
-              </span>
+              <span className="font-medium text-muted-foreground">{workingLabel}</span>
             ) : (
               <span>
                 Worked for <span className="tabular-nums font-mono text-[12px]">{elapsedSeconds}</span> {elapsedSeconds === 1 ? "second" : "seconds"}
