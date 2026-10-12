@@ -492,7 +492,12 @@ export function NestedReasoningBlock({
   React.useEffect(() => {
     if (!isActive || isFinished) return;
 
-    const cadence = delays || sentences.map(() => 1800 + Math.floor(Math.random() * 400));
+    // Steady cadence derived from the phase duration: random gaps make the reveal lurch.
+    const perLine = Math.max(
+      700,
+      Math.round((durationSeconds * 1000) / Math.max(sentences.length, 1))
+    );
+    const cadence = delays || sentences.map(() => perLine);
     const totalMs = cadence.reduce((a, b) => a + b, 0);
 
     const timers: ReturnType<typeof setTimeout>[] = [];
@@ -514,20 +519,24 @@ export function NestedReasoningBlock({
     );
 
     return () => timers.forEach(clearTimeout);
-  }, [isActive, isFinished, delays, sentences]);
+  }, [isActive, isFinished, delays, sentences, durationSeconds]);
 
   const expanded = isFinished ? manualOpen : isActive;
   const count = isFinished ? sentences.length : revealedCount;
+  // Reserve the block's final height on the first frame so the layout never grows
+  // while lines stream in — only the text window slides.
+  const finalH = sentences.length * SENT_H + Math.max(0, sentences.length - 1) * GAP;
   const contentH = count > 0 ? count * SENT_H + (count - 1) * GAP : 0;
-  const capped = contentH > MAX_H;
-  const viewH = capped ? MAX_H : contentH;
+  const capped = finalH > MAX_H;
+  const overflowing = contentH > MAX_H;
+  const viewH = capped ? MAX_H : finalH;
   const scrollable = isFinished && manualOpen;
-  const translate = scrollable ? 0 : capped ? MAX_H - FADE - contentH : 0;
+  const translate = scrollable ? 0 : Math.min(0, MAX_H - FADE - contentH);
 
-  const showTop = scrollable ? fade.top : capped;
-  const showBottom = scrollable ? fade.bottom : capped;
+  const showTop = scrollable ? fade.top : overflowing;
+  const showBottom = scrollable ? fade.bottom : overflowing;
 
-  const mask = capped
+  const mask = overflowing
     ? `linear-gradient(to bottom, transparent 0, #000 ${
         showTop ? FADE : 0
       }px, #000 calc(100% - ${showBottom ? FADE : 0}px), transparent 100%)`
@@ -582,17 +591,7 @@ export function NestedReasoningBlock({
               Thought for <span className="tabular-nums font-mono text-[11.5px]">{durationSeconds}s</span>
             </span>
           ) : (
-            <span
-              className="bg-clip-text text-transparent font-medium"
-              style={{
-                backgroundImage:
-                  "linear-gradient(90deg, var(--color-muted-foreground, oklch(0.55 0 0)) 35%, var(--color-foreground, oklch(0.95 0 0)) 50%, var(--color-muted-foreground, oklch(0.55 0 0)) 65%)",
-                backgroundSize: "200% 100%",
-                animation: "agent-shimmer 1.8s linear infinite",
-              }}
-            >
-              Thinking…
-            </span>
+            <span className="font-medium text-muted-foreground">Thinking…</span>
           )}
         </span>
       </button>
