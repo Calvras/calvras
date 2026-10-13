@@ -1138,27 +1138,20 @@ export function ResponseCopyButton({ text, className }: { text: string; classNam
   };
 
   return (
-    <div className={cn("mt-2.5 flex items-center justify-start", className)}>
+    <div className={cn("mt-2 flex items-center justify-start", className)}>
       <button
         type="button"
         onClick={handleCopy}
-        aria-label={copied ? "Copied response to clipboard" : "Copy response"}
-        title={copied ? "Copied!" : "Copy response to clipboard"}
+        aria-label={copied ? "Copied" : "Copy to clipboard"}
+        title={copied ? "Copied!" : "Copy"}
         className={cn(
-          "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-all duration-150",
-          "text-muted-foreground/80 hover:text-foreground hover:bg-muted/70 active:scale-[0.96] border border-border/40 hover:border-border/80 cursor-pointer shadow-2xs"
+          "inline-flex size-6 items-center justify-center rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-muted/60 active:scale-[0.92] transition-colors cursor-pointer"
         )}
       >
         {copied ? (
-          <>
-            <CheckCheck className="size-3.5 text-emerald-500 animate-in fade-in" aria-hidden="true" />
-            <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Copied</span>
-          </>
+          <CheckCheck className="size-3.5 text-emerald-500 animate-in fade-in" aria-hidden="true" />
         ) : (
-          <>
-            <Copy className="size-3.5 text-muted-foreground transition-colors" aria-hidden="true" />
-            <span>Copy</span>
-          </>
+          <Copy className="size-3.5" aria-hidden="true" />
         )}
       </button>
     </div>
