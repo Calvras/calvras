@@ -990,7 +990,7 @@ function Index() {
         </div>
 
         {/* Spacer for composer */}
-        <div style={{ height: "8rem" }} />
+        <div style={{ height: "5rem" }} />
       </div>
 
       {/* ── Chat Composer ────────────────────────────────────────────────── */}
