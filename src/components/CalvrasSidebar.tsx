@@ -1,0 +1,311 @@
+import { useEffect, useRef, useState } from "react";
+import { PenSquare, FolderOpen, ChevronDown, ChevronRight, Bell, Search, PanelLeft, Sparkles, User, ArrowUpRight } from "lucide-react";
+import { Link } from "@tanstack/react-router";
+import { cn } from "@/lib/utils";
+
+interface Project {
+  id?: string;
+  name: string;
+  tasks?: string[];
+  path?: string;
+}
+
+interface RecentItem {
+  id?: string;
+  label: string;
+  hasAlert?: boolean;
+  projectPath?: string;
+  projectName?: string;
+}
+
+interface CalvrasSidebarProps {
+  projects?: Project[];
+  recents?: RecentItem[];
+  onNewChat?: () => void;
+  onSelectRecent?: (item: RecentItem) => void;
+  onSelectProject?: (project: Project) => void;
+}
+
+const SIDEBAR_W = 250;
+
+export function CalvrasSidebar({
+  projects = [],
+  recents = [],
+  onNewChat,
+  onSelectRecent,
+  onSelectProject,
+}: CalvrasSidebarProps) {
+  const [open, setOpen] = useState(false);
+  const [projectsOpen, setProjectsOpen] = useState(true);
+  // Track which project folders have their sub-recents expanded
+  const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
+  const sidebarRef = useRef<HTMLElement>(null);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (sidebarRef.current && !sidebarRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const t = setTimeout(() => document.addEventListener("mousedown", handler), 10);
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener("mousedown", handler);
+    };
+  }, [open]);
+
+  const toggleProjectExpanded = (key: string) => {
+    setExpandedProjects((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  // Collect all task labels that belong to a project folder
+  const projectTaskLabels = new Set<string>();
+  projects.forEach((p) => {
+    p.tasks?.forEach((t) => projectTaskLabels.add(t));
+  });
+
+  // Filter recents: exclude any chat that's already nested under a project folder
+  const orphanRecents = recents.filter((r) => !projectTaskLabels.has(r.label));
+
+  return (
+    <>
+      {/* ── Toggle button — always visible top-left ─────────────── */}
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className={cn(
+          "fixed top-3 left-3 z-50 flex h-8 w-8 items-center justify-center rounded-md",
+          "text-[oklch(0.985_0_0)] hover:bg-[oklch(0.285_0_0)] transition-colors",
+          "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        )}
+        aria-label="Toggle sidebar"
+      >
+        <PanelLeft className="h-4 w-4" />
+      </button>
+
+      {/* ── Backdrop ───────────────────────────────────────────── */}
+      {open && (
+        <div
+          className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px] transition-opacity"
+          aria-hidden="true"
+        />
+      )}
+
+      {/* ── Slide-over drawer ──────────────────────────────────── */}
+      <aside
+        ref={sidebarRef}
+        style={{ width: `${SIDEBAR_W}px` }}
+        className={cn(
+          "fixed top-0 left-0 bottom-0 z-50 flex flex-col",
+          "bg-[oklch(0.205_0_0)] text-[oklch(0.985_0_0)]",
+          "border-r border-[oklch(1_0_0/10%)] shadow-2xl",
+          "transition-transform duration-200 ease-in-out",
+          open ? "translate-x-0" : "-translate-x-full"
+        )}
+      >
+        {/* ── Header ─────────────────────────────────────────────── */}
+        <div className="flex items-center justify-between px-3 pt-3 pb-2 border-b border-[oklch(1_0_0/6%)]">
+          {/* Calvras logo / team */}
+          <button className="flex items-center gap-2 rounded-md px-1.5 py-1 text-sm font-semibold hover:bg-[oklch(0.285_0_0)] transition-colors">
+            <img
+              src="/calvras-logo.png"
+              alt="Calvras"
+              className="h-5 w-5 rounded object-contain"
+            />
+            <span>Calvras</span>
+            <ChevronDown className="h-3 w-3 opacity-60" />
+          </button>
+
+          {/* Top-right icons: search + notifications */}
+          <div className="flex items-center gap-0.5">
+            <button
+              aria-label="Search"
+              className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-[oklch(0.285_0_0)] text-[oklch(0.7_0_0)] hover:text-[oklch(0.985_0_0)] transition-colors"
+            >
+              <Search className="h-3.5 w-3.5" />
+            </button>
+            <button
+              aria-label="Notifications"
+              className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-[oklch(0.285_0_0)] text-[oklch(0.7_0_0)] hover:text-[oklch(0.985_0_0)] transition-colors"
+            >
+              <Bell className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {/* ── New chat ───────────────────────────────────────────── */}
+        <div className="px-3 pt-2 pb-1">
+          <button
+            onClick={() => {
+              onNewChat?.();
+              setOpen(false);
+            }}
+            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium bg-[oklch(0.25_0_0)] hover:bg-[oklch(0.3_0_0)] transition-colors shadow-xs"
+          >
+            <PenSquare className="h-4 w-4 opacity-80" />
+            <span>New chat</span>
+          </button>
+        </div>
+
+        {/* ── Scrollable body ────────────────────────────────────── */}
+        <div className="flex-1 overflow-y-auto px-3 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {/* Projects */}
+          <div className="mb-2 mt-2">
+            <button
+              onClick={() => setProjectsOpen((o) => !o)}
+              className="flex w-full items-center justify-between px-2 py-1 text-xs font-semibold text-[oklch(0.647_0_0)] hover:text-[oklch(0.985_0_0)] transition-colors"
+            >
+              <span>Projects</span>
+              <ChevronDown className={cn("h-3 w-3 transition-transform", !projectsOpen && "-rotate-90")} />
+            </button>
+
+            {projectsOpen && (
+              projects.length > 0 ? (
+                projects.map((project) => {
+                  const key = project.path || project.name;
+                  const hasTasks = project.tasks && project.tasks.length > 0;
+                  const isExpanded = expandedProjects[key] ?? false;
+
+                  return (
+                    <div key={project.id || key} className="mt-0.5">
+                      <div className="flex items-center">
+                        {/* Collapse toggle for sub-recents */}
+                        {hasTasks ? (
+                          <button
+                            onClick={() => toggleProjectExpanded(key)}
+                            className="flex h-6 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground transition-colors"
+                            aria-label={isExpanded ? "Collapse" : "Expand"}
+                          >
+                            {isExpanded ? (
+                              <ChevronDown className="h-3 w-3" />
+                            ) : (
+                              <ChevronRight className="h-3 w-3" />
+                            )}
+                          </button>
+                        ) : (
+                          <span className="w-5 shrink-0" />
+                        )}
+
+                        <button
+                          onClick={() => {
+                            onSelectProject?.(project);
+                            setOpen(false);
+                          }}
+                          className="flex flex-1 items-center gap-2 rounded-md px-1.5 py-1.5 text-sm hover:bg-[oklch(0.285_0_0)] transition-colors text-left min-w-0"
+                        >
+                          <FolderOpen className="h-4 w-4 shrink-0 opacity-60 text-emerald-400" />
+                          <span className="truncate font-medium">{project.name}</span>
+                          {hasTasks && (
+                            <span className="ml-auto text-[10px] text-muted-foreground/60 font-mono tabular-nums">
+                              {project.tasks!.length}
+                            </span>
+                          )}
+                        </button>
+                      </div>
+
+                      {/* Collapsible sub-recent tasks under this folder */}
+                      {hasTasks && isExpanded && (
+                        <div className="ml-5 border-l border-[oklch(1_0_0/8%)] pl-0.5">
+                          {project.tasks!.map((task) => (
+                            <button
+                              key={task}
+                              onClick={() => {
+                                onSelectRecent?.({ label: task, projectName: project.name, projectPath: project.path });
+                                setOpen(false);
+                              }}
+                              className="flex w-full items-center rounded-md pl-2.5 pr-2 py-1 text-[13px] text-muted-foreground hover:text-foreground hover:bg-[oklch(0.27_0_0)] transition-colors text-left"
+                            >
+                              <span className="truncate">{task}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="px-2 py-2 text-xs text-[oklch(0.5_0_0)] italic">
+                  No projects yet
+                </div>
+              )
+            )}
+          </div>
+
+          {/* Recents — only shows chats NOT already nested under a project */}
+          <div className="mt-3">
+            <div className="px-2 py-1 text-xs font-semibold text-[oklch(0.647_0_0)]">Recents</div>
+            <div className="mt-0.5 flex flex-col gap-px">
+              {orphanRecents.length > 0 ? (
+                orphanRecents.map((item) => (
+                  <button
+                    key={item.id || item.label}
+                    onClick={() => {
+                      onSelectRecent?.(item);
+                      setOpen(false);
+                    }}
+                    className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm hover:bg-[oklch(0.285_0_0)] transition-colors"
+                  >
+                    <span className="truncate text-left">{item.label}</span>
+                    {item.hasAlert && <AlertIcon />}
+                  </button>
+                ))
+              ) : (
+                <div className="px-2 py-2 text-xs text-[oklch(0.5_0_0)] italic">
+                  No recent chats
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* ── User Profile & Upgrade Footer ───────────────────────── */}
+        <div className="p-3 border-t border-[oklch(1_0_0/8%)] bg-[oklch(0.18_0_0)] flex flex-col gap-2.5">
+          {/* Creamy White Upgrade Button */}
+          <Link
+            to="/pricing"
+            onClick={() => setOpen(false)}
+            className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs font-semibold bg-[#faf8f5] hover:bg-[#f3ede4] text-[#1a1918] transition-all shadow-sm group active:scale-[0.98]"
+          >
+            <div className="flex items-center gap-1.5">
+              <Sparkles className="h-3.5 w-3.5 text-amber-600 fill-amber-500/20" />
+              <span>Upgrade plan</span>
+            </div>
+            <ArrowUpRight className="h-3.5 w-3.5 opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+          </Link>
+
+          {/* User Profile Info */}
+          <div className="flex items-center justify-between rounded-md px-1 py-1 text-left">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-stone-700 to-stone-500 text-white font-medium text-xs shadow-inner">
+                <User className="h-4 w-4" />
+                <span className="absolute bottom-0 right-0 h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-[oklch(0.18_0_0)]" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-xs font-semibold text-foreground">
+                  User
+                </div>
+                <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <span className="inline-flex items-center rounded bg-[oklch(0.285_0_0)] px-1.5 py-0.2 text-[10px] font-medium text-[oklch(0.85_0_0)]">
+                    Free plan
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </>
+  );
+}
+
+function AlertIcon() {
+  return (
+    <span className="ml-2 shrink-0 text-[oklch(0.63_0.19_25)]">
+      <svg viewBox="0 0 16 16" className="h-4 w-4" aria-hidden>
+        <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" fill="none" />
+        <text x="8" y="11.5" textAnchor="middle" fontSize="9" fill="currentColor" fontWeight="bold">!</text>
+      </svg>
+    </span>
+  );
+}
