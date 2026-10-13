@@ -311,7 +311,7 @@ function Index() {
   useEffect(() => {
     const update = () => {
       const now = new Date();
-      setClockTime(now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true }));
+      setClockTime(now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }));
     };
     update();
     const id = setInterval(update, 1000);
@@ -625,17 +625,22 @@ function Index() {
         fullPrompt = `[CONVERSATION HISTORY]\n${historyStr}\n\n[CURRENT USER MESSAGE]\n${text || "(attachment)"}`;
       }
 
-      // Inject time context and no-intro instruction on first message
-      const isFirstMessage = conversationHistory.length === 0;
+      // Inject system prompt and time context on every message
       const now = new Date();
       const timeStr = now.toLocaleString('en-US', {
         weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-        hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
       });
-      const systemPrefix = [
-        `[CURRENT TIME]: ${timeStr}`,
-        isFirstMessage ? 'Do not introduce yourself. Jump straight into helping.' : null,
-      ].filter(Boolean).join('\n');
+      const systemPrefix = `You are Calvras, an autonomous coding agent. You are helpful, direct, and conversational.
+IMPORTANT RULES:
+- Do NOT introduce yourself.
+- Do NOT assume the user wants to start coding immediately.
+- If the user sends a casual greeting or vague message (like hey, hello, hi, what can you do), respond conversationally and ask what they would like to work on. Keep it short, one or two sentences max.
+- Only provide code, setup instructions, or technical steps when the user has clearly described a specific task.
+- Do not suggest Vite, Tailwind, shadcn, or any stack unprompted.
+- When helping with code, be concise and focused on exactly what was asked.
+
+[CURRENT TIME]: ${timeStr}`;
       fullPrompt = `${systemPrefix}\n\n${fullPrompt}`;
 
       // Invoke AI
@@ -826,7 +831,7 @@ function Index() {
       {/* ── Top-right project badge & switcher ─────────────────────────── */}
       <div
         data-project-badge-wrapper=""
-        className="fixed top-4 right-4 z-20 relative"
+        className="fixed top-3 right-4 z-20 relative"
       >
         <button
           ref={projectBadgeRef}
@@ -904,7 +909,7 @@ function Index() {
       {/* ── Live clock at top center ────────────────────────────────────── */}
       {clockTime && (
         <div className="fixed top-3 left-1/2 -translate-x-1/2 z-20 pointer-events-none select-none">
-          <span className="text-xs text-muted-foreground/60 tabular-nums font-mono">
+          <span className="text-xs text-muted-foreground/60 tabular-nums font-mono font-bold">
             {clockTime}
           </span>
         </div>
