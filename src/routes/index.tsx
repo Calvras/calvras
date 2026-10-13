@@ -245,20 +245,20 @@ function UserMessageBubble({ text }: { text: string }) {
     <div
       ref={bubbleRef}
       onClick={() => setIsExpanded((prev) => !prev)}
-      title={isExpanded ? "Click to fold" : "Click to expand message"}
+      title={isExpanded ? "Click to fold message" : "Click to expand message"}
       className={cn(
         "group relative break-words rounded-2xl bg-muted text-foreground shadow-xs transition-all duration-200 cursor-pointer select-text",
         isExpanded
           ? "px-4 py-2.5 text-sm leading-relaxed max-w-full"
-          : "px-3.5 py-1.5 max-h-[30px] overflow-hidden hover:bg-muted/80 text-[13px]"
+          : "px-4 py-2.5 max-h-[100px] overflow-hidden hover:bg-muted/90 text-sm leading-relaxed"
       )}
     >
       {isExpanded ? (
         <div className="whitespace-pre-wrap">{text}</div>
       ) : (
-        <div className="flex items-center gap-1.5 truncate leading-tight">
-          <span className="truncate">{text.replace(/\s+/g, " ").trim()}</span>
-          <span className="shrink-0 text-[10px] text-muted-foreground/60 font-mono">⋯</span>
+        <div className="relative">
+          <div className="whitespace-pre-wrap">{text}</div>
+          <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-muted via-muted/60 to-transparent" />
         </div>
       )}
     </div>

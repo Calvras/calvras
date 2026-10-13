@@ -424,7 +424,7 @@ export interface StreamingTextProps extends React.HTMLAttributes<HTMLDivElement>
 
 export function StreamingText({
   text,
-  speed = 18,
+  speed = 3,
   chunkSize = 2,
   className,
   onComplete,
@@ -513,7 +513,7 @@ export function NestedReasoningBlock({
     timers.push(
       setTimeout(() => {
         onFinishedRef.current?.();
-      }, totalMs + 600)
+      }, totalMs + 50)
     );
 
     return () => timers.forEach(clearTimeout);
@@ -915,6 +915,7 @@ export interface ThinkingStateProps extends React.HTMLAttributes<HTMLDivElement>
   autoPlay?: boolean;
   defaultExpanded?: boolean;
   workingLabel?: string;
+  isComplete?: boolean;
   onSettled?: () => void;
 }
 
@@ -926,6 +927,7 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
       autoPlay = true,
       defaultExpanded,
       workingLabel = "Working...",
+      isComplete,
       onSettled,
       className,
       style,
@@ -964,17 +966,32 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
       return () => clearInterval(timer);
     }, [autoPlay]);
 
+    // When isComplete becomes true (API returned with complete result), settle immediately with zero delay!
+    React.useEffect(() => {
+      if (isComplete) {
+        setIsWorking(false);
+        setActiveIndex(totalNodes);
+        const finalDuration = Math.max(1, Math.round((Date.now() - startTimeRef.current) / 1000));
+        setElapsedSeconds(finalDuration);
+        onSettledRef.current?.();
+      }
+    }, [isComplete, totalNodes]);
+
     const advanceStep = React.useCallback(() => {
       setActiveIndex((prev) => {
         const next = prev + 1;
         if (next >= totalNodes) {
+          // If isComplete is explicitly false (API still in flight), stay in working state
+          if (isComplete === false) {
+            return prev;
+          }
           setIsWorking(false);
           const finalDuration = Math.max(1, Math.round((Date.now() - startTimeRef.current) / 1000));
           setElapsedSeconds(finalDuration);
         }
         return next;
       });
-    }, [totalNodes]);
+    }, [totalNodes, isComplete]);
 
     // When nodes change while autoPlay is false, mark not working
     React.useEffect(() => {
@@ -990,12 +1007,13 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
       const currentNode = nodes[activeIndex];
       if (currentNode?.type === "reasoning") return;
 
+      // Fast, snappy step advance so there is no lag
       const delay =
         currentNode?.type === "tool" || currentNode?.type === "terminal"
-          ? 1800
+          ? 350
           : currentNode?.type === "search"
-          ? 2000
-          : 1200;
+          ? 400
+          : 250;
 
       const timer = setTimeout(() => {
         advanceStep();
@@ -1226,6 +1244,7 @@ export function AgentWorkflow({
                 nodes={phase.trace}
                 tools={tools}
                 autoPlay={shouldPlayTrace}
+                isComplete={isComplete}
                 workingLabel={workingLabel}
                 onSettled={() => handleTraceSettled(idx)}
               />
@@ -1236,8 +1255,8 @@ export function AgentWorkflow({
                 {shouldStreamMessage && !streamFinishedPhases[idx] ? (
                   <StreamingText
                     text={phase.message}
-                    speed={2}
-                    chunkSize={4}
+                    speed={3}
+                    chunkSize={2}
                     onComplete={() => handleMessageCompleted(idx)}
                   />
                 ) : (
