@@ -18,10 +18,11 @@ import {
   Database,
   AlertCircle,
   Cpu,
-  Code2,
   Copy,
   CheckCheck,
   ShieldCheck,
+  ThumbsUp,
+  ThumbsDown,
 } from "lucide-react";
 
 /* ─────────────────────────────────────────────────────────
@@ -1045,6 +1046,10 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
 
     const isGlobalExpanded = manualExpanded !== null ? manualExpanded : isWorking;
 
+    const hasActions = nodes.some(
+      (n) => n.type === "terminal" || n.type === "tool" || n.type === "command" || Boolean(n.command)
+    );
+
     return (
       <div
         ref={ref}
@@ -1075,9 +1080,14 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
         <button
           type="button"
           aria-expanded={isGlobalExpanded}
-          onClick={() => setManualExpanded((prev) => !(prev !== null ? prev : isWorking))}
+          disabled={nodes.length === 0}
+          onClick={() => {
+            if (nodes.length === 0) return;
+            setManualExpanded((prev) => !(prev !== null ? prev : isWorking));
+          }}
           className={cn(
-            "group flex w-fit items-center gap-1.5 p-0 bg-transparent text-left transition-colors duration-150 cursor-pointer",
+            "group flex w-fit items-center gap-1.5 p-0 bg-transparent text-left transition-colors duration-150",
+            nodes.length > 0 ? "cursor-pointer" : "cursor-default",
             "text-muted-foreground/75 hover:text-foreground font-normal text-[13.5px] leading-relaxed",
             "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none rounded-xs"
           )}
@@ -1087,49 +1097,54 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
           <span className="text-[13.5px] font-normal transition-colors">
             {isWorking ? (
               <span className="font-medium text-muted-foreground">
-                Thinking for <span className="tabular-nums font-mono text-[12px]">{elapsedSeconds}</span>s...
+                {hasActions ? "Working" : "Thinking"} for <span className="tabular-nums font-mono text-[12px]">{elapsedSeconds}</span>s...
               </span>
             ) : (
               <span>
-                Thought for <span className="tabular-nums font-mono text-[12px]">{elapsedSeconds}</span>s
+                {hasActions ? "Worked" : "Thought"} for <span className="tabular-nums font-mono text-[12px]">{elapsedSeconds}</span>s
               </span>
             )}
           </span>
 
-          <ChevronDown
-            aria-hidden="true"
-            className={cn(
-              "size-3 opacity-30 transition-transform duration-300 group-hover:opacity-80",
-              isGlobalExpanded ? "rotate-180" : "rotate-0"
-            )}
-          />
+          {nodes.length > 0 && (
+            <ChevronDown
+              aria-hidden="true"
+              className={cn(
+                "size-3 opacity-30 transition-transform duration-300 group-hover:opacity-80",
+                isGlobalExpanded ? "rotate-180" : "rotate-0"
+              )}
+            />
+          )}
         </button>
 
-        {/* Master Collapsible Timeline Channel */}
-        <div
-          className={cn(
-            "grid transition-[grid-template-rows,opacity] duration-300 ease-out",
-            isGlobalExpanded
-              ? "grid-rows-[1fr] opacity-100"
-              : "grid-rows-[0fr] opacity-0 pointer-events-none"
-          )}
-        >
-          <div className="min-h-0 overflow-hidden">
-            <div className="mt-1 ml-2 border-l border-border/60 py-0.5 pl-2 flex flex-col gap-0.5">
+        {/* Master Collapsible Timeline Channel — only rendered when nodes exist */}
+        {nodes.length > 0 && (
+          <div
+            className={cn(
+              "grid transition-[grid-template-rows,opacity] duration-300 ease-out",
+              isGlobalExpanded
+                ? "grid-rows-[1fr] opacity-100"
+                : "grid-rows-[0fr] opacity-0 pointer-events-none"
+            )}
+          >
+            <div className="min-h-0 overflow-hidden">
+              <div className="mt-1 ml-2 border-l border-border/60 py-0.5 pl-2 flex flex-col gap-0.5">
               {nodes.slice(0, activeIndex + 1).map((node, idx) => {
                 const isNodeActive = idx === activeIndex && isWorking;
                 const isNodeFinished = idx < activeIndex || !isWorking;
 
                 if (node.type === "reasoning" && node.sentences) {
                   return (
-                    <NestedReasoningBlock
+                    <div
                       key={idx}
-                      sentences={node.sentences}
-                      durationSeconds={node.durationSeconds}
-                      isActive={isNodeActive}
-                      isFinished={isNodeFinished}
-                      onFinished={advanceStep}
-                    />
+                      className="my-1 text-[13px] text-muted-foreground/90 font-normal leading-relaxed pr-2 space-y-1 select-text"
+                    >
+                      {node.sentences.map((s, sIdx) => (
+                        <p key={sIdx} className="m-0 text-pretty">
+                          {s}
+                        </p>
+                      ))}
+                    </div>
                   );
                 }
 
@@ -1146,6 +1161,7 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
             </div>
           </div>
         </div>
+        )}
       </div>
     );
   }
@@ -1164,10 +1180,11 @@ export interface AgentWorkflowProps extends React.HTMLAttributes<HTMLDivElement>
 }
 
 /* ─────────────────────────────────────────────────────────
- * RESPONSE COPY BUTTON
+ * RESPONSE ACTIONS TOOLBAR (Copy, Thumbs Up, Thumbs Down)
  * ───────────────────────────────────────────────────────── */
-export function ResponseCopyButton({ text, className }: { text: string; className?: string }) {
+export function ResponseActionsToolbar({ text, className }: { text: string; className?: string }) {
   const [copied, setCopied] = React.useState(false);
+  const [feedback, setFeedback] = React.useState<"up" | "down" | null>(null);
 
   const handleCopy = () => {
     if (!text) return;
@@ -1177,15 +1194,14 @@ export function ResponseCopyButton({ text, className }: { text: string; classNam
   };
 
   return (
-    <div className={cn("mt-2 flex items-center justify-start", className)}>
+    <div className={cn("mt-2.5 flex items-center gap-1.5 text-muted-foreground/60", className)}>
+      {/* 1. Copy SVG */}
       <button
         type="button"
         onClick={handleCopy}
         aria-label={copied ? "Copied" : "Copy to clipboard"}
         title={copied ? "Copied!" : "Copy"}
-        className={cn(
-          "inline-flex size-6 items-center justify-center rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-muted/60 active:scale-[0.92] transition-colors cursor-pointer"
-        )}
+        className="inline-flex size-7 items-center justify-center rounded-md hover:text-foreground hover:bg-muted/60 active:scale-[0.92] transition-colors cursor-pointer"
       >
         {copied ? (
           <CheckCheck className="size-3.5 text-emerald-500 animate-in fade-in" aria-hidden="true" />
@@ -1193,9 +1209,39 @@ export function ResponseCopyButton({ text, className }: { text: string; classNam
           <Copy className="size-3.5" aria-hidden="true" />
         )}
       </button>
+
+      {/* 2. Thumbs Up SVG */}
+      <button
+        type="button"
+        onClick={() => setFeedback((prev) => (prev === "up" ? null : "up"))}
+        aria-label="Good response"
+        title={feedback === "up" ? "Liked" : "Good response"}
+        className={cn(
+          "inline-flex size-7 items-center justify-center rounded-md hover:text-foreground hover:bg-muted/60 active:scale-[0.92] transition-colors cursor-pointer",
+          feedback === "up" && "text-foreground bg-muted/80 shadow-xs"
+        )}
+      >
+        <ThumbsUp className="size-3.5" aria-hidden="true" />
+      </button>
+
+      {/* 3. Thumbs Down SVG */}
+      <button
+        type="button"
+        onClick={() => setFeedback((prev) => (prev === "down" ? null : "down"))}
+        aria-label="Bad response"
+        title={feedback === "down" ? "Disliked" : "Bad response"}
+        className={cn(
+          "inline-flex size-7 items-center justify-center rounded-md hover:text-foreground hover:bg-muted/60 active:scale-[0.92] transition-colors cursor-pointer",
+          feedback === "down" && "text-foreground bg-muted/80 shadow-xs"
+        )}
+      >
+        <ThumbsDown className="size-3.5" aria-hidden="true" />
+      </button>
     </div>
   );
 }
+
+export const ResponseCopyButton = ResponseActionsToolbar;
 
 export function AgentWorkflow({
   phases = [],

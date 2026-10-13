@@ -147,7 +147,10 @@ function SidebarWithProjects() {
           router.navigate({ to: "/" });
         }
       }}
-      onDeleteRecent={(item) => deleteRecent(item.id || item.label)}
+      onDeleteRecent={(item) => {
+        if (item.id) deleteRecent(item.id);
+        if (item.label) deleteRecent(item.label);
+      }}
       onDeleteProject={(project) => deleteProject(project.path || project.name)}
       onRenameRecent={(item, newLabel) => renameRecent(item.id || item.label, newLabel)}
       onRenameProject={(project, newName) => renameProject(project.path || project.name, newName)}

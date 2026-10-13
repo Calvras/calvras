@@ -254,8 +254,9 @@ function UserMessageBubble({ text }: { text: string }) {
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
       }}
-      aria-label={copied ? 'Copied' : 'Copy message'}
-      className="flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-muted/60 active:scale-[0.92] transition-colors mt-1 self-end"
+      aria-label={copied ? "Copied" : "Copy prompt"}
+      title={copied ? "Copied!" : "Copy"}
+      className="flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-muted/60 active:scale-[0.92] transition-opacity duration-150 mt-1 self-end opacity-0 group-hover:opacity-100 cursor-pointer"
     >
       {copied ? (
         <CheckCheck className="size-3.5 text-emerald-500" aria-hidden="true" />
@@ -267,7 +268,7 @@ function UserMessageBubble({ text }: { text: string }) {
 
   if (!isLong) {
     return (
-      <div className="flex flex-col items-end gap-0.5">
+      <div className="group flex flex-col items-end gap-0.5">
         <div className="break-words rounded-2xl bg-muted px-4 py-2.5 text-sm leading-relaxed text-foreground shadow-xs select-text">
           {text}
         </div>
@@ -277,13 +278,13 @@ function UserMessageBubble({ text }: { text: string }) {
   }
 
   return (
-    <div className="flex flex-col items-end gap-0.5">
+    <div className="group flex flex-col items-end gap-0.5">
       <div
         ref={bubbleRef}
         onClick={() => setIsExpanded((prev) => !prev)}
         title={isExpanded ? "Click to fold message" : "Click to expand message"}
         className={cn(
-          "group relative break-words rounded-2xl bg-muted text-foreground shadow-xs transition-all duration-200 cursor-pointer select-text",
+          "relative break-words rounded-2xl bg-muted text-foreground shadow-xs transition-all duration-200 cursor-pointer select-text",
           isExpanded
             ? "px-4 py-2.5 text-sm leading-relaxed max-w-full"
             : "px-4 py-2.5 max-h-[100px] overflow-hidden hover:bg-muted/90 text-sm leading-relaxed"
@@ -362,12 +363,81 @@ function Index() {
     }
   }, [activeProject]);
 
+  // Storage keys for persisting conversation across page refresh
+  const CHAT_STORAGE_KEY = "calvras_chat_messages";
+  const PLAN_STORAGE_KEY = "calvras_active_plan";
+
+  // Hydrate messages & plan from localStorage on client mount
+  const hasHydratedRef = useRef(false);
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(CHAT_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setMessages(parsed);
+        }
+      }
+      const savedPlan = localStorage.getItem(PLAN_STORAGE_KEY);
+      if (savedPlan) {
+        const parsedPlan = JSON.parse(savedPlan);
+        if (parsedPlan && typeof parsedPlan === "object") {
+          setActivePlan(parsedPlan);
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to restore chat from localStorage:", e);
+    } finally {
+      hasHydratedRef.current = true;
+    }
+  }, []);
+
+  // Persist messages to localStorage whenever they update (after hydration)
+  useEffect(() => {
+    if (!hasHydratedRef.current) return;
+    try {
+      if (messages.length > 0) {
+        // Strip out huge data: URLs from attachments to stay well within localStorage 5MB quota
+        const safeMessages = messages.map((m) => ({
+          ...m,
+          attachments: m.attachments?.map((a) => ({
+            ...a,
+            url: a.url && a.url.startsWith("data:") ? "" : a.url,
+          })),
+        }));
+        localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(safeMessages));
+      } else {
+        localStorage.removeItem(CHAT_STORAGE_KEY);
+      }
+    } catch (e) {
+      console.warn("Failed to persist chat:", e);
+    }
+  }, [messages]);
+
+  // Persist activePlan to localStorage
+  useEffect(() => {
+    if (!hasHydratedRef.current) return;
+    try {
+      if (activePlan) {
+        localStorage.setItem(PLAN_STORAGE_KEY, JSON.stringify(activePlan));
+      } else {
+        localStorage.removeItem(PLAN_STORAGE_KEY);
+      }
+    } catch {}
+  }, [activePlan]);
+
   // Handle New Chat signal
   const prevSignalRef = useRef(newChatSignal);
   useEffect(() => {
     if (newChatSignal !== prevSignalRef.current) {
       prevSignalRef.current = newChatSignal;
       setMessages([]);
+      setActivePlan(null);
+      setDevServerUrl(null);
+      try {
+        localStorage.removeItem(CHAT_STORAGE_KEY);
+        localStorage.removeItem(PLAN_STORAGE_KEY);
+      } catch {}
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
         abortControllerRef.current = null;
@@ -587,62 +657,11 @@ function Index() {
           },
         ]);
 
-      // Add the initial thinking phase — starts with progressive live sentences
+      // Add the initial thinking phase — clean live indicator without fake or hardcoded sentences
       const msgId = Date.now();
 
-      const hasAttachments = (attachmentFiles || []).length > 0;
-
-      // Build real-feeling initial thoughts while AI is computing
-      const buildInitialThoughts = (): string[] => {
-        const short = text.trim().slice(0, 72);
-        const lc = text.toLowerCase();
-
-        if (hasAttachments) {
-          return [
-            `Hmm, let me take a look at this${(attachmentFiles?.length ?? 0) > 1 ? ` (${attachmentFiles?.length} files)` : ""}...`,
-            "Okay I can see the layout — let me figure out what needs to be built here...",
-            "I'll map out the components and structure from this...",
-          ];
-        }
-
-        if (/build|create|make|generate|add|implement/.test(lc)) {
-          return [
-            `Uhm, okay — "${short}${text.length > 72 ? "…" : ""}"... let me think about the best way to approach this.`,
-            "I'll need to figure out the right file structure and component breakdown first...",
-            activeName ? `Working inside "${activeName}" — I should check what's already there before I start writing anything.` : "Let me think through what files I'll need to create...",
-          ];
-        }
-
-        if (/fix|debug|error|bug|broken|issue/.test(lc)) {
-          return [
-            `Hmm, something's broken — let me think through what could be causing this...`,
-            `"${short}${text.length > 72 ? "…" : ""}" — okay, I have a few ideas of where this might be coming from.`,
-            "Let me trace through the logic and find the cleanest fix without breaking anything else...",
-          ];
-        }
-
-        if (/explain|how|what|why|when|understand/.test(lc)) {
-          return [
-            `Okay, they're asking "${short}${text.length > 72 ? "…" : ""}" — let me think through a clear way to explain this.`,
-            "I want to make sure I actually answer what they're asking, not just give a generic answer...",
-          ];
-        }
-
-        // Casual / general
-        return [
-          `Hmm, "${short}${text.length > 72 ? "…" : ""}"...`,
-          "Let me think about the best way to respond to this...",
-        ];
-      };
-
       const initialThinkingPhase: AgentPhase = {
-        trace: [
-          {
-            type: "reasoning",
-            sentences: buildInitialThoughts(),
-            durationSeconds: 1.8,
-          },
-        ],
+        trace: [],
       };
 
       setMessages((prev) => [
@@ -701,84 +720,131 @@ IMPORTANT RULES:
 [CURRENT TIME]: ${timeStr}`;
       fullPrompt = `${systemPrefix}\n\n${fullPrompt}`;
 
-      // Invoke AI
-      let aiRaw = "";
-      try {
-        aiRaw = await callAI(fullPrompt, undefined, mediaList, projectSnapshot);
-      } catch (err: any) {
-        aiRaw = `Connection error: ${err.message}`;
-      }
+      // ── Full Autonomous Agent Loop (Think -> Work -> Think -> Work -> Complete) ──
+      const allActionNodes: TraceNode[] = [];
+      const allSummaryNotes: string[] = [];
+      const allReasoningSentences: string[] = [];
+      let currentPrompt = fullPrompt;
+      let lastParsed: CalvrasResponsePayload | null = null;
+      let iteration = 0;
+      const MAX_AGENT_STEPS = 3;
 
-      const parsed = parseCalvrasPayload(aiRaw);
+      while (iteration < MAX_AGENT_STEPS) {
+        iteration++;
 
-      let actionNodes: TraceNode[] = [];
-      let summaryNotes: string[] = [];
-
-      if (parsed.actions && parsed.actions.length > 0 && !activePath) {
-        const autoName = projectNameFrom(text);
+        // Invoke AI
+        let aiRaw = "";
         try {
-          const res = await fetch("/api/fs/create-project", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: autoName }),
-          });
-          const data = await res.json();
-          if (data.ok && data.projectPath) {
-            activePath = data.projectPath;
-            activeName = data.name || autoName;
-            setProjectPath(activePath);
-            setProjectName(activeName);
-            addProject({ name: activeName, path: activePath });
-          }
-        } catch {}
-      }
+          aiRaw = await callAI(currentPrompt, undefined, mediaList, projectSnapshot);
+        } catch (err: any) {
+          aiRaw = `Connection error: ${err.message}`;
+          break;
+        }
 
-      if (parsed.actions && parsed.actions.length > 0 && activePath) {
-        const execResult = await executeActions(parsed.actions, activePath);
-        actionNodes = execResult.nodes;
-        summaryNotes = execResult.summaryNotes;
+        const parsed = parseCalvrasPayload(aiRaw);
+        lastParsed = parsed;
 
-        // Detect if any run_command started a dev server and extract the port/URL
-        for (const act of parsed.actions) {
-          const actionType = act.type || act.action;
-          if (actionType === "run_command" && act.command) {
-            const cmd = act.command.toLowerCase();
-            const isDevServer = /\b(vite|npm run dev|next dev|yarn dev|pnpm dev|serve|http-server|python -m http|uvicorn|flask run|node server|ts-node|tsx)\b/.test(cmd);
-            if (isDevServer) {
-              // Try to find the port from the command or default to 5173/3000
-              const portMatch = cmd.match(/--port[= ](\d+)|-p\s*(\d+)/);
-              const port = portMatch ? (portMatch[1] || portMatch[2]) : (cmd.includes("vite") ? "5173" : cmd.includes("next") ? "3000" : "8080");
-              setDevServerUrl(`http://localhost:${port}`);
+        if (parsed.reasoning && parsed.reasoning.length > 0) {
+          allReasoningSentences.push(...parsed.reasoning);
+        } else if (parsed.thought) {
+          allReasoningSentences.push(parsed.thought);
+        }
+
+        // Auto-create project folder on desktop if first time actions are needed
+        if (parsed.actions && parsed.actions.length > 0 && !activePath) {
+          const autoName = projectNameFrom(text);
+          try {
+            const res = await fetch("/api/fs/create-project", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ name: autoName }),
+            });
+            const data = await res.json();
+            if (data.ok && data.projectPath) {
+              activePath = data.projectPath;
+              activeName = data.name || autoName;
+              setProjectPath(activePath);
+              setProjectName(activeName);
+              addProject({ name: activeName, path: activePath });
+            }
+          } catch {}
+        }
+
+        // Execute actions if present
+        if (parsed.actions && parsed.actions.length > 0 && activePath) {
+          const execResult = await executeActions(parsed.actions, activePath);
+          allActionNodes.push(...execResult.nodes);
+          allSummaryNotes.push(...execResult.summaryNotes);
+
+          // Detect dev servers
+          for (const act of parsed.actions) {
+            const actionType = act.type || act.action;
+            if (actionType === "run_command" && act.command) {
+              const cmd = act.command.toLowerCase();
+              const isDevServer = /\b(vite|npm run dev|next dev|yarn dev|pnpm dev|serve|http-server|python -m http|uvicorn|flask run|node server|ts-node|tsx)\b/.test(cmd);
+              if (isDevServer) {
+                const portMatch = cmd.match(/--port[= ](\d+)|-p\s*(\d+)/);
+                const port = portMatch ? (portMatch[1] || portMatch[2]) : (cmd.includes("vite") ? "5173" : cmd.includes("next") ? "3000" : "8080");
+                setDevServerUrl(`http://localhost:${port}`);
+              }
             }
           }
+
+          // Real-time update in UI: show live progress to the user while loop is running!
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === msgId
+                ? {
+                    ...m,
+                    phases: [
+                      {
+                        trace: [
+                          ...(allReasoningSentences.length > 0
+                            ? [{ type: "reasoning", sentences: allReasoningSentences, durationSeconds: 2.0 }]
+                            : []),
+                          ...allActionNodes,
+                        ],
+                      },
+                    ],
+                  }
+                : m
+            )
+          );
+
+          // Collect terminal/command outputs to feed back into the agent loop
+          const commandOutputs = execResult.nodes
+            .filter((n) => n.type === "terminal")
+            .map((n) => `$ ${n.command || "command"}\n${n.output || "Done"}`);
+
+          // If commands were run and agent has more steps allowed, feed results back!
+          if (commandOutputs.length > 0 && iteration < MAX_AGENT_STEPS) {
+            currentPrompt = `${fullPrompt}\n\n[AGENT COMMAND EXECUTION RESULTS - STEP ${iteration}]\n${commandOutputs.join("\n\n")}\n\nAnalyze these execution results, determine what needs to be fixed or built next, and output your next thoughts, actions, and message.`;
+            continue; // Agent continues autonomously!
+          }
         }
+
+        // If no more actions to execute, the task is finished
+        break;
       }
 
       const finalPhases: AgentPhase[] = [];
+      const parsed = lastParsed || { message: "Task completed." };
 
       // Adjust reasoning duration based on effort level
       const reasoningDuration = effortLevel === "Low" ? 1.0 : effortLevel === "Max Effort" ? 3.5 : 2.0;
 
-      const reasoningSentences =
-        parsed.reasoning && parsed.reasoning.length > 0
-          ? parsed.reasoning
-          : parsed.thought
-          ? [parsed.thought]
-          : [`Analyzed "${text.slice(0, 80)}"`, actionNodes.length > 0 ? "Applying filesystem changes" : "Preparing response"];
-
       // Build the final message — if there's a localhost URL, append it
       let finalMessage =
         parsed.message ||
-        (summaryNotes.length > 0
-          ? `Finished: ${summaryNotes.join(", ")} in project \`${activeName}\`.`
+        (allSummaryNotes.length > 0
+          ? `Finished: ${allSummaryNotes.join(", ")} in project \`${activeName}\`.`
           : "Task completed.");
 
-      // If we detected a dev server running, append the link
       if (devServerUrl && !finalMessage.includes("localhost")) {
         finalMessage += `\n\nYour app is running at [${devServerUrl}](${devServerUrl}) — open it in your browser to see it live.`;
       }
 
-      // If the AI returned a plan, register it and append a note to the message
+      // If the AI returned a plan, register it
       if (parsed.plan) {
         const planObj: ImplementationPlan = {
           title: `Implementation Plan`,
@@ -791,20 +857,25 @@ IMPORTANT RULES:
           : `📋 I've created an **implementation plan** for this task. Click "View Plan" to see the full structure.`;
       }
 
+      const traceNodes: TraceNode[] = [];
+      if (allReasoningSentences.length > 0) {
+        traceNodes.push({
+          type: "reasoning",
+          sentences: allReasoningSentences,
+          durationSeconds: reasoningDuration,
+        });
+      }
+      if (allActionNodes.length > 0) {
+        traceNodes.push(...allActionNodes);
+      }
+      traceNodes.push({
+        type: "step",
+        primary: allActionNodes.length > 0 ? "Changes applied" : "Completed",
+        secondary: activeName || "Calvras",
+      });
+
       finalPhases.push({
-        trace: [
-          {
-            type: "reasoning",
-            sentences: reasoningSentences,
-            durationSeconds: reasoningDuration,
-          },
-          ...actionNodes,
-          {
-            type: "step",
-            primary: actionNodes.length > 0 ? "Changes applied" : "Completed",
-            secondary: activeName || "Calvras",
-          },
-        ],
+        trace: traceNodes,
         message: finalMessage,
       });
 
@@ -1108,8 +1179,8 @@ IMPORTANT RULES:
           ))}
         </div>
 
-        {/* Spacer for composer */}
-        <div style={{ height: "2rem" }} />
+        {/* Spacer for composer — exactly 5px space between AI message and top of input */}
+        <div style={{ height: "calc(1.5rem + 54px + 5px)" }} />
       </div>
 
       {/* ── Dev server running banner ────────────────────────────────────── */}
