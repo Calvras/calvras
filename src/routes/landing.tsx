@@ -82,8 +82,7 @@ function LandingPage() {
         {/* CTA buttons */}
         <div id="download" className="flex flex-wrap items-center justify-center gap-3">
           <a
-            href="/calvras-setup.exe"
-            download
+            href="https://github.com/SHIKARI-hey/Calvras/releases/latest/download/Calvras-Setup.exe"
             className="inline-flex items-center gap-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 px-7 py-3.5 text-[15px] font-bold text-white transition-all active:scale-[0.97] shadow-xl shadow-indigo-500/30"
           >
             <Download className="size-5" />
@@ -91,8 +90,7 @@ function LandingPage() {
             <span className="ml-1 text-indigo-200/60 text-[12px] font-normal">(.exe)</span>
           </a>
           <a
-            href="/calvras-setup.dmg"
-            download
+            href="https://github.com/SHIKARI-hey/Calvras/releases/latest/download/Calvras.dmg"
             className="inline-flex items-center gap-2.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 px-7 py-3.5 text-[15px] font-semibold text-white/80 hover:text-white transition-all active:scale-[0.97]"
           >
             Download for macOS
@@ -195,8 +193,7 @@ function LandingPage() {
           </p>
           <div className="flex flex-wrap items-center justify-center gap-3">
             <a
-              href="/calvras-setup.exe"
-              download
+              href="https://github.com/SHIKARI-hey/Calvras/releases/latest/download/Calvras-Setup.exe"
               className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 px-7 py-3.5 text-[15px] font-bold text-white transition-all active:scale-[0.97] shadow-lg shadow-indigo-500/30"
             >
               <Download className="size-5" />
