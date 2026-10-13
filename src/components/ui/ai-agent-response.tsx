@@ -3,6 +3,7 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import { MarkdownContent } from "./markdown-content";
+import { TextEffect } from "./text-effect";
 import {
   ChevronDown,
   Search,
@@ -413,11 +414,11 @@ export const DEFAULT_TOOL_REGISTRY: Record<string, ToolDefinition> = {
 };
 
 /* ─────────────────────────────────────────────────────────
- * STREAMING TEXT
+ * STREAMING TEXT — powered by TextEffect (framer-motion)
  * ───────────────────────────────────────────────────────── */
 export interface StreamingTextProps extends React.HTMLAttributes<HTMLDivElement> {
   text: string;
-  speed?: number;
+  speed?: number; // 1=slow, 3=default, 5=fast  → maps to stagger timing
   chunkSize?: number;
   onComplete?: () => void;
 }
@@ -430,28 +431,29 @@ export function StreamingText({
   onComplete,
   ...props
 }: StreamingTextProps) {
-  const words = React.useMemo(() => text.split(' ').filter(w => w.length > 0), [text]);
-  const [revealedCount, setRevealedCount] = React.useState(0);
-  const onCompleteRef = React.useRef(onComplete);
-  onCompleteRef.current = onComplete;
+  // Map speed (1–5) to staggerChildren delay: faster speed → smaller stagger
+  // speed=1 → 0.10s stagger, speed=3 → 0.045s, speed=5 → 0.018s
+  const staggerChildren = Math.max(0.012, 0.12 / speed);
 
-  React.useEffect(() => {
-    setRevealedCount(0);
-    if (words.length === 0) {
-      onCompleteRef.current?.();
-      return;
-    }
-    let i = 0;
-    const id = setInterval(() => {
-      i += 1;
-      setRevealedCount(i);
-      if (i >= words.length) {
-        clearInterval(id);
-        onCompleteRef.current?.();
-      }
-    }, 50);
-    return () => clearInterval(id);
-  }, [text, words.length]);
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: {
+        staggerChildren,
+      },
+    },
+  };
+
+  const itemVariants = {
+    hidden: { opacity: 0, filter: 'blur(6px)', y: 4 },
+    visible: {
+      opacity: 1,
+      filter: 'blur(0px)',
+      y: 0,
+      transition: { duration: 0.22, ease: [0.25, 0.1, 0.25, 1] },
+    },
+  };
 
   return (
     <div
@@ -460,9 +462,15 @@ export function StreamingText({
       className={cn('select-text', className)}
       {...props}
     >
-      <MarkdownContent
-        content={words.slice(0, revealedCount).join(' ')}
-      />
+      <TextEffect
+        per="word"
+        as="div"
+        variants={{ container: containerVariants, item: itemVariants }}
+        className="whitespace-pre-wrap leading-relaxed text-[14.5px] text-foreground"
+        onAnimationComplete={onComplete}
+      >
+        {text}
+      </TextEffect>
     </div>
   );
 }
