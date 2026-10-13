@@ -324,9 +324,6 @@ function Index() {
   const [activePlan, setActivePlan] = useState<ImplementationPlan | null>(null);
   const [planPanelOpen, setPlanPanelOpen] = useState(false);
 
-  // Running dev server URL (if any)
-  const [devServerUrl, setDevServerUrl] = useState<string | null>(null);
-
   // Live clock
   const [clockTime, setClockTime] = useState('');
   useEffect(() => {
@@ -433,7 +430,6 @@ function Index() {
       prevSignalRef.current = newChatSignal;
       setMessages([]);
       setActivePlan(null);
-      setDevServerUrl(null);
       try {
         localStorage.removeItem(CHAT_STORAGE_KEY);
         localStorage.removeItem(PLAN_STORAGE_KEY);
@@ -776,20 +772,6 @@ IMPORTANT RULES:
           allActionNodes.push(...execResult.nodes);
           allSummaryNotes.push(...execResult.summaryNotes);
 
-          // Detect dev servers
-          for (const act of parsed.actions) {
-            const actionType = act.type || act.action;
-            if (actionType === "run_command" && act.command) {
-              const cmd = act.command.toLowerCase();
-              const isDevServer = /\b(vite|npm run dev|next dev|yarn dev|pnpm dev|serve|http-server|python -m http|uvicorn|flask run|node server|ts-node|tsx)\b/.test(cmd);
-              if (isDevServer) {
-                const portMatch = cmd.match(/--port[= ](\d+)|-p\s*(\d+)/);
-                const port = portMatch ? (portMatch[1] || portMatch[2]) : (cmd.includes("vite") ? "5173" : cmd.includes("next") ? "3000" : "8080");
-                setDevServerUrl(`http://localhost:${port}`);
-              }
-            }
-          }
-
           // Real-time update in UI: show live progress to the user while loop is running!
           setMessages((prev) =>
             prev.map((m) =>
@@ -840,10 +822,6 @@ IMPORTANT RULES:
           ? `Finished: ${allSummaryNotes.join(", ")} in project \`${activeName}\`.`
           : "Task completed.");
 
-      if (devServerUrl && !finalMessage.includes("localhost")) {
-        finalMessage += `\n\nYour app is running at [${devServerUrl}](${devServerUrl}) — open it in your browser to see it live.`;
-      }
-
       // If the AI returned a plan, register it
       if (parsed.plan) {
         const planObj: ImplementationPlan = {
@@ -885,7 +863,7 @@ IMPORTANT RULES:
       setIsLoading(false);
       abortControllerRef.current = null;
     },
-    [projectPath, projectName, isLoading, addProject, addRecent, getProjectContextString, executeActions, messages, effortLevel, devServerUrl]
+    [projectPath, projectName, isLoading, addProject, addRecent, getProjectContextString, executeActions, messages, effortLevel]
   );
 
   // ── Open / Switch Project Folder — uses native file system picker ──────────
@@ -1182,30 +1160,6 @@ IMPORTANT RULES:
         {/* Spacer for composer — exactly 5px space between AI message and top of input */}
         <div style={{ height: "calc(1.5rem + 54px + 5px)" }} />
       </div>
-
-      {/* ── Dev server running banner ────────────────────────────────────── */}
-      {devServerUrl && (
-        <div className="fixed bottom-[7rem] left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-4 py-1.5 text-[12px] font-medium text-emerald-600 dark:text-emerald-400 shadow-sm backdrop-blur-md">
-          <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
-          Server running —{" "}
-          <a
-            href={devServerUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline underline-offset-2 hover:text-emerald-500 transition-colors"
-          >
-            {devServerUrl}
-          </a>
-          <button
-            type="button"
-            onClick={() => setDevServerUrl(null)}
-            className="ml-1 text-emerald-500/60 hover:text-emerald-500 transition-colors"
-            aria-label="Dismiss"
-          >
-            <X className="size-3" />
-          </button>
-        </div>
-      )}
 
       {/* ── Chat Composer ────────────────────────────────────────────────── */}
       <div className="chat-composer">
