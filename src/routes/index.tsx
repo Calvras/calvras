@@ -12,7 +12,7 @@ import { useProjects } from "@/lib/project-context";
 import { callAI, type MediaAttachment } from "@/lib/gemini";
 import { cn } from "@/lib/utils";
 import { ChapterScrubber, type Chapter } from "@/components/ui/chapter-scrubber";
-import { Copy, CheckCheck } from "lucide-react";
+import { Copy, CheckCheck, X } from "lucide-react";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -64,6 +64,13 @@ interface CalvrasResponsePayload {
   reasoning?: string[];
   actions?: FsAction[];
   message?: string;
+  plan?: string; // Implementation plan markdown content
+}
+
+interface ImplementationPlan {
+  title: string;
+  content: string;
+  messageId: number;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -83,6 +90,7 @@ function parseCalvrasPayload(text: string): CalvrasResponsePayload {
         reasoning: Array.isArray(parsed.reasoning) ? parsed.reasoning : undefined,
         actions,
         message: parsed.message || "",
+        plan: typeof parsed.plan === "string" ? parsed.plan : undefined,
       };
     }
   } catch {
@@ -100,6 +108,7 @@ function parseCalvrasPayload(text: string): CalvrasResponsePayload {
           reasoning: Array.isArray(parsed.reasoning) ? parsed.reasoning : undefined,
           actions,
           message: parsed.message || text.replace(/```(?:json)?[\s\S]*?```/g, "").trim(),
+          plan: typeof parsed.plan === "string" ? parsed.plan : undefined,
         };
       }
     } catch {
@@ -119,6 +128,7 @@ function parseCalvrasPayload(text: string): CalvrasResponsePayload {
           reasoning: Array.isArray(parsed.reasoning) ? parsed.reasoning : undefined,
           actions: parsed.actions || (parsed.action ? [parsed] : []),
           message: parsed.message || text.slice(0, firstBrace).trim() + " " + text.slice(lastBrace + 1).trim(),
+          plan: typeof parsed.plan === "string" ? parsed.plan : undefined,
         };
       }
     } catch {
@@ -305,6 +315,16 @@ function Index() {
   const [isLoading, setIsLoading] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const latestMessageRef = useRef<HTMLDivElement>(null);
+
+  // Effort level: "Low" | "Medium" | "Max Effort"
+  const [effortLevel, setEffortLevel] = useState<string>("Medium");
+
+  // Implementation plan slide-out panel
+  const [activePlan, setActivePlan] = useState<ImplementationPlan | null>(null);
+  const [planPanelOpen, setPlanPanelOpen] = useState(false);
+
+  // Running dev server URL (if any)
+  const [devServerUrl, setDevServerUrl] = useState<string | null>(null);
 
   // Live clock
   const [clockTime, setClockTime] = useState('');
@@ -679,9 +699,27 @@ IMPORTANT RULES:
         const execResult = await executeActions(parsed.actions, activePath);
         actionNodes = execResult.nodes;
         summaryNotes = execResult.summaryNotes;
+
+        // Detect if any run_command started a dev server and extract the port/URL
+        for (const act of parsed.actions) {
+          const actionType = act.type || act.action;
+          if (actionType === "run_command" && act.command) {
+            const cmd = act.command.toLowerCase();
+            const isDevServer = /\b(vite|npm run dev|next dev|yarn dev|pnpm dev|serve|http-server|python -m http|uvicorn|flask run|node server|ts-node|tsx)\b/.test(cmd);
+            if (isDevServer) {
+              // Try to find the port from the command or default to 5173/3000
+              const portMatch = cmd.match(/--port[= ](\d+)|-p\s*(\d+)/);
+              const port = portMatch ? (portMatch[1] || portMatch[2]) : (cmd.includes("vite") ? "5173" : cmd.includes("next") ? "3000" : "8080");
+              setDevServerUrl(`http://localhost:${port}`);
+            }
+          }
+        }
       }
 
       const finalPhases: AgentPhase[] = [];
+
+      // Adjust reasoning duration based on effort level
+      const reasoningDuration = effortLevel === "Low" ? 1.0 : effortLevel === "Max Effort" ? 3.5 : 2.0;
 
       const reasoningSentences =
         parsed.reasoning && parsed.reasoning.length > 0
@@ -690,12 +728,37 @@ IMPORTANT RULES:
           ? [parsed.thought]
           : [`Analyzed "${text.slice(0, 80)}"`, actionNodes.length > 0 ? "Applying filesystem changes" : "Preparing response"];
 
+      // Build the final message — if there's a localhost URL, append it
+      let finalMessage =
+        parsed.message ||
+        (summaryNotes.length > 0
+          ? `Finished: ${summaryNotes.join(", ")} in project \`${activeName}\`.`
+          : "Task completed.");
+
+      // If we detected a dev server running, append the link
+      if (devServerUrl && !finalMessage.includes("localhost")) {
+        finalMessage += `\n\nYour app is running at [${devServerUrl}](${devServerUrl}) — open it in your browser to see it live.`;
+      }
+
+      // If the AI returned a plan, register it and append a note to the message
+      if (parsed.plan) {
+        const planObj: ImplementationPlan = {
+          title: `Implementation Plan`,
+          content: parsed.plan,
+          messageId: msgId,
+        };
+        setActivePlan(planObj);
+        finalMessage = finalMessage
+          ? `${finalMessage}\n\n📋 I've created an **implementation plan** for this task. Click "View Plan" to see the full structure.`
+          : `📋 I've created an **implementation plan** for this task. Click "View Plan" to see the full structure.`;
+      }
+
       finalPhases.push({
         trace: [
           {
             type: "reasoning",
             sentences: reasoningSentences,
-            durationSeconds: 2.0,
+            durationSeconds: reasoningDuration,
           },
           ...actionNodes,
           {
@@ -704,11 +767,7 @@ IMPORTANT RULES:
             secondary: activeName || "Calvras",
           },
         ],
-        message:
-          parsed.message ||
-          (summaryNotes.length > 0
-            ? `Finished: ${summaryNotes.join(", ")} in project \`${activeName}\`.`
-            : "Task completed."),
+        message: finalMessage,
       });
 
       setMessages((prev) =>
@@ -717,7 +776,7 @@ IMPORTANT RULES:
       setIsLoading(false);
       abortControllerRef.current = null;
     },
-    [projectPath, projectName, isLoading, addProject, addRecent, getProjectContextString, executeActions, messages]
+    [projectPath, projectName, isLoading, addProject, addRecent, getProjectContextString, executeActions, messages, effortLevel, devServerUrl]
   );
 
   // ── Open / Switch Project Folder — uses native file system picker ──────────
@@ -990,13 +1049,54 @@ IMPORTANT RULES:
                 isComplete={message.done}
                 workingLabel="Calvras is working..."
               />
+
+              {/* "View Plan" pill — only shown when this message has an associated plan */}
+              {message.done && activePlan && activePlan.messageId === message.id && (
+                <div className="flex items-center gap-2 mt-1">
+                  <button
+                    type="button"
+                    onClick={() => setPlanPanelOpen(true)}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/5 px-3 py-1 text-[12px] font-medium text-primary hover:bg-primary/10 active:scale-[0.97] transition-all duration-150 cursor-pointer"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                      <rect x="2" y="2" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.4"/>
+                      <path d="M4.5 5h5M4.5 7h5M4.5 9h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                    </svg>
+                    View Plan
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </div>
 
         {/* Spacer for composer */}
-        <div style={{ height: "5rem" }} />
+        <div style={{ height: "2rem" }} />
       </div>
+
+      {/* ── Dev server running banner ────────────────────────────────────── */}
+      {devServerUrl && (
+        <div className="fixed bottom-[7rem] left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-4 py-1.5 text-[12px] font-medium text-emerald-600 dark:text-emerald-400 shadow-sm backdrop-blur-md">
+          <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
+          Server running —{" "}
+          <a
+            href={devServerUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline underline-offset-2 hover:text-emerald-500 transition-colors"
+          >
+            {devServerUrl}
+          </a>
+          <button
+            type="button"
+            onClick={() => setDevServerUrl(null)}
+            className="ml-1 text-emerald-500/60 hover:text-emerald-500 transition-colors"
+            aria-label="Dismiss"
+          >
+            <X className="size-3" />
+          </button>
+        </div>
+      )}
 
       {/* ── Chat Composer ────────────────────────────────────────────────── */}
       <div className="chat-composer">
@@ -1006,6 +1106,75 @@ IMPORTANT RULES:
           onStop={handleStop}
           placeholder="Describe a task or /command..."
         />
+      </div>
+
+      {/* ── Implementation Plan slide-out panel ──────────────────────────── */}
+      {/* Backdrop */}
+      {planPanelOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-background/40 backdrop-blur-sm"
+          onClick={() => setPlanPanelOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+      {/* Panel */}
+      <div
+        className={cn(
+          "fixed top-0 right-0 z-50 h-full w-full max-w-[520px] bg-card border-l border-border shadow-2xl flex flex-col",
+          "transition-transform duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
+          planPanelOpen ? "translate-x-0" : "translate-x-full"
+        )}
+        aria-modal="true"
+        role="dialog"
+        aria-label="Implementation Plan"
+      >
+        {/* Panel header */}
+        <div className="flex items-center justify-between border-b border-border px-5 py-4 shrink-0">
+          <div className="flex items-center gap-2.5">
+            <svg width="16" height="16" viewBox="0 0 14 14" fill="none" aria-hidden="true" className="text-primary">
+              <rect x="2" y="2" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.4"/>
+              <path d="M4.5 5h5M4.5 7h5M4.5 9h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+            </svg>
+            <span className="text-sm font-semibold text-foreground">
+              {activePlan?.title || "Implementation Plan"}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setPlanPanelOpen(false)}
+            className="flex size-7 items-center justify-center rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-muted/60 active:scale-[0.92] transition-colors"
+            aria-label="Close plan panel"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+
+        {/* Plan content */}
+        <div className="flex-1 overflow-y-auto px-5 py-4 text-[13.5px] leading-relaxed text-foreground/90 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {activePlan?.content ? (
+            <pre className="whitespace-pre-wrap font-sans text-[13px] leading-relaxed select-text">{activePlan.content}</pre>
+          ) : (
+            <p className="text-muted-foreground italic">No plan available.</p>
+          )}
+        </div>
+
+        {/* Footer: Proceed button */}
+        <div className="shrink-0 border-t border-border px-5 py-4 flex items-center justify-between gap-3">
+          <p className="text-[11.5px] text-muted-foreground">
+            Tell Calvras to proceed when you're ready.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setPlanPanelOpen(false);
+              // Submit "Proceed with the implementation plan" as the next message
+              handleSubmit("Proceed with the implementation plan as outlined. Follow it exactly step by step.");
+            }}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-[13px] font-semibold text-primary-foreground shadow-xs hover:bg-primary/90 active:scale-[0.97] transition-all duration-150 cursor-pointer"
+          >
+            Proceed
+          </button>
+        </div>
       </div>
     </main>
   );

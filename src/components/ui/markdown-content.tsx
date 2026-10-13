@@ -1,8 +1,57 @@
-import React from "react";
+import React, { useState, useCallback } from "react";
 
 interface MarkdownContentProps {
   content: string;
   className?: string;
+}
+
+/* ── Copyable Code Block ── */
+function CopyableCodeBlock({ lang, code }: { lang: string; code: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(code).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [code]);
+
+  return (
+    <div className="relative my-3 overflow-hidden rounded-lg border border-border/70 bg-card font-mono text-xs shadow-xs group">
+      {/* Header row with language label + copy button */}
+      <div className="flex items-center justify-between border-b border-border/60 bg-muted/40 px-3 py-1.5">
+        <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+          {lang || "code"}
+        </span>
+        <button
+          type="button"
+          onClick={handleCopy}
+          aria-label={copied ? "Copied!" : "Copy code"}
+          title={copied ? "Copied!" : "Copy"}
+          className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground/70 hover:text-foreground hover:bg-muted/60 active:scale-[0.93] transition-all duration-150 cursor-pointer"
+        >
+          {copied ? (
+            <>
+              <svg width="12" height="12" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                <path d="M2.5 7.5L5.5 10.5L11.5 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-500" />
+              </svg>
+              <span className="text-emerald-500">Copied</span>
+            </>
+          ) : (
+            <>
+              <svg width="12" height="12" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                <rect x="5" y="1.5" width="7.5" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
+                <rect x="1.5" y="4.5" width="7.5" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.4" fill="none" className="fill-card" />
+              </svg>
+              <span>Copy</span>
+            </>
+          )}
+        </button>
+      </div>
+      <pre className="overflow-x-auto p-3 text-[12.5px] leading-relaxed text-foreground select-text">
+        <code>{code}</code>
+      </pre>
+    </div>
+  );
 }
 
 /**
@@ -51,16 +100,7 @@ function parseMarkdown(text: string): React.ReactNode[] {
       }
       i++; // skip closing ```
       nodes.push(
-        <div key={`codeblock-${i}`} className="my-3 overflow-hidden rounded-lg border border-border/70 bg-card font-mono text-xs shadow-xs">
-          {lang && (
-            <div className="border-b border-border/60 bg-muted/40 px-3 py-1.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-              {lang}
-            </div>
-          )}
-          <pre className="overflow-x-auto p-3 text-[12.5px] leading-relaxed text-foreground select-text">
-            <code>{codeLines.join("\n")}</code>
-          </pre>
-        </div>
+        <CopyableCodeBlock key={`codeblock-${i}`} lang={lang} code={codeLines.join("\n")} />
       );
       continue;
     }
