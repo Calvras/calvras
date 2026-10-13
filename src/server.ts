@@ -2,6 +2,7 @@ import "./lib/error-capture";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+import * as child_process from "node:child_process";
 
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
@@ -732,7 +733,51 @@ async function handleApi(request: Request): Promise<Response | null> {
     }
   }
 
+  // 7. /api/fs/command (Real command execution inside active Desktop project)
+  if (url.pathname === "/api/fs/command" && request.method === "POST") {
+    try {
+      const body = await request.json();
+      return new Response(JSON.stringify(handleCommand(body)), {
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    } catch (e: any) {
+      return new Response(JSON.stringify({ ok: false, error: e.message }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    }
+  }
+
   return null;
+}
+
+function handleCommand(body: { projectPath: string; command: string }) {
+  const root = path.resolve(body.projectPath || path.join(os.homedir(), "Desktop"));
+  if (!fs.existsSync(root)) {
+    fs.mkdirSync(root, { recursive: true });
+  }
+  try {
+    const output = child_process.execSync(body.command, {
+      cwd: root,
+      encoding: "utf8",
+      timeout: 60000,
+      maxBuffer: 1024 * 1024 * 4,
+    });
+    return { ok: true, output: output || "Command executed successfully.", exitCode: 0 };
+  } catch (err: any) {
+    const combinedOutput = [
+      err.stdout ? String(err.stdout) : "",
+      err.stderr ? String(err.stderr) : "",
+      err.message,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    return {
+      ok: false,
+      output: combinedOutput || "Command failed.",
+      exitCode: err.status || 1,
+    };
+  }
 }
 
 // ── SSR Entry ─────────────────────────────────────────────────────────────────

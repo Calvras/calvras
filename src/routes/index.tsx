@@ -212,6 +212,60 @@ function AttachmentPreview({ att }: { att: AttachedFile }) {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
+ * COLLAPSIBLE USER MESSAGE BUBBLE
+ * Shortened/collapsed by default when long, expands on click, folds on outside click
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+function UserMessageBubble({ text }: { text: string }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const bubbleRef = useRef<HTMLDivElement>(null);
+
+  const isLong = text.includes("\n") || text.length > 60;
+
+  useEffect(() => {
+    if (!isExpanded) return;
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (bubbleRef.current && !bubbleRef.current.contains(e.target as Node)) {
+        setIsExpanded(false);
+      }
+    };
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, [isExpanded]);
+
+  if (!isLong) {
+    return (
+      <div className="break-words rounded-2xl bg-muted px-4 py-2.5 text-sm leading-relaxed text-foreground shadow-xs select-text">
+        {text}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={bubbleRef}
+      onClick={() => setIsExpanded((prev) => !prev)}
+      title={isExpanded ? "Click to fold" : "Click to expand message"}
+      className={cn(
+        "group relative break-words rounded-2xl bg-muted text-foreground shadow-xs transition-all duration-200 cursor-pointer select-text",
+        isExpanded
+          ? "px-4 py-2.5 text-sm leading-relaxed max-w-full"
+          : "px-3.5 py-1.5 max-h-[30px] overflow-hidden hover:bg-muted/80 text-[13px]"
+      )}
+    >
+      {isExpanded ? (
+        <div className="whitespace-pre-wrap">{text}</div>
+      ) : (
+        <div className="flex items-center gap-1.5 truncate leading-tight">
+          <span className="truncate">{text.replace(/\s+/g, " ").trim()}</span>
+          <span className="shrink-0 text-[10px] text-muted-foreground/60 font-mono">⋯</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
  * COMPONENT
  * ─────────────────────────────────────────────────────────────────────────────
  */
@@ -354,8 +408,36 @@ function Index() {
         }
 
         if (actionType === "run_command" && act.command) {
-          nodes.push({ type: "terminal", primary: "Run command", secondary: act.command, command: act.command, exitCode: 0, durationMs: 350, output: `Executed: ${act.command}\nCompleted with code 0.` });
-          summaryNotes.push(`Ran \`${act.command}\``);
+          try {
+            const startT = Date.now();
+            const res = await fetch("/api/fs/command", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ projectPath: activePath, command: act.command }),
+            });
+            const data = await res.json();
+            const dur = Date.now() - startT;
+            nodes.push({
+              type: "terminal",
+              primary: "Run command",
+              secondary: act.command,
+              command: act.command,
+              exitCode: data.exitCode ?? (data.ok ? 0 : 1),
+              durationMs: dur,
+              output: data.output || (data.ok ? "Done" : "Error executing command"),
+            });
+            summaryNotes.push(`Ran \`${act.command}\``);
+          } catch (err: any) {
+            nodes.push({
+              type: "terminal",
+              primary: "Run command",
+              secondary: act.command,
+              command: act.command,
+              exitCode: 1,
+              durationMs: 120,
+              output: `Error executing command: ${err.message}`,
+            });
+          }
         }
       }
 
@@ -777,9 +859,7 @@ function Index() {
                   )}
                   {/* Only show text bubble if there's text */}
                   {message.text && (
-                    <div className="break-words rounded-2xl bg-muted px-4 py-2.5 text-sm leading-relaxed text-foreground shadow-xs">
-                      {message.text}
-                    </div>
+                    <UserMessageBubble text={message.text} />
                   )}
                 </div>
               </div>
