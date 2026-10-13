@@ -151,7 +151,18 @@ function SidebarWithProjects() {
         if (item.id) deleteRecent(item.id);
         if (item.label) deleteRecent(item.label);
       }}
-      onDeleteProject={(project) => deleteProject(project.path || project.name)}
+      onDeleteProject={async (project) => {
+        if (project.path) {
+          try {
+            await fetch('/api/fs/delete-project', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ projectPath: project.path }),
+            });
+          } catch {}
+        }
+        deleteProject(project.path || project.name);
+      }}
       onRenameRecent={(item, newLabel) => renameRecent(item.id || item.label, newLabel)}
       onRenameProject={(project, newName) => renameProject(project.path || project.name, newName)}
     />

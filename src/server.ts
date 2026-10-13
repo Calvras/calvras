@@ -776,6 +776,29 @@ async function handleApi(request: Request): Promise<Response | null> {
     }
   }
 
+  // 8. POST /api/fs/delete-project
+  if (url.pathname === "/api/fs/delete-project" && request.method === "POST") {
+    try {
+      const { projectPath } = (await request.json().catch(() => ({}))) as { projectPath: string };
+      if (!projectPath) throw new Error("projectPath is required");
+      // Security: must be under user Desktop
+      const desktop = path.join(os.homedir(), "Desktop");
+      const abs = path.resolve(projectPath);
+      if (!abs.startsWith(path.resolve(desktop))) {
+        throw new Error("Can only delete projects on the Desktop");
+      }
+      fs.rmSync(abs, { recursive: true, force: true });
+      return new Response(JSON.stringify({ ok: true }), {
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    } catch (e: any) {
+      return new Response(JSON.stringify({ ok: false, error: e.message }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    }
+  }
+
   return null;
 }
 

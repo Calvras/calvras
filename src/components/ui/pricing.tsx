@@ -2,7 +2,6 @@
 
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { TimelineContent } from "@/components/ui/timeline-animation";
-import { VerticalCutReveal } from "@/components/ui/vertical-cut-reveal";
 import { NumberFlow } from "@/components/ui/number-flow";
 import { cn } from "@/lib/utils";
 import { Briefcase, CheckCheck, Database, Server, ArrowLeft } from "lucide-react";
@@ -184,35 +183,6 @@ export default function PricingSection5() {
       </div>
 
       <article className="text-left mb-6 space-y-4 max-w-2xl">
-        <h2 className="md:text-6xl text-4xl capitalize font-medium text-white mb-4 tracking-tight">
-          <VerticalCutReveal
-            splitBy="words"
-            staggerDuration={0.15}
-            staggerFrom="first"
-            reverse={true}
-            containerClassName="justify-start"
-            transition={{
-              type: "spring",
-              stiffness: 250,
-              damping: 40,
-              delay: 0,
-            }}
-          >
-            We've got a plan that's perfect for you
-          </VerticalCutReveal>
-        </h2>
-
-        <TimelineContent
-          as="p"
-          animationNum={0}
-          timelineRef={pricingRef}
-          customVariants={revealVariants}
-          className="md:text-base text-sm text-neutral-400 w-[90%] leading-relaxed"
-        >
-          Trusted by developers worldwide. Scale your local autonomous coding with
-          continuous inference and zero queue delays.
-        </TimelineContent>
-
         <TimelineContent
           as="div"
           animationNum={1}

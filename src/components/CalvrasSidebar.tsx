@@ -41,6 +41,8 @@ export function CalvrasSidebar({
   onSelectProject,
   onRenameRecent,
   onDeleteRecent,
+  onRenameProject,
+  onDeleteProject,
 }: CalvrasSidebarProps) {
   const [open, setOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(true);
@@ -121,6 +123,80 @@ export function CalvrasSidebar({
   const handleDelete = (item: RecentItem) => {
     onDeleteRecent?.(item);
     setOpenMenuId(null);
+  };
+
+  const startRenameProject = (project: Project) => {
+    setRenamingId(project.id || project.name);
+    setRenameValue(project.name);
+    setOpenMenuId(null);
+  };
+
+  const commitRenameProject = (project: Project) => {
+    const trimmed = renameValue.trim();
+    if (trimmed && trimmed !== project.name) {
+      onRenameProject?.(project, trimmed);
+    }
+    setRenamingId(null);
+    setRenameValue("");
+  };
+
+  const renderProjectMenu = (project: Project) => {
+    const projectId = project.id || project.name;
+    const menuId = `proj-${projectId}`;
+    const isMenuOpen = openMenuId === menuId;
+
+    return (
+      <>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpenMenuId((prev) => (prev === menuId ? null : menuId));
+          }}
+          className={cn(
+            "ml-auto shrink-0 flex h-5 w-5 items-center justify-center rounded transition-opacity",
+            "opacity-0 group-hover:opacity-100 hover:bg-[oklch(0.35_0_0)] text-[oklch(0.7_0_0)] hover:text-[oklch(0.985_0_0)]",
+            isMenuOpen && "opacity-100"
+          )}
+          aria-label="More options"
+          tabIndex={-1}
+        >
+          <MoreHorizontal className="h-3.5 w-3.5" />
+        </button>
+
+        <AnimatePresence>
+          {isMenuOpen && (
+            <motion.div
+              id={`chat-menu-${menuId}`}
+              initial={{ opacity: 0, x: 8 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 8 }}
+              transition={{ duration: 0.12 }}
+              className="absolute right-0 top-0 z-10 flex h-full items-center gap-px rounded-md bg-[oklch(0.285_0_0)] px-1 shadow-lg border border-[oklch(1_0_0/8%)]"
+              style={{ minWidth: 140 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                onClick={() => startRenameProject(project)}
+                className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-[oklch(0.85_0_0)] hover:bg-[oklch(0.35_0_0)] hover:text-white transition-colors"
+              >
+                <Pencil className="h-3 w-3 shrink-0" />
+                Rename
+              </button>
+              <button
+                onClick={() => {
+                  onDeleteProject?.(project);
+                  setOpenMenuId(null);
+                }}
+                className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-[oklch(0.7_0.15_20)] hover:bg-[oklch(0.35_0_0)] hover:text-red-400 transition-colors"
+              >
+                <Trash2 className="h-3 w-3 shrink-0" />
+                Delete
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </>
+    );
   };
 
   /** Renders the ⋯ button + slide-in action panel for a recent item */
@@ -279,7 +355,7 @@ export function CalvrasSidebar({
 
                   return (
                     <div key={project.id || key} className="mt-0.5">
-                      <div className="flex items-center">
+                      <div className="relative group flex items-center">
                         {/* Collapse toggle for sub-recents */}
                         {hasTasks ? (
                           <button
@@ -297,21 +373,38 @@ export function CalvrasSidebar({
                           <span className="w-5 shrink-0" />
                         )}
 
-                        <button
-                          onClick={() => {
-                            onSelectProject?.(project);
-                            setOpen(false);
-                          }}
-                          className="flex flex-1 items-center gap-2 rounded-md px-1.5 py-1.5 text-sm hover:bg-[oklch(0.285_0_0)] transition-colors text-left min-w-0"
-                        >
-                          <FolderOpen className="h-4 w-4 shrink-0 text-zinc-500" />
-                          <span className="truncate font-medium">{project.name}</span>
-                          {hasTasks && (
-                            <span className="ml-auto text-[10px] text-muted-foreground/60 font-mono tabular-nums">
-                              {project.tasks!.length}
-                            </span>
-                          )}
-                        </button>
+                        {renamingId === (project.id || project.name) ? (
+                          <input
+                            autoFocus
+                            value={renameValue}
+                            onChange={(e) => setRenameValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") commitRenameProject(project);
+                              if (e.key === "Escape") { setRenamingId(null); setRenameValue(""); }
+                            }}
+                            onBlur={() => commitRenameProject(project)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="flex-1 min-w-0 bg-[oklch(0.32_0_0)] text-[oklch(0.985_0_0)] rounded px-1.5 py-0.5 text-sm outline-none border border-[oklch(0.5_0_0/50%)] focus:border-[oklch(0.6_0_0)]"
+                          />
+                        ) : (
+                          <button
+                            onClick={() => {
+                              onSelectProject?.(project);
+                              setOpen(false);
+                            }}
+                            className="flex flex-1 items-center gap-2 rounded-md px-1.5 py-1.5 text-sm hover:bg-[oklch(0.285_0_0)] transition-colors text-left min-w-0"
+                          >
+                            <FolderOpen className="h-4 w-4 shrink-0 text-zinc-500" />
+                            <span className="truncate font-medium">{project.name}</span>
+                            {hasTasks && (
+                              <span className="ml-auto text-[10px] text-muted-foreground/60 font-mono tabular-nums">
+                                {project.tasks!.length}
+                              </span>
+                            )}
+                          </button>
+                        )}
+
+                        {renamingId !== (project.id || project.name) && renderProjectMenu(project)}
                       </div>
 
                       {/* Collapsible sub-recent tasks under this folder */}

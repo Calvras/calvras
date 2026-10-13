@@ -305,17 +305,149 @@ function UserMessageBubble({ text }: { text: string }) {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
+ * PLAN PANEL CONTENT — rich structured renderer
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+function PlanPanelContent({ content }: { content: string }) {
+  // Parse markdown into sections by ## headers
+  const lines = content.split('\n');
+  const sections: { title: string; items: string[] }[] = [];
+  let currentSection: { title: string; items: string[] } | null = null;
+  let preamble: string[] = [];
+
+  for (const line of lines) {
+    const h2 = line.match(/^##\s+(.+)/);
+    const h1 = line.match(/^#\s+(.+)/);
+    if (h1 && !currentSection) {
+      preamble.push(line.replace(/^#+\s+/, '').trim());
+      continue;
+    }
+    if (h2) {
+      if (currentSection) sections.push(currentSection);
+      currentSection = { title: line.replace(/^#+\s+/, '').trim(), items: [] };
+    } else if (currentSection) {
+      const trimmed = line.trim();
+      if (trimmed && !trimmed.match(/^#+/)) {
+        currentSection.items.push(trimmed);
+      }
+    } else {
+      const trimmed = line.trim();
+      if (trimmed && !trimmed.match(/^#+/)) preamble.push(trimmed);
+    }
+  }
+  if (currentSection) sections.push(currentSection);
+
+  const phaseColors = [
+    { badge: 'bg-blue-500/15 text-blue-400 border-blue-500/30', dot: '#3b82f6', line: '#3b82f620' },
+    { badge: 'bg-violet-500/15 text-violet-400 border-violet-500/30', dot: '#8b5cf6', line: '#8b5cf620' },
+    { badge: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30', dot: '#10b981', line: '#10b98120' },
+    { badge: 'bg-orange-500/15 text-orange-400 border-orange-500/30', dot: '#f97316', line: '#f9731620' },
+    { badge: 'bg-pink-500/15 text-pink-400 border-pink-500/30', dot: '#ec4899', line: '#ec489920' },
+  ];
+
+  const renderItem = (raw: string, idx: number, totalItems: number, dotColor: string) => {
+    const text = raw.replace(/^[-*•]\s+/, '').replace(/^\d+\.\s+/, '');
+    const isFilePath = /`[^`]*[\/\\][^`]*`/.test(text) || /\.(tsx?|jsx?|css|json|ts|js|md)/.test(text);
+    const parts = text.split(/(`[^`]+`)/);
+
+    return (
+      <div key={idx} className="flex items-start gap-2 relative" style={{minHeight: 22}}>
+        <div className="relative flex flex-col items-center" style={{width: 16, minHeight: 22}}>
+          {idx > 0 && (
+            <svg width="16" height="10" style={{position: 'absolute', top: -10, left: 0}} aria-hidden="true">
+              <line x1="8" y1="0" x2="8" y2="10" stroke={dotColor} strokeWidth="1.5" strokeOpacity="0.35" />
+            </svg>
+          )}
+          <svg width="16" height="16" style={{flexShrink: 0, marginTop: 3}} aria-hidden="true">
+            <circle cx="8" cy="8" r="3" fill={dotColor} fillOpacity="0.85" />
+          </svg>
+          {idx < totalItems - 1 && (
+            <svg width="16" height="100%" style={{flex: 1, minHeight: 8}} aria-hidden="true">
+              <line x1="8" y1="0" x2="8" y2="100%" stroke={dotColor} strokeWidth="1.5" strokeOpacity="0.25" />
+            </svg>
+          )}
+        </div>
+        <div className="flex-1 min-w-0 pb-1.5">
+          <span className={cn('text-[12.5px] leading-relaxed break-words', isFilePath ? 'text-foreground/80' : 'text-foreground/75')}>
+            {parts.map((part, pi) =>
+              part.startsWith('`') && part.endsWith('`') ? (
+                <code
+                  key={pi}
+                  className="mx-0.5 rounded px-1 py-0.5 text-[11px] font-mono bg-muted/60 border border-border/40 text-primary/90"
+                >
+                  {part.slice(1, -1)}
+                </code>
+              ) : (
+                <span key={pi}>{part}</span>
+              )
+            )}
+          </span>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-5 pb-4">
+      {preamble.length > 0 && (
+        <div className="rounded-xl border border-border/40 bg-muted/20 px-4 py-3">
+          {preamble.map((line, i) => (
+            <p key={i} className="text-[13px] text-foreground/70 leading-relaxed">{line}</p>
+          ))}
+        </div>
+      )}
+
+      {sections.map((section, si) => {
+        const color = phaseColors[si % phaseColors.length];
+        const phaseNum = si + 1;
+        const visibleItems = section.items.filter(item => {
+          const t = item.replace(/^[-*•]\s+/, '').replace(/^\d+\.\s+/, '').trim();
+          return t.length > 0;
+        });
+
+        return (
+          <div key={si} className="rounded-xl border border-border/50 bg-card/40 overflow-hidden">
+            <div className="flex items-center gap-2.5 px-4 py-2.5 border-b border-border/30 bg-muted/10">
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true" className="shrink-0 opacity-70">
+                <rect x="2" y="3" width="11" height="13" rx="2" stroke="currentColor" strokeWidth="1.3" />
+                <rect x="5" y="1" width="11" height="13" rx="2" fill="currentColor" fillOpacity="0.08" stroke="currentColor" strokeWidth="1.3" />
+                <path d="M7 6h6M7 8.5h6M7 11h4" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+              </svg>
+              <span className={cn('text-[11px] font-semibold rounded-full border px-2 py-0.5 shrink-0', color.badge)}>
+                Phase {phaseNum}
+              </span>
+              <span className="text-[12.5px] font-semibold text-foreground/90 truncate">{section.title}</span>
+            </div>
+
+            {visibleItems.length > 0 && (
+              <div className="px-4 py-3 space-y-0">
+                {visibleItems.map((item, ii) => renderItem(item, ii, visibleItems.length, color.dot))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {sections.length === 0 && preamble.length === 0 && (
+        <pre className="whitespace-pre-wrap font-sans text-[13px] leading-relaxed select-text text-foreground/80">{content}</pre>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
  * COMPONENT
  * ─────────────────────────────────────────────────────────────────────────────
  */
 function Index() {
-  const { activeProject, setActiveProject, addProject, addRecent, newChatSignal } = useProjects();
+  const { activeProject, setActiveProject, addProject, addRecent, deleteProject, renameProject, newChatSignal } = useProjects();
   const [messages, setMessages] = useState<Message[]>([]);
   const [projectPath, setProjectPath] = useState<string | null>(activeProject?.path || null);
   const [projectName, setProjectName] = useState<string | null>(activeProject?.name || null);
   const [isLoading, setIsLoading] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const latestMessageRef = useRef<HTMLDivElement>(null);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
 
   // Effort level: "Low" | "Medium" | "Max Effort"
   const [effortLevel, setEffortLevel] = useState<string>("Medium");
@@ -447,6 +579,12 @@ function Index() {
     if (messages.length === 0) return;
     latestMessageRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [messages.length]);
+
+  // Auto-scroll while AI is typing
+  useEffect(() => {
+    if (!isLoading) return;
+    scrollAreaRef.current?.scrollTo({ top: scrollAreaRef.current.scrollHeight, behavior: 'smooth' });
+  }, [messages, isLoading]);
 
   // Stop handler
   const handleStop = useCallback(() => {
@@ -1092,6 +1230,7 @@ IMPORTANT RULES:
 
       {/* ── Inner scrollable area (no scrollbar) ───────────────────────── */}
       <div
+        ref={scrollAreaRef}
         className="chat-scroll-area"
         style={{ height: "100dvh", overflowY: "auto" }}
       >
@@ -1145,20 +1284,26 @@ IMPORTANT RULES:
                 workingLabel="Calvras is working..."
               />
 
-              {/* "View Plan" pill — only shown when this message has an associated plan */}
+              {/* Compact plan card — shown when this message has an associated plan */}
               {message.done && activePlan && activePlan.messageId === message.id && (
-                <div className="flex items-center gap-2 mt-1">
-                  <button
-                    type="button"
-                    onClick={() => setPlanPanelOpen(true)}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/5 px-3 py-1 text-[12px] font-medium text-primary hover:bg-primary/10 active:scale-[0.97] transition-all duration-150 cursor-pointer"
-                  >
-                    <svg width="12" height="12" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                      <rect x="2" y="2" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.4"/>
-                      <path d="M4.5 5h5M4.5 7h5M4.5 9h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setPlanPanelOpen(true)}
+                  onKeyDown={(e) => e.key === 'Enter' && setPlanPanelOpen(true)}
+                  className="mt-2 max-h-[100px] overflow-hidden rounded-xl border border-border bg-card/60 px-4 py-3 cursor-pointer hover:bg-card transition-colors relative group"
+                  aria-label="View implementation plan"
+                >
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" className="text-primary shrink-0">
+                      <rect x="1.5" y="1.5" width="11" height="11" rx="2.5" stroke="currentColor" strokeWidth="1.3"/>
+                      <path d="M4 4.5h6M4 7h6M4 9.5h3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
                     </svg>
-                    View Plan
-                  </button>
+                    <span className="text-xs font-semibold text-foreground">Implementation Plan</span>
+                    <span className="ml-auto text-[10px] text-muted-foreground/60 group-hover:text-primary transition-colors">Click to expand →</span>
+                  </div>
+                  <p className="text-[11.5px] text-muted-foreground leading-relaxed line-clamp-3">{activePlan.content.slice(0, 200)}</p>
+                  <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-card/80 to-transparent rounded-b-xl" />
                 </div>
               )}
             </div>
@@ -1166,7 +1311,7 @@ IMPORTANT RULES:
         </div>
 
         {/* Spacer for composer — exactly 5px space between AI message and top of input */}
-        <div style={{ height: "calc(1.5rem + 54px + 5px)" }} />
+        <div style={{ height: "calc(1.5rem + 54px + 18px)" }} />
       </div>
 
       {/* ── Chat Composer ────────────────────────────────────────────────── */}
@@ -1183,7 +1328,7 @@ IMPORTANT RULES:
       {/* Backdrop */}
       {planPanelOpen && (
         <div
-          className="fixed inset-0 z-40 bg-background/40 backdrop-blur-sm"
+          className="fixed inset-0 z-40 bg-transparent pointer-events-auto"
           onClick={() => setPlanPanelOpen(false)}
           aria-hidden="true"
         />
@@ -1223,7 +1368,7 @@ IMPORTANT RULES:
         {/* Plan content */}
         <div className="flex-1 overflow-y-auto px-5 py-4 text-[13.5px] leading-relaxed text-foreground/90 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {activePlan?.content ? (
-            <pre className="whitespace-pre-wrap font-sans text-[13px] leading-relaxed select-text">{activePlan.content}</pre>
+            <PlanPanelContent content={activePlan.content} />
           ) : (
             <p className="text-muted-foreground italic">No plan available.</p>
           )}
