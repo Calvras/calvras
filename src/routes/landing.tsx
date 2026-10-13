@@ -100,9 +100,19 @@ function LandingPage() {
           </a>
         </div>
 
-        <p className="mt-4 text-[12px] text-white/25">
-          Free to download · No account required to start
-        </p>
+        <div className="mt-4 flex items-center justify-center gap-3 text-[12px] text-white/40">
+          <span>Free to download</span>
+          <span>•</span>
+          <a
+            href="https://github.com/SHIKARI-hey/Calvras/releases"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-indigo-400 transition-colors underline underline-offset-2 flex items-center gap-1"
+          >
+            <Github className="size-3" />
+            GitHub Releases
+          </a>
+        </div>
 
         {/* App screenshot placeholder */}
         <div className="relative mt-16 w-full max-w-4xl mx-auto rounded-2xl border border-white/8 bg-[#141414] shadow-2xl shadow-black/60 overflow-hidden">

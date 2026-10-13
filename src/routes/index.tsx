@@ -772,6 +772,13 @@ IMPORTANT RULES:
           allActionNodes.push(...execResult.nodes);
           allSummaryNotes.push(...execResult.summaryNotes);
 
+          // Compute intermediate thinking out loud progress report
+          const intermediateReport =
+            parsed.message ||
+            (allSummaryNotes.length > 0
+              ? `Working on tasks: ${allSummaryNotes.slice(-2).join(", ")}. Continuing to think and verify...`
+              : "Analyzing tasks and executing actions...");
+
           // Real-time update in UI: show live progress to the user while loop is running!
           setMessages((prev) =>
             prev.map((m) =>
@@ -786,6 +793,7 @@ IMPORTANT RULES:
                             : []),
                           ...allActionNodes,
                         ],
+                        message: intermediateReport,
                       },
                     ],
                   }

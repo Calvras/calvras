@@ -304,7 +304,7 @@ export function CalvrasSidebar({
                           }}
                           className="flex flex-1 items-center gap-2 rounded-md px-1.5 py-1.5 text-sm hover:bg-[oklch(0.285_0_0)] transition-colors text-left min-w-0"
                         >
-                          <FolderOpen className="h-4 w-4 shrink-0 opacity-60 text-emerald-400" />
+                          <FolderOpen className="h-4 w-4 shrink-0 text-zinc-500" />
                           <span className="truncate font-medium">{project.name}</span>
                           {hasTasks && (
                             <span className="ml-auto text-[10px] text-muted-foreground/60 font-mono tabular-nums">
