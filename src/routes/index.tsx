@@ -592,43 +592,47 @@ function Index() {
 
       const hasAttachments = (attachmentFiles || []).length > 0;
 
-      // Build a rich, real-feeling set of initial thinking sentences
+      // Build real-feeling initial thoughts while AI is computing
       const buildInitialThoughts = (): string[] => {
-        const thoughts: string[] = [];
-        const short = text.trim().slice(0, 80);
+        const short = text.trim().slice(0, 72);
+        const lc = text.toLowerCase();
 
         if (hasAttachments) {
-          thoughts.push(`Examining the uploaded ${(attachmentFiles?.length ?? 0) > 1 ? `${attachmentFiles?.length} files` : "file"}...`);
-          thoughts.push("Parsing visual structure and layout details...");
-          thoughts.push("Identifying UI components, colors, and patterns...");
-          thoughts.push("Mapping out what needs to be built from this...");
-        } else {
-          thoughts.push(`Reading the request: "${short}${text.length > 80 ? "…" : ""}"`);
-
-          const lc = text.toLowerCase();
-          if (/build|create|make|generate|add|implement/.test(lc)) {
-            thoughts.push("Understanding the scope of what needs to be created...");
-            thoughts.push("Thinking about the right component structure and architecture...");
-            thoughts.push("Considering dependencies, state management, and file layout...");
-          } else if (/fix|debug|error|bug|broken|issue/.test(lc)) {
-            thoughts.push("Diagnosing the root cause of the problem...");
-            thoughts.push("Tracing through the logic to find where it breaks...");
-            thoughts.push("Thinking through the cleanest fix without side effects...");
-          } else if (/explain|how|what|why|when|understand/.test(lc)) {
-            thoughts.push("Processing the question and gathering relevant context...");
-            thoughts.push("Organizing a clear, structured explanation...");
-          } else {
-            thoughts.push("Breaking down the task into clear steps...");
-            thoughts.push("Thinking through the best approach...");
-          }
-
-          if (activeName) {
-            thoughts.push(`Working in context of project: "${activeName}"`);
-          }
-          thoughts.push("Formulating the most helpful response...");
+          return [
+            `Hmm, let me take a look at this${(attachmentFiles?.length ?? 0) > 1 ? ` (${attachmentFiles?.length} files)` : ""}...`,
+            "Okay I can see the layout — let me figure out what needs to be built here...",
+            "I'll map out the components and structure from this...",
+          ];
         }
 
-        return thoughts;
+        if (/build|create|make|generate|add|implement/.test(lc)) {
+          return [
+            `Uhm, okay — "${short}${text.length > 72 ? "…" : ""}"... let me think about the best way to approach this.`,
+            "I'll need to figure out the right file structure and component breakdown first...",
+            activeName ? `Working inside "${activeName}" — I should check what's already there before I start writing anything.` : "Let me think through what files I'll need to create...",
+          ];
+        }
+
+        if (/fix|debug|error|bug|broken|issue/.test(lc)) {
+          return [
+            `Hmm, something's broken — let me think through what could be causing this...`,
+            `"${short}${text.length > 72 ? "…" : ""}" — okay, I have a few ideas of where this might be coming from.`,
+            "Let me trace through the logic and find the cleanest fix without breaking anything else...",
+          ];
+        }
+
+        if (/explain|how|what|why|when|understand/.test(lc)) {
+          return [
+            `Okay, they're asking "${short}${text.length > 72 ? "…" : ""}" — let me think through a clear way to explain this.`,
+            "I want to make sure I actually answer what they're asking, not just give a generic answer...",
+          ];
+        }
+
+        // Casual / general
+        return [
+          `Hmm, "${short}${text.length > 72 ? "…" : ""}"...`,
+          "Let me think about the best way to respond to this...",
+        ];
       };
 
       const initialThinkingPhase: AgentPhase = {
