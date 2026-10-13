@@ -12,6 +12,8 @@ import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import { CalvrasSidebar } from "../components/CalvrasSidebar";
+import { ProjectProvider, useProjects } from "../lib/project-context";
 
 function NotFoundComponent() {
   return (
@@ -78,10 +80,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Simple Response Bot" },
-      { name: "description", content: "A simple AI agent chat interface." },
-      { property: "og:title", content: "Simple Response Bot" },
-      { property: "og:description", content: "A simple AI agent chat interface." },
+      { title: "Calvras — Autonomous Coding Agent" },
+      { name: "description", content: "Your autonomous coding agent that builds and edits code." },
+      { property: "og:title", content: "Calvras" },
+      { property: "og:description", content: "Your autonomous coding agent." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -90,7 +92,9 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         rel: "stylesheet",
         href: appCss,
       },
-      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+      { rel: "icon", href: "/calvras-logo.png", type: "image/png" },
+      { rel: "shortcut icon", href: "/calvras-logo.png", type: "image/png" },
+      { rel: "apple-touch-icon", href: "/calvras-logo.png" },
     ],
   }),
   shellComponent: RootShell,
@@ -113,13 +117,56 @@ function RootShell({ children }: { children: ReactNode }) {
   );
 }
 
+function SidebarWithProjects() {
+  const { projects, recents, triggerNewChat, setActiveProject, deleteRecent, deleteProject, renameRecent, renameProject } = useProjects();
+  const router = useRouter();
+
+  return (
+    <CalvrasSidebar
+      projects={projects.map((p) => ({ id: p.path, path: p.path, name: p.name, tasks: p.tasks }))}
+      recents={recents}
+      onNewChat={() => {
+        triggerNewChat();
+        if (router.state.location.pathname !== "/") {
+          router.navigate({ to: "/" });
+        }
+      }}
+      onSelectProject={(project) => {
+        if (project.path) {
+          setActiveProject({ name: project.name, path: project.path, tasks: project.tasks });
+        }
+        if (router.state.location.pathname !== "/") {
+          router.navigate({ to: "/" });
+        }
+      }}
+      onSelectRecent={(recent) => {
+        if (recent.projectPath && recent.projectName) {
+          setActiveProject({ name: recent.projectName, path: recent.projectPath });
+        }
+        if (router.state.location.pathname !== "/") {
+          router.navigate({ to: "/" });
+        }
+      }}
+      onDeleteRecent={(item) => deleteRecent(item.id || item.label)}
+      onDeleteProject={(project) => deleteProject(project.path || project.name)}
+      onRenameRecent={(item, newLabel) => renameRecent(item.id || item.label, newLabel)}
+      onRenameProject={(project, newName) => renameProject(project.path || project.name, newName)}
+    />
+  );
+}
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  const router = useRouter();
+  const isExcludedPage = router.state.location.pathname === "/signin" || router.state.location.pathname === "/pricing";
 
   return (
     <QueryClientProvider client={queryClient}>
-      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-      <Outlet />
+      <ProjectProvider>
+        {!isExcludedPage && <SidebarWithProjects />}
+        {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+        <Outlet />
+      </ProjectProvider>
     </QueryClientProvider>
   );
 }

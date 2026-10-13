@@ -2,13 +2,66 @@
 
 import * as React from "react";
 import { useRef, useState, useEffect, useCallback } from "react";
+import {
+  Folder,
+  Paperclip,
+  FolderOpen,
+  Target,
+  ClipboardList,
+  PenLine,
+  Hand,
+  ShieldCheck,
+  Zap,
+  Check,
+  MessageCircle,
+  Shield,
+  Sparkles,
+  Radio,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ----------------------------------------------------------------------
-// Transition Physics
+// Slash commands — only these 4
 // ----------------------------------------------------------------------
-const SPRING_TRANSITION = "max-width 0.4s cubic-bezier(0.22, 1, 0.36, 1), height 0.4s cubic-bezier(0.22, 1, 0.36, 1)";
-const SMOOTH_HEIGHT_TRANSITION = "max-width 0.4s cubic-bezier(0.22, 1, 0.36, 1), height 0.15s ease-out";
+const SLASH_COMMANDS = [
+  { Icon: Target,        command: "/goal",    label: "Goal",       hint: "Set a goal to keep pursuing" },
+  { Icon: MessageCircle, command: "/question",label: "Question",   hint: "Ask a quick question" },
+  { Icon: PenLine,       command: "/sketch",  label: "Sketch",     hint: "Draw a sketch" },
+  { Icon: ClipboardList, command: "/plan",    label: "Plan mode",  hint: "Turn plan mode on" },
+];
+
+// ----------------------------------------------------------------------
+// Permissions / Approval modes
+// ----------------------------------------------------------------------
+const APPROVAL_MODES = [
+  {
+    id: "ask",
+    Icon: Hand,
+    label: "Ask first",
+    desc: "Check in with me before touching files or running commands",
+  },
+  {
+    id: "approve",
+    Icon: ShieldCheck,
+    label: "Review changes",
+    desc: "Handle small edits freely, ask before anything major",
+  },
+  {
+    id: "full",
+    Icon: Zap,
+    label: "Full speed",
+    desc: "Make edits and run tasks directly without waiting",
+  },
+] as const;
+
+type ApprovalId = (typeof APPROVAL_MODES)[number]["id"];
+
+// ----------------------------------------------------------------------
+// Transition Physics — single easing used everywhere for consistency
+// ----------------------------------------------------------------------
+const SPRING = "cubic-bezier(0.25, 1, 0.5, 1)";
+const SPRING_TRANSITION = `max-width 0.38s ${SPRING}, height 0.38s ${SPRING}`;
+const SMOOTH_HEIGHT_TRANSITION = `max-width 0.38s ${SPRING}, height 0.22s ${SPRING}`;
 
 // ----------------------------------------------------------------------
 // Types
@@ -116,6 +169,173 @@ function CloseIcon() {
   );
 }
 
+// ----------------------------------------------------------------------
+// Slash command palette
+// ----------------------------------------------------------------------
+// Slash panel — slides up from behind the input card, same as the attachment tab
+// ----------------------------------------------------------------------
+function SlashInlinePanel({
+  query,
+  onSelect,
+  activeIndex,
+  visible,
+}: {
+  query: string;
+  onSelect: (cmd: string) => void;
+  activeIndex: number;
+  visible: boolean;
+}) {
+  const filtered = SLASH_COMMANDS.filter(
+    (c) =>
+      query === "" ||
+      c.command.toLowerCase().includes(query.toLowerCase()) ||
+      c.label.toLowerCase().includes(query.toLowerCase())
+  );
+
+  const show = visible && filtered.length > 0;
+  // Generous height to account for bottom overlap (-8px) and rounded borders
+  const panelHeight = filtered.length * 54 + 24;
+
+  return (
+    <div
+      aria-hidden={!show}
+      style={{
+        height: show ? panelHeight : 0,
+        transition: `height 0.35s cubic-bezier(0.25, 1, 0.5, 1)`,
+      }}
+      className="w-full relative z-0 overflow-hidden"
+    >
+      <div
+        style={{
+          position: "absolute",
+          bottom: -8,
+          left: 20,
+          right: 20,
+          height: panelHeight,
+          transform: show ? "translateY(0)" : "translateY(100%)",
+          opacity: show ? 1 : 0,
+          transition: `transform 0.35s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.25s cubic-bezier(0.25, 1, 0.5, 1)`,
+          background: "oklch(0.17 0 0)",
+        }}
+        className="border border-white/10 border-b-0 rounded-t-2xl overflow-hidden"
+      >
+        <div className="px-2 pt-2 pb-3">
+          {filtered.map((item, i) => (
+            <button
+              key={item.command}
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => onSelect(item.command)}
+              className={cn(
+                "flex w-full items-center gap-3 px-2 py-2 rounded-xl text-left transition-colors duration-100",
+                i === activeIndex ? "bg-white/10" : "hover:bg-white/5"
+              )}
+            >
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/10">
+                <item.Icon className="h-3.5 w-3.5 text-white/70" strokeWidth={1.5} />
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="text-[12px] font-semibold text-white/90 leading-tight">{item.label}</span>
+                {item.hint && (
+                  <span className="text-[10px] text-white/40 leading-tight mt-0.5">{item.hint}</span>
+                )}
+              </div>
+              <span className="ml-auto text-[10px] font-mono text-white/25 shrink-0">{item.command}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------
+// Permissions picker
+// ----------------------------------------------------------------------
+function ApprovalPicker({
+  open,
+  selected,
+  onSelect,
+  onClose,
+}: {
+  open: boolean;
+  selected: ApprovalId;
+  onSelect: (id: ApprovalId) => void;
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open, onClose]);
+
+  return (
+    <div
+      ref={ref}
+      className={cn(
+        "absolute bottom-full left-0 mb-2 z-50 w-72",
+        "rounded-2xl border border-white/10 bg-[#1e1e1e] shadow-xl p-1.5 overflow-hidden",
+        "transition-all duration-180 origin-bottom-left",
+        open
+          ? "opacity-100 scale-100 translate-y-0 pointer-events-auto"
+          : "opacity-0 scale-95 translate-y-1.5 pointer-events-none"
+      )}
+    >
+      <div className="px-2.5 pt-2 pb-1 text-[11px] font-medium text-white/40">
+        When Calvras makes changes
+      </div>
+
+      <div className="flex flex-col gap-0.5">
+        {APPROVAL_MODES.map((mode) => {
+          const isSelected = selected === mode.id;
+          return (
+            <button
+              key={mode.id}
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                onSelect(mode.id);
+                onClose();
+              }}
+              className={cn(
+                "group flex w-full items-start gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors duration-100",
+                isSelected
+                  ? "bg-white/10 text-white"
+                  : "text-white/70 hover:bg-white/5 hover:text-white"
+              )}
+            >
+              <mode.Icon
+                className={cn(
+                  "mt-0.5 h-4 w-4 shrink-0 transition-colors",
+                  isSelected ? "text-white" : "text-white/40 group-hover:text-white/60"
+                )}
+                strokeWidth={1.75}
+              />
+              <div className="flex-1 min-w-0">
+                <div className="text-[13px] font-medium leading-tight">
+                  {mode.label}
+                </div>
+                <div className="mt-0.5 text-[11px] leading-snug text-white/45">
+                  {mode.desc}
+                </div>
+              </div>
+              {isSelected && (
+                <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-white/80" strokeWidth={2.2} />
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function DynamicBarsIcon({ level }: { level: string }) {
   const isMediumOrHigh = level === "Medium" || level === "Max Effort";
   const isHigh = level === "Max Effort";
@@ -126,6 +346,28 @@ function DynamicBarsIcon({ level }: { level: string }) {
       <rect x="5.75" y="5" width="2.5" height="7.5" rx="1" fill="currentColor" className="transition-opacity duration-300" opacity={isMediumOrHigh ? 1 : 0.3} />
       <rect x="10" y="2" width="2.5" height="10.5" rx="1" fill="currentColor" className="transition-opacity duration-300" opacity={isHigh ? 1 : 0.3} />
     </svg>
+  );
+}
+
+// ----------------------------------------------------------------------
+// Attachment Thumbnail
+function DocIcon({ ext }: { ext: string }) {
+  const colors: Record<string, string> = {
+    pdf: "#e74c3c",
+    docx: "#2b7cd3",
+    doc: "#2b7cd3",
+    txt: "#6b7280",
+    csv: "#16a34a",
+  };
+  const color = colors[ext.toLowerCase()] ?? "#6b7280";
+  return (
+    <div className="flex size-full flex-col items-center justify-center gap-0.5" style={{ background: color }}>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="white" strokeWidth="1.8" strokeLinejoin="round"/>
+        <polyline points="14 2 14 8 20 8" stroke="white" strokeWidth="1.8" strokeLinejoin="round"/>
+      </svg>
+      <span className="text-[8px] font-bold uppercase tracking-wide text-white/90">{ext}</span>
+    </div>
   );
 }
 
@@ -147,6 +389,8 @@ function AttachmentThumb({
 }) {
   const [isHovered, setIsHovered] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
+  const isImage = attachment.file.type.startsWith("image/");
+  const ext = attachment.name.split(".").pop() ?? "file";
 
   return (
     <button
@@ -160,7 +404,7 @@ function AttachmentThumb({
       onMouseLeave={() => setIsHovered(false)}
       onClick={(e) => {
         e.stopPropagation();
-        if (btnRef.current) {
+        if (isImage && btnRef.current) {
           onOpen(attachment, btnRef.current.getBoundingClientRect());
         }
       }}
@@ -170,9 +414,13 @@ function AttachmentThumb({
         "transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] hover:scale-[1.04] active:scale-[0.96]",
         "animate-in fade-in slide-in-from-top-3 zoom-in-90 duration-400"
       )}
-      aria-label={`Open preview of ${attachment.name}`}
+      aria-label={isImage ? `Open preview of ${attachment.name}` : attachment.name}
     >
-      <img src={attachment.url} alt={attachment.name} className="size-full object-cover" draggable={false} />
+      {isImage ? (
+        <img src={attachment.url} alt={attachment.name} className="size-full object-cover" draggable={false} />
+      ) : (
+        <DocIcon ext={ext} />
+      )}
       <span className={cn("absolute inset-0 flex items-start justify-end bg-black/0 transition-colors duration-200", isHovered && "bg-black/25")}>
         <span
           role="button" tabIndex={-1}
@@ -294,7 +542,7 @@ function AttachmentGalleryModal({
 export interface PromptInputProps {
   onSubmit?: (
     value: string,
-    meta: { model: string; effort: string; attachments: File[] }
+    attachments?: { type: string; url: string; name: string }[]
   ) => void;
   placeholder?: string;
   className?: string;
@@ -304,6 +552,8 @@ export interface PromptInputProps {
   value?: string;
   onChange?: (value: string) => void;
   maxAttachments?: number;
+  isThinking?: boolean;
+  onStop?: () => void;
 }
 
 export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
@@ -318,6 +568,8 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
       value: controlledValue,
       onChange,
       maxAttachments = 6,
+      isThinking = false,
+      onStop,
     },
     ref
   ) => {
@@ -327,6 +579,14 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
     const [selectedModel, setSelectedModel] = useState(models[0] ?? "GPT 5.5");
     const [effortIndex, setEffortIndex] = useState(1);
     const [isModelSelectOpen, setIsModelSelectOpen] = useState(false);
+
+    // Slash command palette
+    const [slashQuery, setSlashQuery] = useState<string | null>(null);
+    const [slashActiveIndex, setSlashActiveIndex] = useState(0);
+
+    // Approval picker
+    const [approvalOpen, setApprovalOpen] = useState(false);
+    const [approvalMode, setApprovalMode] = useState<ApprovalId>("full");
 
     const [attachments, setAttachments] = useState<Attachment[]>([]);
     const [activeAttachment, setActiveAttachment] = useState<{ attachment: Attachment; rect: DOMRect } | null>(null);
@@ -348,6 +608,9 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
     const [containerHeight, setContainerHeight] = useState(116);
     const [textareaHeight, setTextareaHeight] = useState(68);
     const [isScrolling, setIsScrolling] = useState(false);
+    // Stays true during the collapse animation so content isn't clipped mid-transition
+    const [overflowVisible, setOverflowVisible] = useState(false);
+    const overflowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const isControlled = controlledValue !== undefined;
     const value = isControlled ? controlledValue : localValue;
@@ -380,9 +643,19 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
     };
 
     const handleValueChange = useCallback((val: string) => {
-      setIsSmoothResize(true); 
+      setIsSmoothResize(true);
       if (!isControlled) setLocalValue(val);
       onChange?.(val);
+
+      // Slash command detection: trigger when the last "word" starts with "/"
+      // e.g. "/" alone, or after a space/newline like "fix auth /go"
+      const slashMatch = val.match(/(?:^|[\s\n])\/([\w]*)$/);
+      if (slashMatch) {
+        setSlashQuery(slashMatch[1] ?? null);
+        setSlashActiveIndex(0);
+      } else {
+        setSlashQuery(null);
+      }
     }, [isControlled, onChange]);
 
     const expand = () => {
@@ -573,28 +846,42 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
       return undefined;
     }, [expanded, isRecording]);
 
+    // Sync overflow: show immediately on expand, delay hide until after animation on collapse
+    useEffect(() => {
+      if (overflowTimerRef.current) clearTimeout(overflowTimerRef.current);
+      if (expanded) {
+        setOverflowVisible(true);
+      } else {
+        overflowTimerRef.current = setTimeout(() => setOverflowVisible(false), 420);
+      }
+      return () => {
+        if (overflowTimerRef.current) clearTimeout(overflowTimerRef.current);
+      };
+    }, [expanded]);
+
     // ONLY updates height on value/text change. Adding attachments leaves this completely isolated.
     useEffect(() => {
       if (!textareaRef.current) return;
       const el = textareaRef.current;
-      
-      const currentHeight = el.style.height;
+
+      // Measure at height:0 without showing the jump (transition:none → measure → re-enable → animate)
       el.style.transition = 'none';
       el.style.height = "0px";
       const scrollHeight = el.scrollHeight;
-      el.style.height = currentHeight;
-      void el.offsetHeight; 
-      el.style.transition = '';
-      
+      // Restore previous visual height first (no flash), then force-reflow, then animate to new height
+      el.style.height = `${textareaHeight}px`;
+      void el.offsetHeight; // flush
+      el.style.transition = `height 0.28s cubic-bezier(0.25, 1, 0.5, 1)`;
+
       const newHeight = Math.max(68, Math.min(scrollHeight, 160));
       el.style.height = `${newHeight}px`;
-      
+
       setTextareaHeight(newHeight);
       setIsScrolling(scrollHeight > 160);
-      
+
       setTimeout(updateFades, 0);
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [value, expanded]); 
+    }, [value, expanded]);
 
     useEffect(() => {
       setContainerHeight(Math.max(116, textareaHeight + 48));
@@ -602,15 +889,16 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
     }, [textareaHeight]);
 
     useEffect(() => {
-      if (!isModelSelectOpen) return;
+      if (!isModelSelectOpen && !approvalOpen) return;
       const handleOutsideClick = (e: MouseEvent) => {
         if (internalContainerRef.current && !internalContainerRef.current.contains(e.target as Node)) {
           setIsModelSelectOpen(false);
+          setApprovalOpen(false);
         }
       };
       document.addEventListener("mousedown", handleOutsideClick);
       return () => document.removeEventListener("mousedown", handleOutsideClick);
-    }, [isModelSelectOpen]);
+    }, [isModelSelectOpen, approvalOpen]);
 
     const handleBlur = (e: React.FocusEvent<HTMLDivElement>) => {
       if (internalContainerRef.current && internalContainerRef.current.contains(e.relatedTarget as Node)) return;
@@ -618,13 +906,38 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
         setIsSmoothResize(false);
         setExpanded(false);
         setIsModelSelectOpen(false);
+        setApprovalOpen(false);
+        setSlashQuery(null);
       }
     };
 
     const handleSubmit = () => {
       if (value.trim() === "" && !hasAttachments) return;
       setIsSmoothResize(false);
-      onSubmit?.(value, { model: selectedModel, effort: efforts[effortIndex] ?? "Medium", attachments: attachments.map((a) => a.file) });
+
+      // Convert all attachment blob URLs to base64 data URLs before submitting
+      // so the AI can read them and the chat bubble stays stable after revoke
+      const pending = attachments.slice();
+      const conversions = pending.map(
+        (a) =>
+          new Promise<{ type: string; url: string; name: string }>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () =>
+              resolve({
+                type: a.file.type || "application/octet-stream",
+                url: reader.result as string, // data:... base64
+                name: a.name,
+              });
+            reader.onerror = () =>
+              resolve({ type: a.file.type, url: a.url, name: a.name });
+            reader.readAsDataURL(a.file);
+          })
+      );
+
+      Promise.all(conversions).then((attachmentData) => {
+        onSubmit?.(value, attachmentData.length > 0 ? attachmentData : undefined);
+      });
+
       handleValueChange("");
       attachments.forEach((a) => URL.revokeObjectURL(a.url));
       setAttachments([]);
@@ -642,29 +955,62 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
       fileInputRef.current?.click();
     };
 
+    // Must be defined before handlePaste and handleFilesChosen
+    const addAttachment = useCallback((file: File, url: string, width: number, height: number) => {
+      const id = `${file.name}-${file.lastModified}-${Math.random().toString(36).slice(2, 8)}`;
+      setAttachments((prev) => [...prev, { id, file, url, name: file.name, width, height }]);
+    }, []);
+
+    // Paste handler — supports pasting images and files via Ctrl+V
+    const handlePaste = useCallback((e: React.ClipboardEvent) => {
+      const items = Array.from(e.clipboardData?.items || []);
+      const fileItems = items.filter((item) => item.kind === "file");
+      if (fileItems.length === 0) return; // let normal text paste through
+
+      e.preventDefault();
+      const room = Math.max(0, maxAttachments - attachments.length);
+      const accepted = fileItems.slice(0, room);
+
+      if (!expanded) { setIsSmoothResize(false); setExpanded(true); }
+      else { setIsSmoothResize(true); }
+
+      for (const item of accepted) {
+        const file = item.getAsFile();
+        if (!file) continue;
+        const url = URL.createObjectURL(file);
+        if (file.type.startsWith("image/")) {
+          const img = new Image();
+          img.onload = () => addAttachment(file, url, img.naturalWidth, img.naturalHeight);
+          img.onerror = () => addAttachment(file, url, 800, 600);
+          img.src = url;
+        } else {
+          addAttachment(file, url, 0, 0);
+        }
+      }
+    }, [maxAttachments, attachments.length, expanded, addAttachment]);
+
     const handleFilesChosen = async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = Array.from(e.target.files ?? []).filter((f) => f.type.startsWith("image/"));
-      e.target.value = ""; 
+      const files = Array.from(e.target.files ?? []);
+      e.target.value = "";
 
       if (files.length === 0) return;
       const room = Math.max(0, maxAttachments - attachments.length);
       const accepted = files.slice(0, room);
 
-      if (!expanded) { setIsSmoothResize(false); setExpanded(true); } 
+      if (!expanded) { setIsSmoothResize(false); setExpanded(true); }
       else { setIsSmoothResize(true); }
 
       for (const file of accepted) {
         const url = URL.createObjectURL(file);
-        const img = new Image();
-        img.onload = () => addAttachment(file, url, img.naturalWidth, img.naturalHeight);
-        img.onerror = () => addAttachment(file, url, 800, 600);
-        img.src = url;
+        if (file.type.startsWith("image/")) {
+          const img = new Image();
+          img.onload = () => addAttachment(file, url, img.naturalWidth, img.naturalHeight);
+          img.onerror = () => addAttachment(file, url, 800, 600);
+          img.src = url;
+        } else {
+          addAttachment(file, url, 0, 0);
+        }
       }
-    };
-
-    const addAttachment = (file: File, url: string, width: number, height: number) => {
-      const id = `${file.name}-${file.lastModified}-${Math.random().toString(36).slice(2, 8)}`;
-      setAttachments((prev) => [...prev, { id, file, url, name: file.name, width, height }]);
     };
 
     const removeAttachment = (id: string) => {
@@ -678,13 +1024,15 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
     };
 
     // Calculate action button states
-    const showArrow = hasValue && !isRecording;
-    const showStop = isRecording;
-    const showMic = !hasValue && !isRecording;
+    const showStop = isRecording || isThinking;
+    const showArrow = !showStop && hasValue;
+    const showMic = !showStop && !hasValue;
 
     const onActionButtonClick = (e: React.MouseEvent) => {
       e.preventDefault();
-      if (isRecording) {
+      if (isThinking) {
+        onStop?.();
+      } else if (isRecording) {
         stopRecording();
       } else if (hasValue) {
         handleSubmit();
@@ -704,16 +1052,18 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
             internalContainerRef.current = node;
           }}
           onBlur={handleBlur}
+          onPaste={handlePaste}
           className={cn("relative flex flex-col w-full", className)}
           style={{
             maxWidth: expanded ? 480 : 320,
-            transition: isSmoothResize ? "max-width 0.15s ease-out" : "max-width 0.4s cubic-bezier(0.22, 1, 0.36, 1)",
+            transition: `max-width 0.38s ${SPRING}`,
+            willChange: "max-width",
           }}
         >
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept="image/*,.pdf,.doc,.docx,.txt,.md,.csv,.xlsx,.pptx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain,text/markdown,text/csv"
             multiple
             onChange={handleFilesChosen}
             className="hidden"
@@ -721,14 +1071,26 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
             aria-hidden="true"
           />
 
+          {/* Slash command panel — slides up from behind the card */}
+          <SlashInlinePanel
+            query={slashQuery ?? ""}
+            visible={slashQuery !== null && expanded}
+            activeIndex={slashActiveIndex}
+            onSelect={(cmd) => {
+              // Replace the trailing slash-word with the chosen command
+              const newVal = value.replace(/(?:^|([\s\n]))\/([\w]*)$/, (_, pre) => `${pre ?? ""}${cmd} `);
+              handleValueChange(newVal);
+              setSlashQuery(null);
+              textareaRef.current?.focus();
+            }}
+          />
+
           {/* Independent Attachment Tab (Slides up from behind the prompt input) */}
           <div
             aria-hidden={!hasAttachments}
             style={{
               height: hasAttachments && expanded ? 68 : 0,
-              transition: isSmoothResize
-                ? "height 0.15s ease-out"
-                : "height 0.4s cubic-bezier(0.22, 1, 0.36, 1)",
+              transition: `height 0.38s ${SPRING}`,
             }}
             className="w-full relative z-0 overflow-hidden"
           >
@@ -741,9 +1103,7 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
                 height: 68,
                 transform: hasAttachments && expanded ? "translateY(0)" : "translateY(100%)",
                 opacity: hasAttachments && expanded ? 1 : 0,
-                transition: isSmoothResize
-                  ? "transform 0.15s ease-out, opacity 0.15s ease-out"
-                  : "transform 0.4s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.3s ease-out",
+                transition: `transform 0.38s ${SPRING}, opacity 0.28s ${SPRING}`,
               }}
               className="border border-border border-b-0 bg-muted rounded-t-2xl px-2 pt-2 pb-1 flex items-start gap-2 overflow-x-auto prompt-scrollbar"
             >
@@ -772,11 +1132,13 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
             style={{
               borderRadius: 24,
               height: expanded ? containerHeight : 48,
-              transition: isSmoothResize ? SMOOTH_HEIGHT_TRANSITION : SPRING_TRANSITION,
-              overflow: expanded ? "visible" : "hidden",
+              transition: `height 0.38s ${SPRING}`,
+              overflow: overflowVisible ? "visible" : "hidden",
+              background: "#e8e4dd",
+              willChange: "height",
             }}
             className={cn(
-              "relative w-full border border-border bg-card shadow-sm focus-within:border-ring/40 focus-within:ring-1 focus-within:ring-ring/20 hover:border-border/80 z-10",
+              "relative w-full border border-border shadow-sm focus-within:border-ring/40 focus-within:ring-1 focus-within:ring-ring/20 hover:border-border/80 z-10",
               expanded ? "cursor-text" : "cursor-default"
             )}
           >
@@ -793,6 +1155,39 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
               onChange={(e) => handleValueChange(e.target.value)}
               onScroll={updateFades}
               onKeyDown={(e) => {
+                // Slash palette navigation
+                if (slashQuery !== null) {
+                  const filtered = SLASH_COMMANDS.filter(
+                    (c) =>
+                      slashQuery === "" ||
+                      c.command.toLowerCase().includes(slashQuery.toLowerCase()) ||
+                      c.label.toLowerCase().includes(slashQuery.toLowerCase())
+                  );
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    setSlashActiveIndex((i) => (i + 1) % filtered.length);
+                    return;
+                  }
+                  if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setSlashActiveIndex((i) => (i - 1 + filtered.length) % filtered.length);
+                    return;
+                  }
+                  if (e.key === "Enter" || e.key === "Tab") {
+                    e.preventDefault();
+                    const chosen = filtered[slashActiveIndex];
+                    if (chosen) {
+                      handleValueChange(chosen.command + " ");
+                      setSlashQuery(null);
+                    }
+                    return;
+                  }
+                  if (e.key === "Escape") {
+                    setSlashQuery(null);
+                    return;
+                  }
+                }
+
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   handleSubmit();
@@ -807,12 +1202,10 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
               aria-label="Prompt"
               disabled={isRecording}
               style={{
-                transition: isSmoothResize
-                  ? "height 0.15s ease-out"
-                  : "opacity 0.3s ease-out, transform 0.3s ease-out, height 0.4s cubic-bezier(0.22, 1, 0.36, 1)"
+                transition: `opacity 0.28s ${SPRING}, transform 0.28s ${SPRING}, height 0.38s ${SPRING}`
               }}
               className={cn(
-                "prompt-scrollbar absolute top-0 inset-x-0 z-[1] w-full resize-none bg-transparent pl-4 pr-12 py-3.5 text-sm leading-[22px] text-foreground outline-none placeholder:font-medium placeholder:text-muted-foreground/80 cursor-text",
+                "prompt-scrollbar absolute top-0 inset-x-0 z-[1] w-full resize-none bg-transparent pl-4 pr-12 py-3.5 text-sm leading-[22px] text-[oklch(0.13_0_0)] outline-none placeholder:font-medium placeholder:text-[oklch(0.55_0_0)] cursor-text",
                 expanded ? "opacity-100 scale-100 translate-y-0" : "opacity-0 scale-95 -translate-y-1 pointer-events-none",
                 isScrolling ? "overflow-y-auto" : "overflow-y-hidden",
                 isRecording && "pointer-events-none"
@@ -821,24 +1214,24 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
 
             <div
               ref={topFadeRef}
-              className="absolute left-4 right-12 top-0 z-[2] h-8 bg-gradient-to-b from-card via-card/90 to-transparent pointer-events-none"
+              className="absolute left-4 right-12 top-0 z-[2] h-8 bg-gradient-to-b from-[#e8e4dd] via-[#e8e4dd]/90 to-transparent pointer-events-none"
             />
             <div
               ref={bottomFadeRef}
-              className="absolute left-4 right-12 z-[2] h-8 bg-gradient-to-t from-card via-card/90 to-transparent pointer-events-none"
+              className="absolute left-4 right-12 z-[2] h-8 bg-gradient-to-t from-[#e8e4dd] via-[#e8e4dd]/90 to-transparent pointer-events-none"
               style={{ 
                 opacity: 0, 
                 top: `${textareaHeight - 32}px`,
-                transition: isSmoothResize ? "top 0.15s ease-out" : "top 0.4s cubic-bezier(0.22, 1, 0.36, 1)"
+                transition: `top 0.38s ${SPRING}`
               }}
             />
 
             <button
               type="button"
               onClick={expand}
-              style={{ transition: isSmoothResize ? "none" : "all 0.4s cubic-bezier(0.22, 1, 0.36, 1)" }}
+              style={{ transition: `all 0.38s ${SPRING}` }}
               className={cn(
-                "absolute inset-x-0 top-0 z-[1] cursor-text pl-4 pr-12 py-[15px] text-left text-sm font-medium leading-[17px] text-muted-foreground/80 outline-none",
+                "absolute inset-x-0 top-0 z-[1] cursor-text pl-4 pr-12 py-[15px] text-left text-sm font-medium leading-[17px] text-[oklch(0.55_0_0)] outline-none",
                 !expanded ? "opacity-100 scale-100 translate-y-0" : "opacity-0 scale-105 translate-y-1 pointer-events-none"
               )}
               aria-label="Open prompt input"
@@ -853,69 +1246,44 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
                 expanded && !isRecording ? "opacity-100 translate-y-0 pointer-events-auto" : "opacity-0 translate-y-1 pointer-events-none"
               )}
             >
-              <div className="relative">
-                <button
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()} 
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setIsModelSelectOpen((prev) => !prev);
-                  }}
-                  className={cn(
-                    "group flex items-center gap-1 rounded-full px-2 py-1 text-foreground/50 transition-all duration-200 outline-none hover:bg-accent/60 hover:text-foreground cursor-default",
-                    isModelSelectOpen ? "bg-accent/60 text-foreground" : ""
-                  )}
-                  aria-label={`Select model. Current: ${selectedModel}`}
-                >
-                  <ModelIcon model={selectedModel} className="size-3.5 opacity-70 group-hover:opacity-100 transition-opacity" />
-                  <span className="text-xs font-semibold select-none transition-colors">
-                    <MorphingText text={selectedModel} />
-                  </span>
-                </button>
+              {/* Slash palette — rendered as fixed overlay above composer, not inside card */}
 
-                <div
-                  style={{ transformOrigin: "bottom left" }}
-                  onMouseLeave={() => {
-                    setHoverStyle((prev) => ({
-                      ...prev, opacity: 0, transform: prev.transform.replace("scale(1)", "scale(0.95)"), transition: "opacity 0.2s ease-in, transform 0.2s ease-out",
-                    }));
-                  }}
-                  className={cn(
-                    "absolute bottom-full left-0 mb-2.5 z-50 w-44 rounded-2xl border border-border bg-card/95 p-1 shadow-xl backdrop-blur-md flex flex-col gap-0.5 transition-all duration-400 cursor-default",
-                    isModelSelectOpen
-                      ? "opacity-100 scale-100 translate-y-0 pointer-events-auto ease-[cubic-bezier(0.34,1.56,0.64,1)]"
-                      : "opacity-0 scale-95 translate-y-3 pointer-events-none ease-[cubic-bezier(0.22,1,0.36,1)]"
-                  )}
-                >
-                  <div className="relative flex flex-col gap-0.5">
-                    <div style={hoverStyle} className="absolute left-0 right-0 top-0 h-8 -z-10 rounded-xl bg-accent pointer-events-none" />
-                    {models.map((model, idx) => (
+                {/* Permissions picker */}
+                <div className="relative">
+                  {(() => {
+                    const mode = APPROVAL_MODES.find((m) => m.id === approvalMode)!;
+                    return (
                       <button
-                        key={model}
                         type="button"
                         onMouseDown={(e) => e.preventDefault()}
-                        onMouseEnter={() => {
-                          setHoverStyle((prev) => ({
-                            opacity: 1, transform: `translateY(${idx * 34}px) scale(1)`,
-                            transition: prev.opacity === 0 ? "opacity 0.15s ease-out" : "transform 0.3s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.15s ease", 
-                          }));
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setApprovalOpen((prev) => !prev);
+                          setIsModelSelectOpen(false);
                         }}
-                        onClick={(e) => { e.stopPropagation(); setSelectedModel(model); setIsModelSelectOpen(false); }}
-                        className="group relative flex h-8 w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-left text-xs font-medium text-foreground/80 outline-none active:scale-[0.98] cursor-default"
+                        className={cn(
+                          "flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-semibold text-black/50 transition-all duration-200 outline-none hover:bg-black/5 hover:text-black/80 cursor-default",
+                          approvalOpen && "bg-black/5 text-black/80"
+                        )}
+                        aria-label="Permissions"
                       >
-                        <span className="flex items-center gap-2">
-                          <ModelIcon model={model} className="size-3.5 opacity-85 group-hover:opacity-100 transition-opacity" />
-                          {model}
-                        </span>
+                        <mode.Icon className="h-3.5 w-3.5 text-black/50" strokeWidth={1.8} />
+                        <MorphingText text={mode.label} />
                       </button>
-                    ))}
-                  </div>
-                </div>
+                    );
+                  })()}
+
+                <ApprovalPicker
+                  open={approvalOpen}
+                  selected={approvalMode}
+                  onSelect={setApprovalMode}
+                  onClose={() => setApprovalOpen(false)}
+                />
               </div>
 
               <button
                 type="button" onMouseDown={(e) => e.preventDefault()} onClick={cycleEffort}
-                className="group flex items-center gap-1 rounded-full px-2 py-1 text-foreground/50 transition-all duration-200 hover:bg-accent/60 hover:text-foreground outline-none cursor-default"
+                className="group flex items-center gap-1 rounded-full px-2 py-1 text-black/40 transition-all duration-200 hover:bg-black/5 hover:text-black/70 outline-none cursor-default"
               >
                 <DynamicBarsIcon level={efforts[effortIndex] ?? "Medium"} />
                 <span className="text-xs font-semibold select-none transition-colors"><MorphingText text={efforts[effortIndex] ?? "Medium"} /></span>
@@ -923,7 +1291,7 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
 
               <button
                 type="button" onMouseDown={(e) => e.preventDefault()} onClick={openFileChooser} disabled={attachments.length >= maxAttachments}
-                className="ml-auto flex size-7 items-center justify-center rounded-full text-foreground/50 transition-all duration-200 hover:bg-accent/60 hover:text-foreground outline-none cursor-default disabled:opacity-40 disabled:pointer-events-none"
+                className="ml-auto flex size-7 items-center justify-center rounded-full border border-black/20 text-black/50 transition-all duration-200 hover:border-black/40 hover:text-black/80 outline-none cursor-default disabled:opacity-30 disabled:pointer-events-none"
               >
                 <PlusIcon />
               </button>
@@ -951,7 +1319,7 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
               onClick={onActionButtonClick}
               aria-label={showArrow ? "Send prompt" : showStop ? "Stop recording" : "Use voice input"}
               style={{ borderRadius: 9999 }}
-              className="absolute right-2 bottom-2 z-[10] flex h-8 w-8 items-center justify-center bg-primary text-primary-foreground transition-all duration-300 hover:opacity-90 outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-default"
+              className="absolute right-2 bottom-2 z-[10] flex h-8 w-8 items-center justify-center bg-black text-white transition-all duration-300 hover:opacity-90 outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-default"
             >
               <span className="relative flex h-full w-full items-center justify-center">
                 <span className={cn("absolute inset-0 flex items-center justify-center transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]", showArrow ? "opacity-100 scale-100 rotate-0 blur-none" : "opacity-0 scale-50 rotate-45 blur-[1px] pointer-events-none")}>
@@ -973,6 +1341,7 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
             attachment={activeAttachment.attachment} originRect={activeAttachment.rect} onClose={() => setActiveAttachment(null)}
           />
         )}
+
       </>
     );
   }

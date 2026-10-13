@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { MarkdownContent } from "./markdown-content";
 import {
   ChevronDown,
   Search,
@@ -451,13 +452,10 @@ export function StreamingText({
     <div
       aria-live="polite"
       aria-atomic="true"
-      className={cn(
-        "font-sans text-[14.5px] leading-relaxed text-foreground/90 select-text whitespace-pre-line text-pretty",
-        className
-      )}
+      className={cn("select-text", className)}
       {...props}
     >
-      {shown}
+      <MarkdownContent content={shown} />
     </div>
   );
 }
@@ -520,6 +518,14 @@ export function NestedReasoningBlock({
 
     return () => timers.forEach(clearTimeout);
   }, [isActive, isFinished, delays, sentences, durationSeconds]);
+
+  // If parent marks us finished early (API response arrived), skip remaining animation
+  React.useEffect(() => {
+    if (isFinished) {
+      setRevealedCount(sentences.length);
+      onFinishedRef.current?.();
+    }
+  }, [isFinished, sentences.length]);
 
   const expanded = isFinished ? manualOpen : isActive;
   const count = isFinished ? sentences.length : revealedCount;
@@ -970,6 +976,14 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
       });
     }, [totalNodes]);
 
+    // When nodes change while autoPlay is false, mark not working
+    React.useEffect(() => {
+      if (!autoPlay) {
+        setIsWorking(false);
+        setActiveIndex(totalNodes);
+      }
+    }, [autoPlay, totalNodes]);
+
     React.useEffect(() => {
       if (!autoPlay || !isWorking || activeIndex >= totalNodes) return;
 
@@ -978,10 +992,10 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
 
       const delay =
         currentNode?.type === "tool" || currentNode?.type === "terminal"
-          ? 2200
+          ? 1800
           : currentNode?.type === "search"
-          ? 2400
-          : 1700;
+          ? 2000
+          : 1200;
 
       const timer = setTimeout(() => {
         advanceStep();
@@ -1106,6 +1120,7 @@ export interface AgentWorkflowProps extends React.HTMLAttributes<HTMLDivElement>
   phases: AgentPhase[];
   tools?: Record<string, ToolDefinition>;
   workingLabel?: string;
+  isComplete?: boolean;
   onComplete?: () => void;
 }
 
@@ -1113,6 +1128,7 @@ export function AgentWorkflow({
   phases = [],
   tools,
   workingLabel = "Working...",
+  isComplete = false,
   onComplete,
   className,
   ...props
@@ -1122,21 +1138,19 @@ export function AgentWorkflow({
   const onCompleteRef = React.useRef(onComplete);
   onCompleteRef.current = onComplete;
 
-  const handleTraceSettled = React.useCallback((idx: number) => {
-    if (idx === currentPhaseIdx) {
-      if (phases[idx]?.message) {
-        setPhaseStatus("message");
-      } else if (idx < phases.length - 1) {
-        setCurrentPhaseIdx((prev) => prev + 1);
-        setPhaseStatus("trace");
-      } else {
-        onCompleteRef.current?.();
-      }
+  // When parent marks workflow complete or phases update
+  React.useEffect(() => {
+    if (isComplete) {
+      setCurrentPhaseIdx(Math.max(0, phases.length - 1));
+      setPhaseStatus("message");
+    } else if (phases.length > 0 && currentPhaseIdx >= phases.length) {
+      setCurrentPhaseIdx(phases.length - 1);
     }
-  }, [currentPhaseIdx, phases]);
+  }, [isComplete, phases, currentPhaseIdx]);
 
-  const handleMessageCompleted = React.useCallback((idx: number) => {
-    if (idx === currentPhaseIdx) {
+  const handleTraceSettled = React.useCallback((idx: number) => {
+    setPhaseStatus("message");
+    if (!phases[idx]?.message) {
       if (idx < phases.length - 1) {
         setCurrentPhaseIdx((prev) => prev + 1);
         setPhaseStatus("trace");
@@ -1144,23 +1158,32 @@ export function AgentWorkflow({
         onCompleteRef.current?.();
       }
     }
-  }, [currentPhaseIdx, phases]);
+  }, [phases]);
+
+  const handleMessageCompleted = React.useCallback((idx: number) => {
+    if (idx < phases.length - 1) {
+      setCurrentPhaseIdx((prev) => prev + 1);
+      setPhaseStatus("trace");
+    } else {
+      onCompleteRef.current?.();
+    }
+  }, [phases]);
 
   return (
     <div className={cn("flex flex-col gap-4 w-full", className)} {...props}>
       {phases.map((phase, idx) => {
-        if (idx > currentPhaseIdx) return null;
+        if (!isComplete && idx > currentPhaseIdx) return null;
 
         const isCurrentPhase = idx === currentPhaseIdx;
         const shouldShowTrace = true;
-        const shouldPlayTrace = isCurrentPhase && phaseStatus === "trace";
-        const isTraceFinished = !isCurrentPhase || phaseStatus === "message";
+        const shouldPlayTrace = !isComplete && isCurrentPhase && phaseStatus === "trace";
+        const isTraceFinished = isComplete || !isCurrentPhase || phaseStatus === "message";
 
-        const shouldShowMessage = isTraceFinished && !!phase.message;
-        const shouldStreamMessage = isCurrentPhase && phaseStatus === "message";
+        const shouldShowMessage = (isComplete || isTraceFinished) && !!phase.message;
+        const shouldStreamMessage = !isComplete && isCurrentPhase && phaseStatus === "message";
 
         return (
-          <div key={idx} className="flex flex-col gap-1">
+          <div key={idx} className="flex flex-col gap-1.5">
             {shouldShowTrace && (
               <ThinkingState
                 nodes={phase.trace}
@@ -1172,18 +1195,16 @@ export function AgentWorkflow({
             )}
 
             {shouldShowMessage && phase.message && (
-              <div className="pt-0 animate-[agent-fade_300ms_ease-out_both]">
+              <div className="pt-1 select-text">
                 {shouldStreamMessage ? (
                   <StreamingText
                     text={phase.message}
-                    speed={18}
-                    chunkSize={2}
+                    speed={2}
+                    chunkSize={4}
                     onComplete={() => handleMessageCompleted(idx)}
                   />
                 ) : (
-                  <div className="font-sans text-[14.5px] leading-relaxed text-foreground/90 select-text whitespace-pre-line text-pretty">
-                    {phase.message}
-                  </div>
+                  <MarkdownContent content={phase.message} />
                 )}
               </div>
             )}
