@@ -590,19 +590,53 @@ function Index() {
       // Add the initial thinking phase — starts with progressive live sentences
       const msgId = Date.now();
 
-      // Build a rich set of thinking sentences based on context
       const hasAttachments = (attachmentFiles || []).length > 0;
+
+      // Build a rich, real-feeling set of initial thinking sentences
+      const buildInitialThoughts = (): string[] => {
+        const thoughts: string[] = [];
+        const short = text.trim().slice(0, 80);
+
+        if (hasAttachments) {
+          thoughts.push(`Examining the uploaded ${(attachmentFiles?.length ?? 0) > 1 ? `${attachmentFiles?.length} files` : "file"}...`);
+          thoughts.push("Parsing visual structure and layout details...");
+          thoughts.push("Identifying UI components, colors, and patterns...");
+          thoughts.push("Mapping out what needs to be built from this...");
+        } else {
+          thoughts.push(`Reading the request: "${short}${text.length > 80 ? "…" : ""}"`);
+
+          const lc = text.toLowerCase();
+          if (/build|create|make|generate|add|implement/.test(lc)) {
+            thoughts.push("Understanding the scope of what needs to be created...");
+            thoughts.push("Thinking about the right component structure and architecture...");
+            thoughts.push("Considering dependencies, state management, and file layout...");
+          } else if (/fix|debug|error|bug|broken|issue/.test(lc)) {
+            thoughts.push("Diagnosing the root cause of the problem...");
+            thoughts.push("Tracing through the logic to find where it breaks...");
+            thoughts.push("Thinking through the cleanest fix without side effects...");
+          } else if (/explain|how|what|why|when|understand/.test(lc)) {
+            thoughts.push("Processing the question and gathering relevant context...");
+            thoughts.push("Organizing a clear, structured explanation...");
+          } else {
+            thoughts.push("Breaking down the task into clear steps...");
+            thoughts.push("Thinking through the best approach...");
+          }
+
+          if (activeName) {
+            thoughts.push(`Working in context of project: "${activeName}"`);
+          }
+          thoughts.push("Formulating the most helpful response...");
+        }
+
+        return thoughts;
+      };
+
       const initialThinkingPhase: AgentPhase = {
         trace: [
           {
             type: "reasoning",
-            sentences: [
-              hasAttachments
-                ? `Analyzing attachment${(attachmentFiles?.length ?? 0) > 1 ? "s" : ""} and task...`
-                : `Analyzing task: "${text.slice(0, 90)}${text.length > 90 ? "…" : ""}"`,
-              activeName ? `Target workspace: "${activeName}"` : "Synthesizing requirements and architecture...",
-            ],
-            durationSeconds: 1.2,
+            sentences: buildInitialThoughts(),
+            durationSeconds: 1.8,
           },
         ],
       };

@@ -1276,7 +1276,7 @@ export function AgentWorkflow({
                 {shouldStreamMessage && !streamFinishedPhases[idx] ? (
                   <StreamingText
                     text={phase.message}
-                    speed={3}
+                    speed={1}
                     chunkSize={2}
                     onComplete={() => handleMessageCompleted(idx)}
                   />
