@@ -430,32 +430,39 @@ export function StreamingText({
   onComplete,
   ...props
 }: StreamingTextProps) {
-  const [shown, setShown] = React.useState("");
+  const words = React.useMemo(() => text.split(' ').filter(w => w.length > 0), [text]);
+  const [revealedCount, setRevealedCount] = React.useState(0);
   const onCompleteRef = React.useRef(onComplete);
   onCompleteRef.current = onComplete;
 
   React.useEffect(() => {
+    setRevealedCount(0);
+    if (words.length === 0) {
+      onCompleteRef.current?.();
+      return;
+    }
     let i = 0;
     const id = setInterval(() => {
-      i += chunkSize;
-      const nextText = text.slice(0, i);
-      setShown(nextText);
-      if (i >= text.length) {
+      i += 1;
+      setRevealedCount(i);
+      if (i >= words.length) {
         clearInterval(id);
         onCompleteRef.current?.();
       }
-    }, speed);
+    }, 50);
     return () => clearInterval(id);
-  }, [text, speed, chunkSize]);
+  }, [text, words.length]);
 
   return (
     <div
       aria-live="polite"
       aria-atomic="true"
-      className={cn("select-text", className)}
+      className={cn('select-text', className)}
       {...props}
     >
-      <MarkdownContent content={shown} />
+      <MarkdownContent
+        content={words.slice(0, revealedCount).join(' ')}
+      />
     </div>
   );
 }
@@ -631,7 +638,7 @@ export function NestedReasoningBlock({
                   <p
                     key={i}
                     className="m-0 h-[46px] text-[13px] font-[425] leading-[23px] tracking-tight text-muted-foreground line-clamp-2 overflow-hidden text-pretty"
-                    style={{ animation: "agent-fade 250ms cubic-bezier(0.23,1,0.32,1) both" }}
+                    style={{ animation: "word-float-in 300ms cubic-bezier(0.4, 0, 0.2, 1) both" }}
                   >
                     {line}
                   </p>
@@ -1050,6 +1057,10 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
             from { opacity: 0; }
             to { opacity: 1; }
           }
+          @keyframes word-float-in {
+            from { opacity: 0; transform: translateY(4px); }
+            to { opacity: 1; transform: translateY(0); }
+          }
         `}</style>
 
         {/* Master Header Trigger (Seamless unboxed prose integration) */}
@@ -1067,10 +1078,12 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
 
           <span className="text-[13.5px] font-normal transition-colors">
             {isWorking ? (
-              <span className="font-medium text-muted-foreground">{workingLabel}</span>
+              <span className="font-medium text-muted-foreground">
+                Thinking for <span className="tabular-nums font-mono text-[12px]">{elapsedSeconds}</span>s...
+              </span>
             ) : (
               <span>
-                Worked for <span className="tabular-nums font-mono text-[12px]">{elapsedSeconds}</span> {elapsedSeconds === 1 ? "second" : "seconds"}
+                Thought for <span className="tabular-nums font-mono text-[12px]">{elapsedSeconds}</span>s
               </span>
             )}
           </span>

@@ -873,11 +873,11 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
       void el.offsetHeight; // flush
       el.style.transition = `height 0.28s cubic-bezier(0.25, 1, 0.5, 1)`;
 
-      const newHeight = Math.max(68, Math.min(scrollHeight, 160));
+      const newHeight = Math.max(68, Math.min(scrollHeight, 112));
       el.style.height = `${newHeight}px`;
 
       setTextareaHeight(newHeight);
-      setIsScrolling(scrollHeight > 160);
+      setIsScrolling(scrollHeight > 112);
 
       setTimeout(updateFades, 0);
       // eslint-disable-next-line react-hooks/exhaustive-deps

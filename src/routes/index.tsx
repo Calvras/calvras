@@ -12,6 +12,7 @@ import { useProjects } from "@/lib/project-context";
 import { callAI, type MediaAttachment } from "@/lib/gemini";
 import { cn } from "@/lib/utils";
 import { ChapterScrubber, type Chapter } from "@/components/ui/chapter-scrubber";
+import { Copy, CheckCheck } from "lucide-react";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -218,6 +219,7 @@ function AttachmentPreview({ att }: { att: AttachedFile }) {
  */
 function UserMessageBubble({ text }: { text: string }) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
   const bubbleRef = useRef<HTMLDivElement>(null);
 
   const isLong = text.includes("\n") || text.length > 60;
@@ -233,34 +235,60 @@ function UserMessageBubble({ text }: { text: string }) {
     return () => document.removeEventListener("mousedown", handleOutsideClick);
   }, [isExpanded]);
 
+  const copyButton = (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }}
+      aria-label={copied ? 'Copied' : 'Copy message'}
+      className="flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-muted/60 active:scale-[0.92] transition-colors mt-1 self-end"
+    >
+      {copied ? (
+        <CheckCheck className="size-3.5 text-emerald-500" aria-hidden="true" />
+      ) : (
+        <Copy className="size-3.5" aria-hidden="true" />
+      )}
+    </button>
+  );
+
   if (!isLong) {
     return (
-      <div className="break-words rounded-2xl bg-muted px-4 py-2.5 text-sm leading-relaxed text-foreground shadow-xs select-text">
-        {text}
+      <div className="flex flex-col items-end gap-0.5">
+        <div className="break-words rounded-2xl bg-muted px-4 py-2.5 text-sm leading-relaxed text-foreground shadow-xs select-text">
+          {text}
+        </div>
+        {copyButton}
       </div>
     );
   }
 
   return (
-    <div
-      ref={bubbleRef}
-      onClick={() => setIsExpanded((prev) => !prev)}
-      title={isExpanded ? "Click to fold message" : "Click to expand message"}
-      className={cn(
-        "group relative break-words rounded-2xl bg-muted text-foreground shadow-xs transition-all duration-200 cursor-pointer select-text",
-        isExpanded
-          ? "px-4 py-2.5 text-sm leading-relaxed max-w-full"
-          : "px-4 py-2.5 max-h-[100px] overflow-hidden hover:bg-muted/90 text-sm leading-relaxed"
-      )}
-    >
-      {isExpanded ? (
-        <div className="whitespace-pre-wrap">{text}</div>
-      ) : (
-        <div className="relative">
+    <div className="flex flex-col items-end gap-0.5">
+      <div
+        ref={bubbleRef}
+        onClick={() => setIsExpanded((prev) => !prev)}
+        title={isExpanded ? "Click to fold message" : "Click to expand message"}
+        className={cn(
+          "group relative break-words rounded-2xl bg-muted text-foreground shadow-xs transition-all duration-200 cursor-pointer select-text",
+          isExpanded
+            ? "px-4 py-2.5 text-sm leading-relaxed max-w-full"
+            : "px-4 py-2.5 max-h-[100px] overflow-hidden hover:bg-muted/90 text-sm leading-relaxed"
+        )}
+      >
+        {isExpanded ? (
           <div className="whitespace-pre-wrap">{text}</div>
-          <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-muted via-muted/60 to-transparent" />
-        </div>
-      )}
+        ) : (
+          <div className="relative">
+            <div className="whitespace-pre-wrap">{text}</div>
+            <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-muted via-muted/60 to-transparent" />
+          </div>
+        )}
+      </div>
+      {copyButton}
     </div>
   );
 }
@@ -277,6 +305,34 @@ function Index() {
   const [isLoading, setIsLoading] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const latestMessageRef = useRef<HTMLDivElement>(null);
+
+  // Live clock
+  const [clockTime, setClockTime] = useState('');
+  useEffect(() => {
+    const update = () => {
+      const now = new Date();
+      setClockTime(now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true }));
+    };
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Project dropdown
+  const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
+  const projectBadgeRef = useRef<HTMLButtonElement>(null);
+
+  // Close project dropdown on outside click
+  useEffect(() => {
+    if (!projectDropdownOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (projectBadgeRef.current && !projectBadgeRef.current.closest('[data-project-badge-wrapper]')?.contains(e.target as Node)) {
+        setProjectDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [projectDropdownOpen]);
 
   // Sync when activeProject changes from context
   useEffect(() => {
@@ -569,6 +625,19 @@ function Index() {
         fullPrompt = `[CONVERSATION HISTORY]\n${historyStr}\n\n[CURRENT USER MESSAGE]\n${text || "(attachment)"}`;
       }
 
+      // Inject time context and no-intro instruction on first message
+      const isFirstMessage = conversationHistory.length === 0;
+      const now = new Date();
+      const timeStr = now.toLocaleString('en-US', {
+        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+        hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true
+      });
+      const systemPrefix = [
+        `[CURRENT TIME]: ${timeStr}`,
+        isFirstMessage ? 'Do not introduce yourself. Jump straight into helping.' : null,
+      ].filter(Boolean).join('\n');
+      fullPrompt = `${systemPrefix}\n\n${fullPrompt}`;
+
       // Invoke AI
       let aiRaw = "";
       try {
@@ -755,46 +824,91 @@ function Index() {
       ` }} />
 
       {/* ── Top-right project badge & switcher ─────────────────────────── */}
-      <button
-        type="button"
-        onClick={handleOpenProject}
-        title={
-          messages.length > 0
-            ? `Active Project: ${projectName || "Workspace"} — start a New chat to switch`
-            : projectName
-            ? `Active Desktop Project: ${projectName} (${projectPath})`
-            : "Open project folder"
-        }
-        className={cn(
-          "fixed top-4 right-4 z-20 flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium backdrop-blur-md transition-all shadow-xs",
-          messages.length > 0
-            ? "border-border/60 bg-card/60 text-muted-foreground/80 cursor-default"
-            : "border-border bg-card/90 text-muted-foreground hover:bg-card hover:text-foreground cursor-pointer"
-        )}
+      <div
+        data-project-badge-wrapper=""
+        className="fixed top-4 right-4 z-20 relative"
       >
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 14 14"
-          fill="none"
-          aria-hidden="true"
-          className="shrink-0"
+        <button
+          ref={projectBadgeRef}
+          type="button"
+          onClick={() => {
+            if (messages.length > 0) return;
+            setProjectDropdownOpen(prev => !prev);
+          }}
+          title={
+            messages.length > 0
+              ? `Active Project: ${projectName || "Workspace"} — start a New chat to switch`
+              : projectName
+              ? `Active Desktop Project: ${projectName} (${projectPath})`
+              : "Open project folder"
+          }
+          className={cn(
+            "flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium backdrop-blur-md transition-all shadow-xs",
+            messages.length > 0
+              ? "border-border/60 bg-card/60 text-muted-foreground/80 cursor-default"
+              : "border-border bg-card/90 text-muted-foreground hover:bg-card hover:text-foreground cursor-pointer"
+          )}
         >
-          <path
-            d="M1.5 4.5C1.5 3.67 2.17 3 3 3h2.38c.28 0 .55.1.74.3l.88.88H11c.83 0 1.5.67 1.5 1.5v5c0 .83-.67 1.5-1.5 1.5H3c-.83 0-1.5-.67-1.5-1.5v-6Z"
-            stroke="currentColor"
-            strokeWidth="1.3"
-            strokeLinejoin="round"
-          />
-        </svg>
-        {projectName ? (
-          <span className="max-w-[160px] truncate text-foreground font-semibold">
-            {projectName}
-          </span>
-        ) : (
-          <span>Open project</span>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 14 14"
+            fill="none"
+            aria-hidden="true"
+            className="shrink-0"
+          >
+            <path
+              d="M1.5 4.5C1.5 3.67 2.17 3 3 3h2.38c.28 0 .55.1.74.3l.88.88H11c.83 0 1.5.67 1.5 1.5v5c0 .83-.67 1.5-1.5 1.5H3c-.83 0-1.5-.67-1.5-1.5v-6Z"
+              stroke="currentColor"
+              strokeWidth="1.3"
+              strokeLinejoin="round"
+            />
+          </svg>
+          {projectName ? (
+            <span className="max-w-[160px] truncate text-foreground font-semibold">
+              {projectName}
+            </span>
+          ) : (
+            <span>Open project</span>
+          )}
+        </button>
+
+        {projectDropdownOpen && messages.length === 0 && (
+          <div
+            className="absolute right-0 top-full mt-1 z-30 w-52 rounded-lg border border-border bg-card shadow-lg py-1"
+            onClick={e => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors"
+              onClick={() => { handleOpenProject(); setProjectDropdownOpen(false); }}
+            >
+              Open project folder
+            </button>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+              onClick={() => {
+                setActiveProject(null);
+                setProjectPath(null);
+                setProjectName(null);
+                setProjectDropdownOpen(false);
+              }}
+            >
+              Don&#39;t work in a project
+            </button>
+          </div>
         )}
-      </button>
+      </div>
+
+      {/* ── Live clock at top center ────────────────────────────────────── */}
+      {clockTime && (
+        <div className="fixed top-3 left-1/2 -translate-x-1/2 z-20 pointer-events-none select-none">
+          <span className="text-xs text-muted-foreground/60 tabular-nums font-mono">
+            {clockTime}
+          </span>
+        </div>
+      )}
 
       {/* ── ChapterScrubber — right side, vertically centered ──────────── */}
       {scrubberChapters.length > 0 && (
