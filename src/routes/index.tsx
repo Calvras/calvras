@@ -890,7 +890,7 @@ IMPORTANT RULES:
       {/* ── Top-right project badge & switcher ─────────────────────────── */}
       <div
         data-project-badge-wrapper=""
-        className="fixed top-3 right-4 z-20 relative"
+        className="fixed top-3 right-4 z-20"
       >
         <button
           ref={projectBadgeRef}
