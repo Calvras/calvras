@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell } = require('electron')
+const { app, BrowserWindow, shell, dialog } = require('electron')
 const { spawn } = require('child_process')
 const path = require('path')
 const http = require('http')
@@ -43,7 +43,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
     },
-    titleBarStyle: 'hiddenInset',
+    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     backgroundColor: '#121212',
     show: false,
   })
@@ -64,6 +64,12 @@ app.whenReady().then(async () => {
     await waitForServer(`http://localhost:${PORT}`)
   } catch (e) {
     console.error('Server failed to start:', e)
+    dialog.showErrorBox(
+      'Calvras — Server Error',
+      'The local server failed to start. Please try relaunching the app.\n\n' + e.message
+    )
+    app.quit()
+    return
   }
   createWindow()
 
