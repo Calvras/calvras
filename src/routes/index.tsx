@@ -434,29 +434,17 @@ function Index() {
 
       // Build a rich set of thinking sentences based on context
       const hasAttachments = (attachmentFiles || []).length > 0;
-      const thinkingSentences = [
-        hasAttachments
-          ? `Reading attachment${(attachmentFiles?.length ?? 0) > 1 ? "s" : ""} — ${attachmentFiles?.map((a) => a.name).join(", ")}...`
-          : `Understanding: "${text.slice(0, 80)}${text.length > 80 ? "…" : ""}"`,
-        activeName ? `Context: project "${activeName}" is active` : "No active project — treating as a general query",
-        isCodeProjectIntent(text)
-          ? "Identifying files and components to create or modify..."
-          : hasAttachments
-          ? "Analyzing the content of the attachment..."
-          : "Formulating a detailed response...",
-        "Cross-referencing with known patterns and best practices...",
-        activeName ? "Scanning existing project files for relevant context..." : "Reasoning through the request...",
-        "Drafting a complete, accurate answer...",
-        "Final review before responding...",
-      ];
-
       const initialThinkingPhase: AgentPhase = {
         trace: [
           {
             type: "reasoning",
-            sentences: thinkingSentences,
-            // Fast thinking — sentences tick through in ~3s while waiting for AI
-            durationSeconds: 3,
+            sentences: [
+              hasAttachments
+                ? `Analyzing attachment${(attachmentFiles?.length ?? 0) > 1 ? "s" : ""} and task...`
+                : `Analyzing task: "${text.slice(0, 90)}${text.length > 90 ? "…" : ""}"`,
+              activeName ? `Target workspace: "${activeName}"` : "Synthesizing requirements and architecture...",
+            ],
+            durationSeconds: 1.2,
           },
         ],
       };
@@ -542,10 +530,9 @@ function Index() {
       const reasoningSentences =
         parsed.reasoning && parsed.reasoning.length > 0
           ? parsed.reasoning
-          : [
-              parsed.thought || "Analyzed request",
-              actionNodes.length > 0 ? "Applying filesystem changes" : "Preparing response",
-            ];
+          : parsed.thought
+          ? [parsed.thought]
+          : [`Analyzed "${text.slice(0, 80)}"`, actionNodes.length > 0 ? "Applying filesystem changes" : "Preparing response"];
 
       finalPhases.push({
         trace: [
