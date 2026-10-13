@@ -49,8 +49,8 @@ interface Message {
 }
 
 interface FsAction {
-  type?: "create_file" | "edit_file" | "run_command";
-  action?: "create_file" | "edit_file" | "run_command";
+  type?: "create_file" | "edit_file" | "run_command" | "read_file" | "write_file" | "list_dir";
+  action?: "create_file" | "edit_file" | "run_command" | "read_file" | "write_file" | "list_dir";
   path?: string;
   content?: string;
   lineStart?: number;
@@ -631,9 +631,11 @@ function Index() {
 
   // Execute filesystem actions
   const executeActions = useCallback(
-    async (actions: FsAction[], activePath: string): Promise<{ nodes: TraceNode[]; summaryNotes: string[] }> => {
+    async (actions: FsAction[], activePath: string): Promise<{ nodes: TraceNode[]; summaryNotes: string[]; fileReadResults: Array<{path: string; content: string}>; dirListResults: Array<{path: string; listing: string}> }> => {
       const nodes: TraceNode[] = [];
       const summaryNotes: string[] = [];
+      const fileReadResults: Array<{path: string; content: string}> = [];
+      const dirListResults: Array<{path: string; listing: string}> = [];
 
       for (const act of actions) {
         const actionType = act.type || act.action;
@@ -719,9 +721,85 @@ function Index() {
             });
           }
         }
+
+        if (actionType === "read_file" && act.path) {
+          try {
+            const res = await fetch("/api/fs/read-file", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ projectPath: activePath, path: act.path }),
+            });
+            const data = await res.json();
+            if (data.ok) {
+              nodes.push({
+                type: "tool",
+                primary: "Read file",
+                secondary: act.path,
+                mono: true,
+                details: [{ text: `✓ Read ${act.path} (${data.lines} lines)`, tone: "add" }],
+              });
+              summaryNotes.push(`Read \`${act.path}\``);
+              fileReadResults.push({ path: act.path, content: data.content });
+            } else {
+              nodes.push({ type: "tool", primary: "Read file failed", secondary: act.path, status: "failed", details: [{ text: `✗ ${data.error}`, tone: "error" }] });
+            }
+          } catch (err: any) {
+            nodes.push({ type: "tool", primary: "Read file failed", secondary: act.path, status: "failed", details: [{ text: `✗ ${err.message}`, tone: "error" }] });
+          }
+        }
+
+        if (actionType === "write_file" && act.path) {
+          try {
+            const res = await fetch("/api/fs/write-file", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ projectPath: activePath, path: act.path, content: act.content ?? "" }),
+            });
+            const data = await res.json();
+            if (data.ok) {
+              nodes.push({
+                type: "tool",
+                primary: "Write file",
+                secondary: act.path,
+                mono: true,
+                details: [{ text: `✓ Wrote ${act.path} (${data.lines} lines)`, tone: "add" }],
+              });
+              summaryNotes.push(`Wrote \`${act.path}\``);
+            } else {
+              throw new Error(data.error || "Failed to write file");
+            }
+          } catch (err: any) {
+            nodes.push({ type: "tool", primary: "Write file failed", secondary: act.path, status: "failed", details: [{ text: `✗ ${err.message}`, tone: "error" }] });
+          }
+        }
+
+        if (actionType === "list_dir") {
+          try {
+            const res = await fetch("/api/fs/list-dir", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ projectPath: activePath, path: act.path ?? "" }),
+            });
+            const data = await res.json();
+            if (data.ok) {
+              const listing = data.entries.map((e: any) => `${e.type === "dir" ? "📁" : "📄"} ${e.name}`).join("\n");
+              nodes.push({
+                type: "tool",
+                primary: "List directory",
+                secondary: act.path || "/",
+                mono: true,
+                details: [{ text: listing || "(empty)", tone: "add" }],
+              });
+              summaryNotes.push(`Listed \`${act.path || "/"}\``);
+              dirListResults.push({ path: act.path || "/", listing });
+            }
+          } catch (err: any) {
+            nodes.push({ type: "tool", primary: "List dir failed", secondary: act.path || "/", status: "failed", details: [{ text: `✗ ${err.message}`, tone: "error" }] });
+          }
+        }
       }
 
-      return { nodes, summaryNotes };
+      return { nodes, summaryNotes, fileReadResults, dirListResults };
     },
     []
   );
@@ -861,7 +939,7 @@ IMPORTANT RULES:
       let currentPrompt = fullPrompt;
       let lastParsed: CalvrasResponsePayload | null = null;
       let iteration = 0;
-      const MAX_AGENT_STEPS = 3;
+      const MAX_AGENT_STEPS = 8;
 
       while (iteration < MAX_AGENT_STEPS) {
         iteration++;
@@ -939,15 +1017,37 @@ IMPORTANT RULES:
             )
           );
 
-          // Collect terminal/command outputs to feed back into the agent loop
+          // Build rich feedback for next iteration
+          const allFeedbackParts: string[] = [];
+
+          if (execResult.fileReadResults.length > 0) {
+            for (const fr of execResult.fileReadResults) {
+              allFeedbackParts.push(`FILE CONTENTS: ${fr.path}\n\`\`\`\n${fr.content}\n\`\`\``);
+            }
+          }
+          if (execResult.dirListResults.length > 0) {
+            for (const dl of execResult.dirListResults) {
+              allFeedbackParts.push(`DIRECTORY LISTING: ${dl.path}\n${dl.listing}`);
+            }
+          }
           const commandOutputs = execResult.nodes
             .filter((n) => n.type === "terminal")
-            .map((n) => `$ ${n.command || "command"}\n${n.output || "Done"}`);
+            .map((n) => `$ ${(n as any).command || "command"}\nExit: ${(n as any).exitCode}\n${(n as any).output || "Done"}`);
+          if (commandOutputs.length > 0) {
+            allFeedbackParts.push(`COMMAND OUTPUTS:\n${commandOutputs.join("\n\n")}`);
+          }
 
-          // If commands were run and agent has more steps allowed, feed results back!
-          if (commandOutputs.length > 0 && iteration < MAX_AGENT_STEPS) {
-            currentPrompt = `${fullPrompt}\n\n[AGENT COMMAND EXECUTION RESULTS - STEP ${iteration}]\n${commandOutputs.join("\n\n")}\n\nAnalyze these execution results, determine what needs to be fixed or built next, and output your next thoughts, actions, and message.`;
-            continue; // Agent continues autonomously!
+          // Continue if there's feedback to process
+          const hadActions = parsed.actions && parsed.actions.length > 0;
+          if (allFeedbackParts.length > 0 && iteration < MAX_AGENT_STEPS) {
+            currentPrompt = `${fullPrompt}\n\n[AGENT STEP ${iteration} RESULTS]\n${allFeedbackParts.join("\n\n---\n\n")}\n\nContinue working. If you have more files to read, write, or commands to run, include them in "actions". If the task is fully complete, set "actions" to [] and write your final summary in "message".`;
+            continue;
+          }
+
+          // If agent returned actions but no feedback (pure creates), also continue
+          if (hadActions && iteration < MAX_AGENT_STEPS) {
+            currentPrompt = `${fullPrompt}\n\n[AGENT STEP ${iteration} COMPLETE]\nFiles created/written: ${allSummaryNotes.slice(-5).join(", ")}. Continue with next steps or finalize.`;
+            continue;
           }
         }
 
