@@ -161,7 +161,10 @@ function SidebarWithProjects() {
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const router = useRouter();
-  const isExcludedPage = router.state.location.pathname === "/signin" || router.state.location.pathname === "/pricing";
+  const isExcludedPage =
+    router.state.location.pathname === "/signin" ||
+    router.state.location.pathname === "/pricing" ||
+    router.state.location.pathname === "/landing";
 
   return (
     <QueryClientProvider client={queryClient}>
