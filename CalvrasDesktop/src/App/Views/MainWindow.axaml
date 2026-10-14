@@ -16,11 +16,11 @@
     </Window.KeyBindings>
 
     <Grid RowDefinitions="48,*">
-        <!-- Minimal Top Header Bar (Matching calvras.com) -->
-        <Border Grid.Row="0" Background="#121212" BorderBrush="#1E1E1E" BorderThickness="0,0,0,1" Padding="12,0">
+        <!-- Minimal Top Header Bar (Matching design) -->
+        <Border Grid.Row="0" Background="#121212" BorderThickness="0" Padding="12,0">
             <Grid ColumnDefinitions="Auto,*,Auto">
-                <!-- Left: Sidebar Toggle -->
-                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                <!-- Left: Sidebar Toggle + Native Menu (Calvras, File, View, Window) -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                     <Button Command="{Binding ToggleSidebarCommand}" Background="Transparent" BorderThickness="0"
                             Padding="6" CornerRadius="6" Cursor="Hand" ToolTip.Tip="Toggle Navigation Sidebar">
                         <!-- Custom Sidebar Column Icon [|] -->
@@ -28,12 +28,44 @@
                             <Border Width="1.5" Background="#6B6B6B" HorizontalAlignment="Left" Margin="4,0,0,0"/>
                         </Border>
                     </Button>
+
+                    <!-- Native Application Menu -->
+                    <Menu Background="Transparent" VerticalAlignment="Center">
+                        <!-- Calvras Menu -->
+                        <MenuItem Header="Calvras" Foreground="#D4D4D8" FontSize="12">
+                            <MenuItem Header="Version 1.0.3" IsEnabled="False"/>
+                            <Separator/>
+                            <MenuItem Header="Check for Updates..." Command="{Binding ApplyUpdateCommand}"/>
+                            <MenuItem Header="Documentation &amp; Community" Click="OnOpenWebsiteClick"/>
+                            <Separator/>
+                            <MenuItem Header="Exit Calvras" Click="OnExitClick"/>
+                        </MenuItem>
+
+                        <!-- File Menu -->
+                        <MenuItem Header="File" Foreground="#D4D4D8" FontSize="12">
+                            <MenuItem Header="New Conversation" Command="{Binding CreateNewProjectCommand}" InputGesture="Ctrl+N"/>
+                            <MenuItem Header="Open Folder..." Click="OnOpenFolderClick" InputGesture="Ctrl+O"/>
+                            <Separator/>
+                            <MenuItem Header="Close Window" Click="OnExitClick"/>
+                        </MenuItem>
+
+                        <!-- View Menu -->
+                        <MenuItem Header="View" Foreground="#D4D4D8" FontSize="12">
+                            <MenuItem Header="Toggle Sidebar" Command="{Binding ToggleSidebarCommand}" InputGesture="Ctrl+B"/>
+                            <Separator/>
+                            <MenuItem Header="Toggle Dark / Light Mode" Command="{Binding ToggleThemeCommand}"/>
+                        </MenuItem>
+
+                        <!-- Window Menu -->
+                        <MenuItem Header="Window" Foreground="#D4D4D8" FontSize="12">
+                            <MenuItem Header="Minimize" Click="OnMinimizeClick"/>
+                            <MenuItem Header="Close" Click="OnExitClick"/>
+                        </MenuItem>
+                    </Menu>
                 </StackPanel>
 
-                <!-- Center: Live Digital Clock -->
-                <TextBlock Grid.Column="1" Text="{Binding ClockTime}"
-                           Foreground="#71717A" FontFamily="Consolas, Monaco, Monospace"
-                           FontSize="12" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                <!-- Center: Empty spacing (no digital clock) -->
+                <Panel Grid.Column="1"/>
 
                 <!-- Right: Update Button (Only when update is available) & Open project badge -->
                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
@@ -49,7 +81,7 @@
                         </StackPanel>
                     </Button>
 
-                    <!-- Active Project / Open project Button (Matches calvras.com) -->
+                    <!-- Active Project / Open project Button (with SVG folder icon) -->
                     <Button Click="OnOpenFolderClick"
                             Background="#1A1A1A" BorderBrush="#2A2A2A" BorderThickness="1"
                             CornerRadius="8" Padding="10,5" Cursor="Hand"
@@ -60,8 +92,10 @@
                             </Style>
                         </Button.Styles>
                         <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                            <!-- Minimal folder SVG style path -->
-                            <TextBlock Text="📁" FontSize="11" VerticalAlignment="Center"/>
+                            <!-- SVG Folder Icon -->
+                            <PathIcon Width="12" Height="12" Foreground="#9CA3AF"
+                                      Data="M1.5 4.5C1.5 3.67 2.17 3 3 3h2.38c.28 0 .55.1.74.3l.88.88H11c.83 0 1.5.67 1.5 1.5v5c0 .83-.67 1.5-1.5 1.5H3c-.83 0-1.5-.67-1.5-1.5v-6Z"
+                                      VerticalAlignment="Center"/>
                             <TextBlock Text="{Binding ActiveProject.Name, FallbackValue='Open project'}"
                                        FontSize="11.5" FontWeight="Medium" Foreground="#D4D4D8"
                                        VerticalAlignment="Center" MaxWidth="160" TextTrimming="CharacterEllipsis"/>

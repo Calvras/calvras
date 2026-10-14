@@ -19,6 +19,7 @@ public partial class WorkspaceViewModel : ViewModelBase
     private readonly IFilesystemService _fs;
     private readonly LocalDatabase _db;
     private CancellationTokenSource? _cts;
+    private System.Speech.Recognition.SpeechRecognitionEngine? _recognizer;
 
     [ObservableProperty]
     private ProjectModel? _activeProject;
@@ -56,11 +57,44 @@ public partial class WorkspaceViewModel : ViewModelBase
     [ObservableProperty]
     private string _effortLevel = "Medium";
 
+    [ObservableProperty]
+    private string _selectedModel = "GPT 5.5";
+
+    [ObservableProperty]
+    private bool _isModelPickerOpen = false;
+
+    [ObservableProperty]
+    private bool _isRecording = false;
+
+    public bool HasTextToSend => !string.IsNullOrWhiteSpace(PromptText) || AttachedFiles.Count > 0;
+    public bool ShowMicButton => !HasTextToSend && !IsBusy && !IsRecording;
+
+    partial void OnPromptTextChanged(string value)
+    {
+        OnPropertyChanged(nameof(HasTextToSend));
+        OnPropertyChanged(nameof(ShowMicButton));
+    }
+
+    partial void OnIsBusyChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowMicButton));
+    }
+
+    partial void OnIsRecordingChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowMicButton));
+    }
+
     public WorkspaceViewModel(IAgentRunner agentRunner, IFilesystemService fs, LocalDatabase db)
     {
         _agentRunner = agentRunner;
         _fs = fs;
         _db = db;
+        AttachedFiles.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(HasTextToSend));
+            OnPropertyChanged(nameof(ShowMicButton));
+        };
     }
 
     public async Task InitializeProjectAsync(ProjectModel project)
@@ -189,12 +223,12 @@ public partial class WorkspaceViewModel : ViewModelBase
 
             timerCts.Cancel();
 
-            // Typing animation for the assistant reply
+            // Snappy streaming typing animation for the assistant reply
             var fullMessage = outcome.Message ?? string.Empty;
             if (!string.IsNullOrWhiteSpace(fullMessage))
             {
                 int currentLength = 0;
-                int chunkSize = Math.Max(2, fullMessage.Length / 35);
+                int chunkSize = Math.Max(8, fullMessage.Length / 12);
 
                 while (currentLength < fullMessage.Length && !_cts.Token.IsCancellationRequested)
                 {
@@ -207,7 +241,7 @@ public partial class WorkspaceViewModel : ViewModelBase
                         var idx = Messages.IndexOf(current);
                         Messages[idx] = current with { Text = partial };
                     }
-                    await Task.Delay(20);
+                    await Task.Delay(8);
                 }
             }
 
@@ -285,11 +319,107 @@ public partial class WorkspaceViewModel : ViewModelBase
     }
 
     [RelayCommand]
+    public void ToggleModelPicker()
+    {
+        IsModelPickerOpen = !IsModelPickerOpen;
+    }
+
+    [RelayCommand]
+    public void SelectModel(string model)
+    {
+        SelectedModel = model;
+        IsModelPickerOpen = false;
+    }
+
+    [RelayCommand]
+    public void ToggleVoiceRecording()
+    {
+        if (IsRecording)
+        {
+            StopVoiceRecording();
+        }
+        else
+        {
+            StartVoiceRecording();
+        }
+    }
+
+    private void StartVoiceRecording()
+    {
+        try
+        {
+            _recognizer = new System.Speech.Recognition.SpeechRecognitionEngine();
+            _recognizer.SetInputToDefaultAudioDevice();
+            _recognizer.LoadGrammar(new System.Speech.Recognition.DictationGrammar());
+            _recognizer.SpeechRecognized += (s, e) =>
+            {
+                if (e.Result != null && !string.IsNullOrWhiteSpace(e.Result.Text))
+                {
+                    Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                    {
+                        PromptText = string.IsNullOrWhiteSpace(PromptText) ? e.Result.Text : $"{PromptText} {e.Result.Text}";
+                    });
+                }
+            };
+            _recognizer.RecognizeAsync(System.Speech.Recognition.RecognizeMode.Multiple);
+            IsRecording = true;
+        }
+        catch
+        {
+            IsRecording = false;
+        }
+    }
+
+    private void StopVoiceRecording()
+    {
+        try
+        {
+            _recognizer?.RecognizeAsyncStop();
+            _recognizer?.Dispose();
+            _recognizer = null;
+        }
+        catch { }
+        finally
+        {
+            IsRecording = false;
+        }
+    }
+
+    [RelayCommand]
+    public async Task CopyMessageAsync(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return;
+        try
+        {
+            if (Avalonia.Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop &&
+                desktop.MainWindow?.Clipboard != null)
+            {
+                await desktop.MainWindow.Clipboard.SetTextAsync(text);
+            }
+        }
+        catch { }
+    }
+
+    [RelayCommand]
+    public void FeedbackUp(ChatMessageModel? msg)
+    {
+        // Visual acknowledgment or metric
+    }
+
+    [RelayCommand]
+    public void FeedbackDown(ChatMessageModel? msg)
+    {
+        // Visual acknowledgment or metric
+    }
+
+    [RelayCommand]
     public void AddAttachment(string filePath)
     {
         if (File.Exists(filePath) && !AttachedFiles.Contains(filePath))
         {
             AttachedFiles.Add(filePath);
+            OnPropertyChanged(nameof(HasTextToSend));
+            OnPropertyChanged(nameof(ShowMicButton));
         }
     }
 
@@ -297,5 +427,7 @@ public partial class WorkspaceViewModel : ViewModelBase
     public void RemoveAttachment(string filePath)
     {
         AttachedFiles.Remove(filePath);
+        OnPropertyChanged(nameof(HasTextToSend));
+        OnPropertyChanged(nameof(ShowMicButton));
     }
 }

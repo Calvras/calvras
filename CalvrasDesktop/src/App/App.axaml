@@ -15,7 +15,7 @@
 
     <TrayIcon.Icons>
         <TrayIcons>
-            <TrayIcon Icon="/Assets/avalonia-logo.ico" ToolTipText="Calvras — Autonomous Coding Agent">
+            <TrayIcon Icon="/Assets/calvras-logo.ico" ToolTipText="Calvras — Autonomous Coding Agent">
                 <TrayIcon.Menu>
                     <NativeMenu>
                         <NativeMenuItem Header="Show Calvras" Click="OnTrayShowClick"/>

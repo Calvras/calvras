@@ -1,0 +1,255 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Calvras.App.ViewModels"
+             x:Class="Calvras.App.Controls.PromptInput"
+             x:DataType="vm:WorkspaceViewModel">
+
+    <Grid HorizontalAlignment="Center">
+        <!-- Floating Composer Column -->
+        <StackPanel Spacing="0" Width="640" HorizontalAlignment="Center">
+
+            <!-- 1. Attachments Tray (Slides above input pill) -->
+            <Border Background="#18181A" BorderBrush="#2C2C30" BorderThickness="1,1,1,0"
+                    CornerRadius="16,16,0,0" Padding="12,8" Margin="16,0,16,0"
+                    IsVisible="{Binding AttachedFiles.Count}">
+                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                    <ItemsControl ItemsSource="{Binding AttachedFiles}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" Spacing="8"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Width="56" Height="56" CornerRadius="12" Background="#222226" BorderBrush="#333338" BorderThickness="1" ClipToBounds="True">
+                                    <Grid>
+                                        <!-- Extension / File Icon -->
+                                        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="2">
+                                            <TextBlock Text="📄" FontSize="16" HorizontalAlignment="Center"/>
+                                            <TextBlock Text="{Binding}" FontSize="8" Foreground="#A1A1AA" MaxWidth="48" TextTrimming="CharacterEllipsis" HorizontalAlignment="Center"/>
+                                        </StackPanel>
+
+                                        <!-- Delete Button (Top Right) -->
+                                        <Button Command="{Binding $parent[UserControl].((vm:WorkspaceViewModel)DataContext).RemoveAttachmentCommand}"
+                                                CommandParameter="{Binding}"
+                                                HorizontalAlignment="Right" VerticalAlignment="Top"
+                                                Width="18" Height="18" CornerRadius="9" Padding="0" Margin="2"
+                                                Background="#3F3F46" Foreground="White" Cursor="Hand">
+                                            <TextBlock Text="✕" FontSize="8" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Button>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Border>
+
+            <!-- 2. Model Selector Popup Menu (Above input pill) -->
+            <Border IsVisible="{Binding IsModelPickerOpen}"
+                    Background="#1E1E22" BorderBrush="#333338" BorderThickness="1"
+                    CornerRadius="16" Padding="6" Margin="16,0,16,8"
+                    BoxShadow="0 12 36 #80000000">
+                <StackPanel Spacing="2">
+                    <TextBlock Text="Select AI Model" FontSize="11" FontWeight="SemiBold" Foreground="#71717A" Margin="10,6,10,4"/>
+
+                    <!-- GPT 5.5 -->
+                    <Button Command="{Binding SelectModelCommand}" CommandParameter="GPT 5.5"
+                            Background="Transparent" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                            Padding="10,7" CornerRadius="8" Cursor="Hand">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <TextBlock Grid.Column="0" Text="⚡" FontSize="12" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1" Text="GPT 5.5" FontSize="12.5" FontWeight="Medium" Foreground="#F4F4F5" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="2" Text="✓" FontSize="12" Foreground="#3FB950" VerticalAlignment="Center"
+                                       IsVisible="{Binding SelectedModel, Converter={x:Static ObjectConverters.Equal}, ConverterParameter='GPT 5.5'}"/>
+                        </Grid>
+                    </Button>
+
+                    <!-- Opus 4.8 -->
+                    <Button Command="{Binding SelectModelCommand}" CommandParameter="Opus 4.8"
+                            Background="Transparent" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                            Padding="10,7" CornerRadius="8" Cursor="Hand">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <TextBlock Grid.Column="0" Text="🧠" FontSize="12" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1" Text="Opus 4.8" FontSize="12.5" FontWeight="Medium" Foreground="#F4F4F5" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="2" Text="✓" FontSize="12" Foreground="#3FB950" VerticalAlignment="Center"
+                                       IsVisible="{Binding SelectedModel, Converter={x:Static ObjectConverters.Equal}, ConverterParameter='Opus 4.8'}"/>
+                        </Grid>
+                    </Button>
+
+                    <!-- Gemini 3.5 Flash -->
+                    <Button Command="{Binding SelectModelCommand}" CommandParameter="Gemini 3.5 Flash"
+                            Background="Transparent" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                            Padding="10,7" CornerRadius="8" Cursor="Hand">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <TextBlock Grid.Column="0" Text="✨" FontSize="12" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1" Text="Gemini 3.5 Flash" FontSize="12.5" FontWeight="Medium" Foreground="#F4F4F5" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="2" Text="✓" FontSize="12" Foreground="#3FB950" VerticalAlignment="Center"
+                                       IsVisible="{Binding SelectedModel, Converter={x:Static ObjectConverters.Equal}, ConverterParameter='Gemini 3.5 Flash'}"/>
+                        </Grid>
+                    </Button>
+
+                    <!-- Composer 2.5 -->
+                    <Button Command="{Binding SelectModelCommand}" CommandParameter="Composer 2.5"
+                            Background="Transparent" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                            Padding="10,7" CornerRadius="8" Cursor="Hand">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <TextBlock Grid.Column="0" Text="🛠️" FontSize="12" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1" Text="Composer 2.5" FontSize="12.5" FontWeight="Medium" Foreground="#F4F4F5" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="2" Text="✓" FontSize="12" Foreground="#3FB950" VerticalAlignment="Center"
+                                       IsVisible="{Binding SelectedModel, Converter={x:Static ObjectConverters.Equal}, ConverterParameter='Composer 2.5'}"/>
+                        </Grid>
+                    </Button>
+
+                    <!-- GLM 5.2 -->
+                    <Button Command="{Binding SelectModelCommand}" CommandParameter="GLM 5.2"
+                            Background="Transparent" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                            Padding="10,7" CornerRadius="8" Cursor="Hand">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <TextBlock Grid.Column="0" Text="🌐" FontSize="12" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1" Text="GLM 5.2" FontSize="12.5" FontWeight="Medium" Foreground="#F4F4F5" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="2" Text="✓" FontSize="12" Foreground="#3FB950" VerticalAlignment="Center"
+                                       IsVisible="{Binding SelectedModel, Converter={x:Static ObjectConverters.Equal}, ConverterParameter='GLM 5.2'}"/>
+                        </Grid>
+                    </Button>
+                </StackPanel>
+            </Border>
+
+            <!-- 3. Main Capsule Composer Card -->
+            <Border Background="#1C1C1F" BorderBrush="#2C2C30" BorderThickness="1"
+                    CornerRadius="24" Padding="16,10" BoxShadow="0 8 32 #50000000">
+                <Grid RowDefinitions="Auto,Auto">
+
+                    <!-- Textarea with Scrolling & Watermark -->
+                    <Grid Grid.Row="0">
+                        <TextBox Name="PromptTextBox"
+                                 Text="{Binding PromptText, Mode=TwoWay}"
+                                 Watermark="Describe a task or /command..."
+                                 Background="Transparent" BorderThickness="0"
+                                 Foreground="#FFFFFF" FontSize="13.5"
+                                 TextWrapping="Wrap" AcceptsReturn="True"
+                                 MinHeight="38" MaxHeight="160"
+                                 Padding="0,4,36,4" VerticalAlignment="Center">
+                            <TextBox.KeyBindings>
+                                <KeyBinding Gesture="Enter" Command="{Binding SendCommand}"/>
+                            </TextBox.KeyBindings>
+                        </TextBox>
+                    </Grid>
+
+                    <!-- Bottom Controls Row -->
+                    <Grid Grid.Row="1" ColumnDefinitions="Auto,Auto,Auto,*,Auto" Margin="0,6,0,0">
+
+                        <!-- Left: Model Selector Pill -->
+                        <Button Grid.Column="0" Command="{Binding ToggleModelPickerCommand}"
+                                Background="Transparent" BorderThickness="0" CornerRadius="12"
+                                Padding="6,4" Cursor="Hand" ToolTip.Tip="Select AI Model">
+                            <Button.Styles>
+                                <Style Selector="Button:pointerover /template/ ContentPresenter">
+                                    <Setter Property="Background" Value="#2A2A2E"/>
+                                </Style>
+                            </Button.Styles>
+                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                <TextBlock Text="⚡" FontSize="11" VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding SelectedModel}" FontSize="11.5" FontWeight="Medium" Foreground="#A1A1AA" VerticalAlignment="Center"/>
+                                <TextBlock Text="⌄" FontSize="9" Foreground="#71717A" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+
+                        <!-- Left: Effort Level Button (Low / Medium / Max Effort with 3-bar icon) -->
+                        <Button Grid.Column="1" Command="{Binding CycleEffortCommand}"
+                                Background="Transparent" BorderThickness="0" CornerRadius="12"
+                                Padding="6,4" Margin="4,0,0,0" Cursor="Hand" ToolTip.Tip="Reasoning effort (Low / Medium / Max Effort)">
+                            <Button.Styles>
+                                <Style Selector="Button:pointerover /template/ ContentPresenter">
+                                    <Setter Property="Background" Value="#2A2A2E"/>
+                                </Style>
+                            </Button.Styles>
+                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                <!-- 3-bar indicator -->
+                                <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                                    <!-- Bar 1 (always on) -->
+                                    <Border Width="2.5" Height="6" Background="#A1A1AA" CornerRadius="1"/>
+                                    <!-- Bar 2 (Medium or Max) -->
+                                    <Border Width="2.5" Height="9" CornerRadius="1"
+                                            Background="{Binding EffortLevel, Converter={x:Static ObjectConverters.Equal}, ConverterParameter='Low', Converter={x:Null}}">
+                                        <Border.Styles>
+                                            <Style Selector="Border">
+                                                <Setter Property="Background" Value="#A1A1AA"/>
+                                            </Style>
+                                        </Border.Styles>
+                                    </Border>
+                                    <!-- Bar 3 (Max Effort only) -->
+                                    <Border Width="2.5" Height="12" CornerRadius="1"
+                                            Background="{Binding EffortLevel, Converter={x:Static ObjectConverters.Equal}, ConverterParameter='Max Effort', Converter={x:Null}}">
+                                        <Border.Styles>
+                                            <Style Selector="Border">
+                                                <Setter Property="Background" Value="#4B4B52"/>
+                                            </Style>
+                                        </Border.Styles>
+                                    </Border>
+                                </StackPanel>
+                                <TextBlock Text="{Binding EffortLevel}" FontSize="11.5" FontWeight="Medium" Foreground="#A1A1AA" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+
+                        <!-- Left: Add Attachment Button (+) -->
+                        <Button Grid.Column="2" Click="OnAddAttachmentClick"
+                                Width="26" Height="26" CornerRadius="13"
+                                Background="Transparent" BorderThickness="1" BorderBrush="#333338"
+                                Padding="0" Margin="8,0,0,0" Cursor="Hand" ToolTip.Tip="Attach files or images (max 6)">
+                            <Button.Styles>
+                                <Style Selector="Button:pointerover /template/ ContentPresenter">
+                                    <Setter Property="Background" Value="#2A2A2E"/>
+                                </Style>
+                            </Button.Styles>
+                            <TextBlock Text="+" FontSize="13" FontWeight="Bold" Foreground="#8E8E93" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Button>
+
+                        <!-- Center: Live Voice Visualizer (Visible while recording) -->
+                        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="3" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                    IsVisible="{Binding IsRecording}">
+                            <Border Width="3" Height="14" Background="#EF4444" CornerRadius="1.5"/>
+                            <Border Width="3" Height="22" Background="#EF4444" CornerRadius="1.5"/>
+                            <Border Width="3" Height="10" Background="#EF4444" CornerRadius="1.5"/>
+                            <Border Width="3" Height="18" Background="#EF4444" CornerRadius="1.5"/>
+                            <Border Width="3" Height="8" Background="#EF4444" CornerRadius="1.5"/>
+                            <TextBlock Text="Listening..." FontSize="11" Foreground="#EF4444" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                        </StackPanel>
+
+                        <!-- Right: Action Button (Mic / Arrow-Up / Stop) -->
+                        <StackPanel Grid.Column="4" VerticalAlignment="Center">
+                            <!-- Stop Button (Visible when busy or recording) -->
+                            <Button Command="{Binding StopCommand}"
+                                    Width="32" Height="32" CornerRadius="16"
+                                    Background="#EF4444" Foreground="White" Padding="0" Cursor="Hand"
+                                    IsVisible="{Binding IsBusy}" ToolTip.Tip="Stop agent">
+                                <TextBlock Text="⏹" FontSize="11" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Button>
+
+                            <!-- Send Arrow Button (Visible when idle and has text) -->
+                            <Button Command="{Binding SendCommand}"
+                                    Width="32" Height="32" CornerRadius="16"
+                                    Background="#FFFFFF" Foreground="#121212" Padding="0" Cursor="Hand"
+                                    IsVisible="{Binding HasTextToSend}" ToolTip.Tip="Send prompt (Enter)">
+                                <TextBlock Text="↑" FontSize="16" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Button>
+
+                            <!-- Mic Voice Button (Visible when idle, empty text, and not recording) -->
+                            <Button Command="{Binding ToggleVoiceRecordingCommand}"
+                                    Width="32" Height="32" CornerRadius="16"
+                                    Background="#27272A" Foreground="#A1A1AA" Padding="0" Cursor="Hand"
+                                    IsVisible="{Binding ShowMicButton}" ToolTip.Tip="Voice prompt">
+                                <Button.Styles>
+                                    <Style Selector="Button:pointerover /template/ ContentPresenter">
+                                        <Setter Property="Background" Value="#333338"/>
+                                    </Style>
+                                </Button.Styles>
+                                <TextBlock Text="🎙️" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+            </Border>
+        </StackPanel>
+    </Grid>
+</UserControl>

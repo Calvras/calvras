@@ -65,6 +65,51 @@
                                                              FontSize="13.5" TextWrapping="Wrap" LineHeight="22"
                                                              IsVisible="{Binding HasText}"/>
 
+                                        <!-- Assistant Response Action Bar (Copy, Thumbs Up, Thumbs Down) -->
+                                        <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,4,0,0" IsVisible="{Binding HasText}">
+                                            <!-- Copy SVG Button -->
+                                            <Button Command="{Binding $parent[UserControl].((vm:WorkspaceViewModel)DataContext).CopyMessageCommand}"
+                                                    CommandParameter="{Binding Text}"
+                                                    Background="Transparent" BorderThickness="0" Padding="6,4" CornerRadius="6" Cursor="Hand"
+                                                    ToolTip.Tip="Copy response">
+                                                <Button.Styles>
+                                                    <Style Selector="Button:pointerover /template/ ContentPresenter">
+                                                        <Setter Property="Background" Value="#27272A"/>
+                                                    </Style>
+                                                </Button.Styles>
+                                                <PathIcon Width="13" Height="13" Foreground="#71717A"
+                                                          Data="M4,2 C2.8954305,2 2,2.8954305 2,4 L2,14 C2,15.1045695 2.8954305,16 4,16 L12,16 C13.1045695,16 14,15.1045695 14,14 L14,4 C14,2.8954305 13.1045695,2 12,2 L4,2 Z M4,3 L12,3 C12.5522847,3 13,3.44771525 13,4 L13,14 C13,14.5522847 12.5522847,15 12,15 L4,15 C3.44771525,15 3,14.5522847 3,14 L3,4 C3,3.44771525 3.44771525,3 4,3 Z"/>
+                                            </Button>
+
+                                            <!-- Thumbs Up SVG Button -->
+                                            <Button Command="{Binding $parent[UserControl].((vm:WorkspaceViewModel)DataContext).FeedbackUpCommand}"
+                                                    CommandParameter="{Binding}"
+                                                    Background="Transparent" BorderThickness="0" Padding="6,4" CornerRadius="6" Cursor="Hand"
+                                                    ToolTip.Tip="Good response">
+                                                <Button.Styles>
+                                                    <Style Selector="Button:pointerover /template/ ContentPresenter">
+                                                        <Setter Property="Background" Value="#27272A"/>
+                                                    </Style>
+                                                </Button.Styles>
+                                                <PathIcon Width="13" Height="13" Foreground="#71717A"
+                                                          Data="M2 10h3v10H2zm18-1c0-.55-.45-1-1-1h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L12.17 2 7.58 6.59C7.22 6.95 7 7.45 7 8v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/>
+                                            </Button>
+
+                                            <!-- Thumbs Down SVG Button -->
+                                            <Button Command="{Binding $parent[UserControl].((vm:WorkspaceViewModel)DataContext).FeedbackDownCommand}"
+                                                    CommandParameter="{Binding}"
+                                                    Background="Transparent" BorderThickness="0" Padding="6,4" CornerRadius="6" Cursor="Hand"
+                                                    ToolTip.Tip="Bad response">
+                                                <Button.Styles>
+                                                    <Style Selector="Button:pointerover /template/ ContentPresenter">
+                                                        <Setter Property="Background" Value="#27272A"/>
+                                                    </Style>
+                                                </Button.Styles>
+                                                <PathIcon Width="13" Height="13" Foreground="#71717A"
+                                                          Data="M19 14h3V4h-3zM2 15c0 .55.45 1 1 1h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L9.83 22l4.59-4.59c.36-.36.58-.86.58-1.41V6c0-1.1-.9-2-2-2H4c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2z"/>
+                                            </Button>
+                                        </StackPanel>
+
                                         <!-- Error banner if failed -->
                                         <Border Background="#1C1C1F" BorderBrush="#EF4444" BorderThickness="1" CornerRadius="8"
                                                 Padding="10,6" IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
@@ -78,127 +123,10 @@
                 </StackPanel>
             </ScrollViewer>
 
-            <!-- Floating Centered Capsule Prompt Input (Matching calvras.com) -->
-            <Border VerticalAlignment="Bottom" HorizontalAlignment="Center" Width="680" Margin="24,0,24,24">
-                <Grid>
-                    <!-- Approval Mode Popup Picker (above input) -->
-                    <Border IsVisible="{Binding IsApprovalPickerOpen}"
-                            VerticalAlignment="Bottom" HorizontalAlignment="Left"
-                            Margin="0,0,0,105" Width="290"
-                            Background="#1E1E1E" BorderBrush="#333333" BorderThickness="1"
-                            CornerRadius="16" Padding="8" BoxShadow="0 12 36 #80000000" ZIndex="50">
-                        <StackPanel Spacing="4">
-                            <TextBlock Text="When Calvras makes changes" FontSize="11" Foreground="#71717A" Margin="8,4,8,4"/>
-
-                            <!-- Ask first -->
-                            <Button Command="{Binding SelectApprovalModeCommand}" CommandParameter="Ask first"
-                                    Background="Transparent" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                    Padding="8,6" CornerRadius="8" Cursor="Hand">
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <TextBlock Text="✋" FontSize="13" VerticalAlignment="Center"/>
-                                    <StackPanel Spacing="1">
-                                        <TextBlock Text="Ask first" FontSize="12" FontWeight="SemiBold" Foreground="#F4F4F5"/>
-                                        <TextBlock Text="Check in before touching files" FontSize="10" Foreground="#71717A"/>
-                                    </StackPanel>
-                                </StackPanel>
-                            </Button>
-
-                            <!-- Review changes -->
-                            <Button Command="{Binding SelectApprovalModeCommand}" CommandParameter="Review changes"
-                                    Background="Transparent" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                    Padding="8,6" CornerRadius="8" Cursor="Hand">
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <TextBlock Text="🛡️" FontSize="13" VerticalAlignment="Center"/>
-                                    <StackPanel Spacing="1">
-                                        <TextBlock Text="Review changes" FontSize="12" FontWeight="SemiBold" Foreground="#F4F4F5"/>
-                                        <TextBlock Text="Handle small edits freely" FontSize="10" Foreground="#71717A"/>
-                                    </StackPanel>
-                                </StackPanel>
-                            </Button>
-
-                            <!-- Full speed -->
-                            <Button Command="{Binding SelectApprovalModeCommand}" CommandParameter="Full speed"
-                                    Background="#2A2A2A" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                    Padding="8,6" CornerRadius="8" Cursor="Hand">
-                                <Grid ColumnDefinitions="Auto,*,Auto">
-                                    <TextBlock Grid.Column="0" Text="⚡" FontSize="13" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                    <StackPanel Grid.Column="1" Spacing="1">
-                                        <TextBlock Text="Full speed" FontSize="12" FontWeight="SemiBold" Foreground="#F4F4F5"/>
-                                        <TextBlock Text="Make edits and run tasks directly" FontSize="10" Foreground="#71717A"/>
-                                    </StackPanel>
-                                    <TextBlock Grid.Column="2" Text="✓" FontSize="12" Foreground="#3FB950" VerticalAlignment="Center"/>
-                                </Grid>
-                            </Button>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- Capsule Input Pill -->
-                    <Border Background="#1C1C1F" BorderBrush="#2C2C30" BorderThickness="1"
-                            CornerRadius="24" Padding="16,10" BoxShadow="0 8 32 #50000000">
-                        <Grid RowDefinitions="Auto,Auto">
-                            <!-- Prompt Text Box -->
-                            <TextBox Grid.Row="0" Text="{Binding PromptText, Mode=TwoWay}"
-                                     Watermark="Describe a task or /command..."
-                                     Background="Transparent" BorderThickness="0"
-                                     Foreground="#FFFFFF" FontSize="13.5"
-                                     TextWrapping="Wrap" AcceptsReturn="True"
-                                     MaxHeight="120" MinHeight="36" VerticalAlignment="Center">
-                                <TextBox.KeyBindings>
-                                    <KeyBinding Gesture="Enter" Command="{Binding SendCommand}"/>
-                                </TextBox.KeyBindings>
-                            </TextBox>
-
-                            <!-- Bottom Action Row: Approval Mode, Effort, Attachments, Send/Stop -->
-                            <Grid Grid.Row="1" ColumnDefinitions="Auto,Auto,Auto,*,Auto" Margin="0,6,0,0">
-                                <!-- Approval Mode Pill Button -->
-                                <Button Grid.Column="0" Command="{Binding ToggleApprovalPickerCommand}"
-                                        Background="Transparent" BorderThickness="0" CornerRadius="12"
-                                        Padding="6,4" Cursor="Hand" ToolTip.Tip="Approval mode">
-                                    <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
-                                        <TextBlock Text="⚡" FontSize="11" VerticalAlignment="Center"/>
-                                        <TextBlock Text="{Binding ApprovalMode}" FontSize="11" FontWeight="Medium" Foreground="#A1A1AA" VerticalAlignment="Center"/>
-                                        <TextBlock Text="⌄" FontSize="9" Foreground="#71717A" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                </Button>
-
-                                <!-- Effort Level Button -->
-                                <Button Grid.Column="1" Command="{Binding CycleEffortCommand}"
-                                        Background="Transparent" BorderThickness="0" CornerRadius="12"
-                                        Padding="6,4" Margin="4,0,0,0" Cursor="Hand" ToolTip.Tip="Click to cycle reasoning effort">
-                                    <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
-                                        <TextBlock Text="⬛" FontSize="9" Foreground="#71717A" VerticalAlignment="Center"/>
-                                        <TextBlock Text="{Binding EffortLevel}" FontSize="11" FontWeight="Medium" Foreground="#A1A1AA" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                </Button>
-
-                                <!-- Attachments Count / Add Button -->
-                                <Button Grid.Column="2" Command="{Binding AddAttachmentCommand}" CommandParameter=""
-                                        Background="Transparent" BorderThickness="0" CornerRadius="12"
-                                        Padding="6,4" Margin="4,0,0,0" Cursor="Hand" ToolTip.Tip="Add attachment">
-                                    <TextBlock Text="+" FontSize="13" FontWeight="Bold" Foreground="#71717A" VerticalAlignment="Center"/>
-                                </Button>
-
-                                <!-- Circular Action Button (Send / Stop) -->
-                                <StackPanel Grid.Column="4" VerticalAlignment="Center">
-                                    <!-- Stop Button when busy -->
-                                    <Button Command="{Binding StopCommand}" Width="32" Height="32" CornerRadius="16"
-                                            Background="#EF4444" Foreground="White" Padding="0" Cursor="Hand"
-                                            IsVisible="{Binding IsBusy}" ToolTip.Tip="Stop execution">
-                                        <TextBlock Text="⏹" FontSize="11" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Button>
-
-                                    <!-- Send Button when idle -->
-                                    <Button Command="{Binding SendCommand}" Width="32" Height="32" CornerRadius="16"
-                                            Background="#FFFFFF" Foreground="#121212" Padding="0" Cursor="Hand"
-                                            IsVisible="{Binding !IsBusy}" ToolTip.Tip="Send prompt (Enter)">
-                                        <TextBlock Text="↑" FontSize="15" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Button>
-                                </StackPanel>
-                            </Grid>
-                        </Grid>
-                    </Border>
-                </Grid>
-            </Border>
+            <!-- Native PromptInput Control (Port of ai-chat-input.tsx) -->
+            <c:PromptInput DataContext="{Binding}"
+                           VerticalAlignment="Bottom" HorizontalAlignment="Center"
+                           Margin="24,0,24,24"/>
         </Grid>
 
         <!-- Implementation Plan Side Drawer (Only opens on explicit toggle) -->

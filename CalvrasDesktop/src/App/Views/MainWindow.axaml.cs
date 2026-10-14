@@ -111,6 +111,11 @@ public partial class MainWindow : Window
         }
     }
 
+    private void OnMinimizeClick(object? sender, RoutedEventArgs e)
+    {
+        WindowState = WindowState.Minimized;
+    }
+
     private void OnExitClick(object? sender, RoutedEventArgs e)
     {
         Close();
