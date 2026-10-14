@@ -144,16 +144,9 @@ public partial class WorkspaceViewModel : ViewModelBase
         var text = PromptText.Trim();
         if (string.IsNullOrWhiteSpace(text) || IsBusy) return;
 
-        IsInputExpanded = false; // Smoothly close back to small pill!
+        IsInputExpanded = false;
         IsApprovalPickerOpen = false;
         IsModelPickerOpen = false;
-
-        if (ActiveProject == null)
-        {
-            // Auto create an active project if none selected
-            var proj = await _fs.CreateProjectAsync("project");
-            await InitializeProjectAsync(proj);
-        }
 
         PromptText = string.Empty;
         var attachments = AttachedFiles.ToList();
@@ -169,7 +162,7 @@ public partial class WorkspaceViewModel : ViewModelBase
         };
         Messages.Add(userMsg);
 
-        // 2. Assistant Message placeholder with initial Thinking state (Left-aligned)
+        // 2. Assistant Message placeholder
         var assistantMsg = new ChatMessageModel
         {
             Role = "assistant",
@@ -185,7 +178,6 @@ public partial class WorkspaceViewModel : ViewModelBase
         ElapsedSeconds = 0;
         _cts = new CancellationTokenSource();
 
-        // UI-safe DispatcherTimer (NEVER crashes background threads)
         var timer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         timer.Tick += (_, _) =>
         {
@@ -196,6 +188,13 @@ public partial class WorkspaceViewModel : ViewModelBase
 
         try
         {
+            // Ensure a project exists — inside try so any IO failure shows as error, not crash
+            if (ActiveProject == null)
+            {
+                var proj = await _fs.CreateProjectAsync("project");
+                await InitializeProjectAsync(proj);
+            }
+
             var outcome = await _agentRunner.RunAsync(
                 text,
                 ActiveProject!.Path,
@@ -233,7 +232,7 @@ public partial class WorkspaceViewModel : ViewModelBase
 
             timer.Stop();
 
-            // Snappy streaming typing animation for the assistant reply
+            // Streaming typing animation
             var fullMessage = outcome.Message ?? string.Empty;
             if (!string.IsNullOrWhiteSpace(fullMessage))
             {
@@ -259,7 +258,6 @@ public partial class WorkspaceViewModel : ViewModelBase
                 }
             }
 
-            // Finalize message state
             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
                 var finalMsg = Messages.FirstOrDefault(m => m.Id == assistantMsg.Id);
@@ -306,6 +304,7 @@ public partial class WorkspaceViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
+            // Any failure (network, filesystem, etc.) shows as an error in the chat — never crashes the app
             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
                 var finalMsg = Messages.FirstOrDefault(m => m.Id == assistantMsg.Id);
