@@ -27,7 +27,7 @@ const mediaItem = {
   visible: { opacity: 1, y: 0, filter: "blur(0px)", transition: { duration: 0.6, delay: 0.15, ease: easeOut } },
 };
 
-const DOWNLOAD_URL = "/Calvras-win-Setup.exe";
+const DOWNLOAD_URL = "https://github.com/SHIKARI-hey/Calvras/releases/download/v1.0.3/Calvras-win-Setup.exe";
 
 function LandingPage() {
   return (
