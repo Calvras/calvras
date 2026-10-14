@@ -35,14 +35,8 @@ public partial class PromptInput : UserControl
 
     private void OnTextBoxLostFocus(object? sender, RoutedEventArgs e)
     {
-        if (DataContext is WorkspaceViewModel vm)
-        {
-            // Only collapse if there is no text, no attachments, and agent is not busy/recording
-            if (string.IsNullOrWhiteSpace(vm.PromptText) && vm.AttachedFiles.Count == 0 && !vm.IsBusy && !vm.IsRecording)
-            {
-                vm.IsInputExpanded = false;
-            }
-        }
+        // Don't auto-collapse on empty space or clicking outside.
+        // It stays open until the user sends a message or presses Escape.
     }
 
     private async void OnAddAttachmentClick(object? sender, RoutedEventArgs e)

@@ -69,12 +69,11 @@
 
                 <!-- Right: Update Button (Only when update is available) & Open project badge -->
                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <!-- Update Button (ONLY visible when an update is available, grey background with 'Update' text) -->
+                    <!-- Update Button (Permanently visible, grey background with 'Update' text) -->
                     <Button Command="{Binding ApplyUpdateCommand}"
                             Background="#2A2A2A" BorderBrush="#3A3A3A" BorderThickness="1"
                             CornerRadius="8" Padding="12,5" Cursor="Hand"
-                            IsVisible="{Binding HasUpdateAvailable}"
-                            ToolTip.Tip="A new update is available. Click to install.">
+                            ToolTip.Tip="Check or install updates">
                         <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
                             <TextBlock Text="✦" FontSize="11" Foreground="#A855F7" VerticalAlignment="Center"/>
                             <TextBlock Text="Update" FontSize="11.5" FontWeight="SemiBold" Foreground="#FFFFFF" VerticalAlignment="Center"/>
@@ -240,35 +239,21 @@
                                 </StackPanel>
                             </Button>
 
-                            <!-- User row -->
-                            <Button Command="{Binding NavigateToCommand}" CommandParameter="SignIn"
+                            <!-- Settings Button (Image 5 spec) -->
+                            <Button Command="{Binding ToggleSettingsCommand}"
                                     Background="Transparent" BorderThickness="0"
                                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                    Padding="6,6" CornerRadius="6" Cursor="Hand">
+                                    Padding="6,7" CornerRadius="8" Cursor="Hand">
                                 <Button.Styles>
                                     <Style Selector="Button:pointerover /template/ ContentPresenter">
                                         <Setter Property="Background" Value="#1F1F1F"/>
                                     </Style>
                                 </Button.Styles>
-                                <Grid ColumnDefinitions="Auto,*,Auto">
-                                    <!-- Avatar circle -->
-                                    <Border Grid.Column="0" Background="#2A2A2A" CornerRadius="12"
-                                            Width="28" Height="28" VerticalAlignment="Center">
-                                        <TextBlock Text="U" FontSize="11" FontWeight="SemiBold"
-                                                   Foreground="#A1A1AA" HorizontalAlignment="Center"
-                                                   VerticalAlignment="Center"/>
-                                    </Border>
-                                    <!-- Name + plan -->
-                                    <StackPanel Grid.Column="1" Spacing="1" Margin="8,0,0,0" VerticalAlignment="Center">
-                                        <TextBlock Text="{Binding UserEmail, FallbackValue='User'}"
-                                                   FontSize="11.5" FontWeight="Medium" Foreground="#D4D4D4"
-                                                   TextTrimming="CharacterEllipsis"/>
-                                        <TextBlock Text="Free plan" FontSize="10" Foreground="#555555"/>
-                                    </StackPanel>
-                                    <!-- Ellipsis -->
-                                    <TextBlock Grid.Column="2" Text="···" FontSize="13"
-                                               Foreground="#555555" VerticalAlignment="Center"/>
-                                </Grid>
+                                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                    <PathIcon Width="14" Height="14" Foreground="#8E8E93"
+                                              Data="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+                                    <TextBlock Text="Settings" FontSize="12.5" FontWeight="Medium" Foreground="#D4D4D8" VerticalAlignment="Center"/>
+                                </StackPanel>
                             </Button>
                         </StackPanel>
                     </Border>
@@ -279,6 +264,94 @@
             <Grid Grid.Column="1" Background="#121212">
                 <ContentControl Content="{Binding CurrentView}"/>
             </Grid>
+
+            <!-- Settings Modal Popup Overlay -->
+            <Border Grid.Column="0" Grid.ColumnSpan="2"
+                    Background="#8A000000"
+                    IsVisible="{Binding IsSettingsOpen}"
+                    HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                <Border Width="560" MaxHeight="480"
+                        Background="#18181B" BorderBrush="#2E2E33" BorderThickness="1"
+                        CornerRadius="16" BoxShadow="0 20 60 #90000000"
+                        Padding="24" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <Grid RowDefinitions="Auto,*">
+                        <!-- Header -->
+                        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,20">
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <PathIcon Width="18" Height="18" Foreground="#A1A1AA"
+                                          Data="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+                                <TextBlock Text="Settings" FontSize="18" FontWeight="SemiBold" Foreground="#FFFFFF"/>
+                            </StackPanel>
+                            <Button Grid.Column="1" Command="{Binding CloseSettingsCommand}"
+                                    Width="28" Height="28" CornerRadius="14"
+                                    Background="Transparent" BorderThickness="0"
+                                    Padding="0" Cursor="Hand">
+                                <TextBlock Text="✕" FontSize="13" Foreground="#71717A" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Button>
+                        </Grid>
+
+                        <!-- Content Tabs / Sections -->
+                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                            <StackPanel Spacing="16">
+                                <!-- AI Model Settings -->
+                                <Border Background="#202024" BorderBrush="#2E2E33" BorderThickness="1" CornerRadius="10" Padding="14">
+                                    <StackPanel Spacing="10">
+                                        <TextBlock Text="AI Engine" FontSize="13" FontWeight="SemiBold" Foreground="#E4E4E7"/>
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <StackPanel Grid.Column="0">
+                                                <TextBlock Text="Default AI Model" FontSize="12" Foreground="#D4D4D8"/>
+                                                <TextBlock Text="Used for autonomous code generation and problem solving" FontSize="10.5" Foreground="#71717A"/>
+                                            </StackPanel>
+                                            <ComboBox Grid.Column="1" SelectedIndex="0" Width="160" Background="#18181B" BorderBrush="#323238">
+                                                <ComboBoxItem Content="GPT 5.5"/>
+                                                <ComboBoxItem Content="Opus 4.8"/>
+                                                <ComboBoxItem Content="Gemini 3.5 Flash"/>
+                                                <ComboBoxItem Content="Composer 2.5"/>
+                                                <ComboBoxItem Content="GLM 5.2"/>
+                                            </ComboBox>
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- Editor / General Settings -->
+                                <Border Background="#202024" BorderBrush="#2E2E33" BorderThickness="1" CornerRadius="10" Padding="14">
+                                    <StackPanel Spacing="10">
+                                        <TextBlock Text="General" FontSize="13" FontWeight="SemiBold" Foreground="#E4E4E7"/>
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <StackPanel Grid.Column="0">
+                                                <TextBlock Text="Theme" FontSize="12" Foreground="#D4D4D8"/>
+                                                <TextBlock Text="Dark theme optimized for OLED and low light" FontSize="10.5" Foreground="#71717A"/>
+                                            </StackPanel>
+                                            <ComboBox Grid.Column="1" SelectedIndex="0" Width="160" Background="#18181B" BorderBrush="#323238">
+                                                <ComboBoxItem Content="Calvras Dark"/>
+                                                <ComboBoxItem Content="System Default"/>
+                                            </ComboBox>
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- About & Updates -->
+                                <Border Background="#202024" BorderBrush="#2E2E33" BorderThickness="1" CornerRadius="10" Padding="14">
+                                    <StackPanel Spacing="10">
+                                        <TextBlock Text="About &amp; Updates" FontSize="13" FontWeight="SemiBold" Foreground="#E4E4E7"/>
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <StackPanel Grid.Column="0">
+                                                <TextBlock Text="Calvras Desktop v1.0.3" FontSize="12" Foreground="#D4D4D8"/>
+                                                <TextBlock Text="Connected to Calvras Cloud AI" FontSize="10.5" Foreground="#71717A"/>
+                                            </StackPanel>
+                                            <Button Grid.Column="1" Command="{Binding ApplyUpdateCommand}"
+                                                    Background="#2A2A2A" BorderBrush="#3A3A3A" BorderThickness="1"
+                                                    CornerRadius="6" Padding="10,5" Cursor="Hand">
+                                                <TextBlock Text="Check for Updates" FontSize="11" Foreground="#FFFFFF"/>
+                                            </Button>
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </Grid>
+                </Border>
+            </Border>
         </Grid>
     </Grid>
 </Window>

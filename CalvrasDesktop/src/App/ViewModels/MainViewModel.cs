@@ -56,6 +56,21 @@ public partial class MainViewModel : ViewModelBase
     [ObservableProperty]
     private string? _toastMessage;
 
+    [ObservableProperty]
+    private bool _isSettingsOpen;
+
+    [RelayCommand]
+    public void ToggleSettings()
+    {
+        IsSettingsOpen = !IsSettingsOpen;
+    }
+
+    [RelayCommand]
+    public void CloseSettings()
+    {
+        IsSettingsOpen = false;
+    }
+
     public WorkspaceViewModel WorkspaceVm { get; }
     public LandingViewModel LandingVm { get; }
     public CapabilitiesViewModel CapabilitiesVm { get; }
