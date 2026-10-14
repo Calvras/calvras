@@ -359,14 +359,7 @@ async function callInferenceCascade(
     }
   }
 
-  return {
-    text: JSON.stringify({
-      status: "blocked",
-      actions: [],
-      message: "I am having trouble connecting to AI services right now. Please try again in a few moments.",
-    }),
-    model: "offline",
-  };
+  throw new Error("AI inference unavailable");
 }
 
 // ─── OpenAI-Compatible /api/v1/chat/completions Route Handler ─────────────────
@@ -481,32 +474,9 @@ async function handleChatCompletions(request: Request): Promise<Response> {
     });
   } catch (err: any) {
     console.error("API completions error:", err);
-    return new Response(
-      JSON.stringify({
-        id: `chatcmpl-${Date.now()}`,
-        object: "chat.completion",
-        created: Math.floor(Date.now() / 1000),
-        model: "calvras-fallback",
-        choices: [
-          {
-            index: 0,
-            message: {
-              role: "assistant",
-              content: JSON.stringify({
-      status: "blocked",
-                actions: [],
-                message: "Something went wrong while processing your request. Please try again.",
-              }),
-            },
-            finish_reason: "stop",
-          },
-        ],
-      }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return Response.json({ error: { type: "inference_error", message: err instanceof Error ? err.message : String(err) } }, { status: 503, headers: corsHeaders });
   }
 }
-
 // ── Filesystem Helpers (Desktop Folder & Surgical File Edits) ─────────────────
 
 function safeProjectPath(projectPath: string, relativePath: string): string {

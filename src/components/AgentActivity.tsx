@@ -21,7 +21,7 @@ function ToolActivity({ node }: { node: TraceNode }) {
   </details>;
 }
 
-export function AgentActivity({ phases, done, startedAt, endedAt }: { phases: AgentPhase[]; done: boolean; startedAt?: number | undefined; endedAt?: number | undefined }) {
+export function AgentActivity({ phases, done, startedAt, endedAt, status, error }: { phases: AgentPhase[]; done: boolean; startedAt?: number | undefined; endedAt?: number | undefined; status?: string | undefined; error?: string | undefined }) {
   const [now, setNow] = useState(Date.now());
   const [expanded, setExpanded] = useState(true);
   useEffect(() => { if (done) return; const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, [done]);
@@ -39,5 +39,9 @@ export function AgentActivity({ phases, done, startedAt, endedAt }: { phases: Ag
         {(expanded || final) && phase.message && <div className="my-4 text-sm leading-7"><MarkdownContent content={phase.message} /></div>}
       </div>;
     })}
+    {status && status !== "finished" && <div role="status" className="mt-4 rounded-lg border px-3 py-2 text-xs text-muted-foreground">
+      <span className="capitalize">{status === "limit" ? "Action limit reached" : status}</span>
+      {error && <details className="mt-2"><summary className="cursor-pointer">Error details</summary><pre className="mt-2 whitespace-pre-wrap break-words">{error}</pre></details>}
+    </div>}
   </div>;
 }

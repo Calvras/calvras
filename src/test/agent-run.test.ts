@@ -41,16 +41,22 @@ describe("real agent loop", () => {
   });
   it("reports the action limit instead of claiming success", async () => {
     const config = { ...options([reply("I'll inspect.", [list], "continue")]), maxSteps: 1 };
-    expect((await runAgent(config)).status).toBe("limit");
+    expect(await runAgent(config)).toEqual({ status: "limit" });
   });
   it("stops before executing actions after cancellation", async () => {
     const controller = new AbortController();
     const config = { ...options([]), signal: controller.signal, infer: vi.fn(async () => { controller.abort(); return reply("I'll inspect.", [list]); }) };
-    expect((await runAgent(config)).status).toBe("stopped");
+    expect(await runAgent(config)).toEqual({ status: "stopped" });
     expect(config.execute).not.toHaveBeenCalled();
   });
   it("rejects unsupported actions and missing file contents", () => {
     expect(() => parseAgentReply(reply("update", [{ type: "imaginary_tool" }]))).toThrow("Unsupported action");
     expect(() => parseAgentReply(reply("update", [{ type: "write_file", path: "app.ts" }]))).toThrow("Missing file contents");
+  });
+  it("reports inference failures as diagnostics without generating a canned reply", async () => {
+    const config = options([]);
+    config.infer.mockRejectedValue(new Error("HTTP 503"));
+    expect(await runAgent(config)).toEqual({ status: "blocked", error: "HTTP 503" });
+    expect(config.onFeedback).not.toHaveBeenCalled();
   });
 });

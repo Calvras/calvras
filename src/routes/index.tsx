@@ -45,6 +45,8 @@ interface Message {
   attachments?: AttachedFile[] | undefined;
   phases: AgentPhase[];
   done: boolean;
+  status?: string;
+  error?: string;
   startedAt?: number;
   endedAt?: number;
   role: "user" | "assistant";
@@ -522,7 +524,8 @@ function Index() {
               ...m,
               done: true,
               endedAt: Date.now(),
-              phases: [...m.phases.map((phase) => ({ ...phase, trace: phase.trace.map((node) => node.status === "running" ? { ...node, status: "failed" as const, output: "Stopped waiting. A command already started on the server may still run." } : node) })), { trace: [], message: "Stopped. Any actions already executed are shown above." }],
+              status: "stopped",
+              phases: [...m.phases.map((phase) => ({ ...phase, trace: phase.trace.map((node) => node.status === "running" ? { ...node, status: "failed" as const, output: "Stopped waiting. A command already started on the server may still run." } : node) }))],
             }
           : m
       )
@@ -717,8 +720,8 @@ IMPORTANT RULES:
       });
       if (abortControllerRef.current !== controller) return;
       if (outcome.plan) setActivePlan({ title: "Implementation Plan", content: outcome.plan, messageId: msgId });
-      phases.push({ trace: [], message: outcome.message });
-      setMessages((previous) => previous.map((message) => message.id === msgId ? { ...message, phases, done: true, endedAt: Date.now() } : message));
+      if (outcome.message) phases.push({ trace: [], message: outcome.message });
+      setMessages((previous) => previous.map((message) => message.id === msgId ? { ...message, phases, done: true, status: outcome.status, ...(outcome.error ? { error: outcome.error } : {}), endedAt: Date.now() } : message));
       setIsLoading(false);
       abortControllerRef.current = null;
     },
@@ -953,7 +956,7 @@ IMPORTANT RULES:
               </div>
 
               {/* Agent Trace & Response */}
-              <AgentActivity phases={message.phases} done={message.done} startedAt={message.startedAt} endedAt={message.endedAt} />
+              <AgentActivity phases={message.phases} done={message.done} startedAt={message.startedAt} endedAt={message.endedAt} status={message.status} error={message.error} />
 
               {/* Compact plan card — shown when this message has an associated plan */}
               {message.done && activePlan && activePlan.messageId === message.id && (

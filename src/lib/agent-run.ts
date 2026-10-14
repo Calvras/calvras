@@ -28,7 +28,7 @@ export function parseAgentReply(raw: string): AgentReply {
 }
 
 export type ToolFeedback = { action: AgentAction; ok: boolean; result: unknown };
-export type AgentOutcome = { status: "finished" | "blocked" | "stopped" | "limit"; message: string; plan?: string };
+export type AgentOutcome = { status: "finished" | "blocked" | "stopped" | "limit"; message?: string; error?: string; plan?: string };
 
 export async function runAgent(options: {
   prompt: string;
@@ -58,7 +58,7 @@ export async function runAgent(options: {
       }
       invalidReplies = 0;
       if (!reply.actions.length) {
-        if (reply.status === "blocked") return { status: "blocked", message: reply.message || "The agent needs more information to continue." };
+        if (reply.status === "blocked") return { status: "blocked", message: reply.message };
         if (reply.status !== "complete" || unresolvedFailures || (options.requiresTools && !executedActions)) {
           history.push(`[AGENT UPDATE]\n${reply.message}\n[CONTINUE] No actions were executed in this step. ${unresolvedFailures ? "Previous tools failed. Retry, recover, or return status blocked and explain the unresolved failure." : "Return actual actions for unfinished work. For a fully answered question or verified finished task, return status complete and the final answer. If you cannot act, return status blocked with the reason."}`);
           continue;
@@ -78,9 +78,9 @@ export async function runAgent(options: {
       unresolvedFailures = results.some((result) => !result.ok) || failedCommands.size > 0;
       history.push(`[AGENT UPDATE]\n${reply.message}\n[ACTUAL TOOL RESULTS]\n${JSON.stringify(results)}\nUse these results to decide the next action. Verify changes. Do not claim an action succeeded unless its result confirms success. Keep working or explain a blocker.`);
     }
-    return { status: "limit", message: "This run reached its action limit before the task was verified. Send Continue to resume from the recorded results." };
+    return { status: "limit" };
   } catch (error) {
-    if (options.signal.aborted) return { status: "stopped", message: "Stopped. Any actions already executed are shown above." };
-    return { status: "blocked", message: error instanceof Error ? error.message : "The agent could not continue." };
+    if (options.signal.aborted) return { status: "stopped" };
+    return { status: "blocked", error: error instanceof Error ? error.message : String(error) };
   }
 }
