@@ -32,7 +32,7 @@
         <!-- Base Composer Border: Collapsed Size -->
         <Style Selector="Border.composer-box">
             <Setter Property="Width" Value="380"/>
-            <Setter Property="MinHeight" Value="48"/>
+            <Setter Property="MinHeight" Value="44"/>
             <Setter Property="CornerRadius" Value="24"/>
             <Setter Property="Background" Value="#161618"/>
             <Setter Property="BorderBrush" Value="#2A2A2E"/>
@@ -43,7 +43,7 @@
         <!-- Expanded Composer Border -->
         <Style Selector="Border.composer-box.expanded">
             <Setter Property="Width" Value="560"/>
-            <Setter Property="MinHeight" Value="122"/>
+            <Setter Property="MinHeight" Value="100"/>
             <Setter Property="CornerRadius" Value="24"/>
             <Setter Property="Background" Value="#17171A"/>
             <Setter Property="BorderBrush" Value="#2E2E33"/>
@@ -183,9 +183,9 @@
                                  FontSize="13.5"
                                  TextWrapping="Wrap"
                                  AcceptsReturn="False"
-                                 MinHeight="36"
+                                 MinHeight="28"
                                  MaxHeight="160"
-                                 Padding="18,13,48,10"
+                                 Padding="16,9,48,8"
                                  GotFocus="OnTextBoxGotFocus"
                                  LostFocus="OnTextBoxLostFocus"
                                  KeyDown="OnTextBoxKeyDown"/>
@@ -290,7 +290,7 @@
                                     Background="#E4E4E7" Foreground="#18181B" Padding="0" Cursor="Hand"
                                     IsVisible="{Binding HasTextToSend}" ToolTip.Tip="Send prompt (Enter)">
                                 <PathIcon Width="13" Height="13" Foreground="#18181B"
-                                          Data="M12 19V5m-6 6l6-6 6 6"/>
+                                          Data="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
                             </Button>
 
                             <!-- Mic Voice Button (empty text, idle) -->

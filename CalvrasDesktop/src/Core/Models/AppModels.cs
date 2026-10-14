@@ -132,6 +132,9 @@ public record ChatMessageModel
     public bool IsAssistant => Role == "assistant";
     public bool HasText => !string.IsNullOrWhiteSpace(Text);
     public bool HasAttachedFiles => AttachedFiles != null && AttachedFiles.Count > 0;
+    public double ElapsedSeconds => EndedAt.HasValue && StartedAt.HasValue
+        ? (EndedAt.Value - StartedAt.Value) / 1000.0
+        : StartedAt.HasValue ? (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - StartedAt.Value) / 1000.0 : 0;
 }
 
 public record ImplementationPlanModel

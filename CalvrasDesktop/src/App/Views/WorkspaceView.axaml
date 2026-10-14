@@ -58,7 +58,11 @@
                                         </Border>
 
                                         <!-- Tool executions and trace view -->
-                                        <c:AgentActivityControl Phases="{Binding Phases}" IsVisible="{Binding Phases.Count}"/>
+                                        <c:AgentActivityControl
+                                            Phases="{Binding Phases}"
+                                            IsVisible="{Binding Phases.Count}"
+                                            IsWorking="{Binding !Done}"
+                                            ElapsedSeconds="{Binding ElapsedSeconds}"/>
 
                                         <!-- Final streaming / typed Markdown response -->
                                         <c:MarkdownTextControl Text="{Binding Text}" IsVisible="{Binding HasText}"/>
