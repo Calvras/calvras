@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { MarkdownContent } from "@/components/ui/markdown-content";
 import type { AgentPhase } from "@/components/ui/ai-agent-response";
-import { ResponseActionsToolbar, TracePillRow, PixelDotsLoader } from "@/components/ui/ai-agent-response";
+import { ResponseActionsToolbar, TracePillRow, PixelDotsLoader, NestedReasoningBlock } from "@/components/ui/ai-agent-response";
 
 export function AgentActivity({ phases, done, startedAt, endedAt, status, error }: { phases: AgentPhase[]; done: boolean; startedAt?: number | undefined; endedAt?: number | undefined; status?: string | undefined; error?: string | undefined }) {
   const [now, setNow] = useState(Date.now());
@@ -15,14 +15,74 @@ export function AgentActivity({ phases, done, startedAt, endedAt, status, error 
   const hasWork = toolNodes.length > 0;
   const hasSuccessfulWork = toolNodes.some((node) => node.status === "completed" || (node.status !== "failed" && node.status !== "running" && node.exitCode === 0));
   return <div className="w-full">
-    {hasWork && <button onClick={() => setExpanded(!expanded)} className="mb-3 flex w-fit items-center gap-1.5 rounded-sm bg-transparent p-0 text-left text-[13.5px] font-normal text-muted-foreground/75 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-expanded={expanded}>
-      {!done && <PixelDotsLoader />}{done ? hasSuccessfulWork ? "Worked" : "Activity" : "Working"}{duration && (!done || hasSuccessfulWork) && ` for ${duration}`}<ChevronDown size={13} className={expanded ? "rotate-180" : ""} />
+    {hasWork && <button onClick={() => setExpanded(!expanded)} className="mb-3 flex w-fit items-center gap-1.5 rounded-sm bg-transparent p-0 text-left text-[13.5px] font-normal text-muted-foreground/75 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer" aria-expanded={expanded}>
+      {!done && <PixelDotsLoader />}
+      {!done ? (
+        <span
+          className="bg-clip-text text-transparent font-medium"
+          style={{
+            backgroundImage:
+              "linear-gradient(90deg, var(--color-muted-foreground, oklch(0.55 0 0)) 35%, var(--color-foreground, oklch(0.95 0 0)) 50%, var(--color-muted-foreground, oklch(0.55 0 0)) 65%)",
+            backgroundSize: "200% 100%",
+            animation: "agent-shimmer 1.5s linear infinite",
+          }}
+        >
+          Working...
+        </span>
+      ) : (
+        <span>
+          {hasSuccessfulWork ? "Worked" : "Activity"}
+          {duration && (!done || hasSuccessfulWork) && ` for ${duration}`}
+        </span>
+      )}
+      <ChevronDown size={13} className={expanded ? "rotate-180" : ""} />
     </button>}
-    {!done && !hasWork && <span role="status" aria-label="Waiting for response" className="mb-3 inline-flex"><PixelDotsLoader /></span>}
+    {!done && !hasWork && (
+      <div role="status" aria-label="Waiting for response" className="mb-3 flex items-center gap-1.5 text-[13.5px]">
+        <PixelDotsLoader />
+        <span
+          className="bg-clip-text text-transparent font-medium"
+          style={{
+            backgroundImage:
+              "linear-gradient(90deg, var(--color-muted-foreground, oklch(0.55 0 0)) 35%, var(--color-foreground, oklch(0.95 0 0)) 50%, var(--color-muted-foreground, oklch(0.55 0 0)) 65%)",
+            backgroundSize: "200% 100%",
+            animation: "agent-shimmer 1.5s linear infinite",
+          }}
+        >
+          Thinking…
+        </span>
+      </div>
+    )}
     {phases.map((phase, index) => {
-      const tools = phase.trace.filter((node) => node.type !== "reasoning" && node.type !== "step");
+      const items = phase.trace.filter((node) => node.type !== "step");
       return <div key={index}>
-        {expanded && tools.length > 0 && <div className="mb-3 ml-2 flex flex-col gap-0.5 border-l border-border/60 py-0.5 pl-2"><div className="min-w-0">{tools.map((node, nodeIndex) => <TracePillRow key={node.id || nodeIndex} node={node} isActive={node.status === "running"} isFinished={node.status === "completed" || node.status === "failed"} />)}</div></div>}
+        {expanded && items.length > 0 && (
+          <div className="mb-3 ml-2 flex flex-col gap-0.5 border-l border-border/60 py-0.5 pl-2">
+            <div className="min-w-0">
+              {items.map((node, nodeIndex) => {
+                if (node.type === "reasoning" && node.sentences) {
+                  return (
+                    <NestedReasoningBlock
+                      key={node.id || nodeIndex}
+                      sentences={node.sentences}
+                      durationSeconds={node.durationSeconds}
+                      isActive={node.status === "running"}
+                      isFinished={done || node.status === "completed" || node.status === "failed"}
+                    />
+                  );
+                }
+                return (
+                  <TracePillRow
+                    key={node.id || nodeIndex}
+                    node={node}
+                    isActive={node.status === "running"}
+                    isFinished={node.status === "completed" || node.status === "failed"}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        )}
         {phase.message && <div className="group/reply my-3 font-sans text-[14.5px] leading-relaxed text-foreground/90 select-text text-pretty"><MarkdownContent content={phase.message} />
           {done && <ResponseActionsToolbar text={phase.message} className="mt-2 opacity-0 transition-opacity group-hover/reply:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100" />}
         </div>}

@@ -613,7 +613,17 @@ export function NestedReasoningBlock({
               Thought for <span className="tabular-nums font-mono text-[11.5px]">{durationSeconds}s</span>
             </span>
           ) : (
-            <span className="font-medium text-muted-foreground">Thinking…</span>
+            <span
+              className="bg-clip-text text-transparent font-medium"
+              style={{
+                backgroundImage:
+                  "linear-gradient(90deg, var(--color-muted-foreground, oklch(0.55 0 0)) 35%, var(--color-foreground, oklch(0.95 0 0)) 50%, var(--color-muted-foreground, oklch(0.55 0 0)) 65%)",
+                backgroundSize: "200% 100%",
+                animation: "agent-shimmer 1.8s linear infinite",
+              }}
+            >
+              Thinking…
+            </span>
           )}
         </span>
       </button>
@@ -1104,12 +1114,20 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
 
           <span className="text-[13.5px] font-normal transition-colors">
             {isWorking ? (
-              <span className="font-medium text-muted-foreground">
-                {hasActions ? "Working" : "Thinking"} for <span className="tabular-nums font-mono text-[12px]">{elapsedSeconds}</span>s...
+              <span
+                className="bg-clip-text text-transparent font-medium"
+                style={{
+                  backgroundImage:
+                    "linear-gradient(90deg, var(--color-muted-foreground, oklch(0.55 0 0)) 35%, var(--color-foreground, oklch(0.95 0 0)) 50%, var(--color-muted-foreground, oklch(0.55 0 0)) 65%)",
+                  backgroundSize: "200% 100%",
+                  animation: "agent-shimmer 1.5s linear infinite",
+                }}
+              >
+                {workingLabel}
               </span>
             ) : (
               <span>
-                {hasActions ? "Worked" : "Thought"} for <span className="tabular-nums font-mono text-[12px]">{elapsedSeconds}</span>s
+                Worked for <span className="tabular-nums font-mono text-[12px]">{elapsedSeconds}</span> {elapsedSeconds === 1 ? "second" : "seconds"}
               </span>
             )}
           </span>
@@ -1143,16 +1161,14 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
 
                 if (node.type === "reasoning" && node.sentences) {
                   return (
-                    <div
+                    <NestedReasoningBlock
                       key={idx}
-                      className="my-1 text-[13px] text-muted-foreground/90 font-normal leading-relaxed pr-2 space-y-1 select-text"
-                    >
-                      {node.sentences.map((s, sIdx) => (
-                        <p key={sIdx} className="m-0 text-pretty">
-                          {s}
-                        </p>
-                      ))}
-                    </div>
+                      sentences={node.sentences}
+                      durationSeconds={node.durationSeconds}
+                      isActive={isNodeActive}
+                      isFinished={isNodeFinished}
+                      onFinished={advanceStep}
+                    />
                   );
                 }
 
