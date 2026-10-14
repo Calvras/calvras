@@ -1,5 +1,9 @@
 using System;
+using System.Diagnostics;
 using System.IO;
+using System.Net.Http;
+using System.Reflection;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Velopack;
 using Velopack.Sources;
@@ -16,21 +20,19 @@ public interface IAppUpdateService
 public class AppUpdateService : IAppUpdateService
 {
     private UpdateManager? _updateManager;
-    private UpdateInfo? _pendingUpdate;
+    private UpdateInfo? _pendingVelopackUpdate;
+    private string? _pendingGitHubDownloadUrl;
 
     public string CurrentVersion
     {
         get
         {
-            try
+            var asmVer = Assembly.GetExecutingAssembly().GetName().Version;
+            if (asmVer != null)
             {
-                var mgr = GetOrCreateManager();
-                return mgr.IsInstalled ? mgr.CurrentVersion?.ToString() ?? "1.0.0" : "1.0.0";
+                return $"{asmVer.Major}.{asmVer.Minor}.{asmVer.Build}";
             }
-            catch
-            {
-                return "1.0.0";
-            }
+            return "1.0.3";
         }
     }
 
@@ -38,9 +40,6 @@ public class AppUpdateService : IAppUpdateService
     {
         if (_updateManager != null) return _updateManager;
 
-        // Try to locate update channel:
-        // 1. Web release endpoint: https://calvras.com/releases
-        // 2. Fallback to local installer folder if present
         var localDist = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "dist", "installer");
         if (Directory.Exists(localDist))
         {
@@ -56,48 +55,131 @@ public class AppUpdateService : IAppUpdateService
 
     public async Task<(bool hasUpdate, string? newVersion, string message)> CheckForUpdatesAsync()
     {
+        // 1. Try Velopack if installed
         try
         {
             var mgr = GetOrCreateManager();
-            if (!mgr.IsInstalled)
+            if (mgr.IsInstalled)
             {
-                return (false, null, $"Calvras v{CurrentVersion} (Portable / Dev)");
+                var updateInfo = await mgr.CheckForUpdatesAsync();
+                if (updateInfo != null)
+                {
+                    _pendingVelopackUpdate = updateInfo;
+                    var ver = updateInfo.TargetFullRelease.Version.ToString();
+                    return (true, ver, $"New version v{ver} available!");
+                }
             }
-
-            var updateInfo = await mgr.CheckForUpdatesAsync();
-            if (updateInfo == null)
-            {
-                return (false, null, $"You are up to date! (v{CurrentVersion})");
-            }
-
-            _pendingUpdate = updateInfo;
-            var ver = updateInfo.TargetFullRelease.Version.ToString();
-            return (true, ver, $"New version v{ver} available!");
         }
-        catch (Exception)
+        catch { }
+
+        // 2. Direct GitHub Release Check (reliably detects when an update is pushed to GitHub)
+        try
         {
-            return (false, null, $"Update check: Up to date (v{CurrentVersion})");
+            using var http = new HttpClient();
+            http.DefaultRequestHeaders.UserAgent.ParseAdd("CalvrasDesktop");
+            http.Timeout = TimeSpan.FromSeconds(8);
+
+            var json = await http.GetStringAsync("https://api.github.com/repos/SHIKARI-hey/Calvras/releases/latest");
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            if (root.TryGetProperty("tag_name", out var tagProp))
+            {
+                var tag = tagProp.GetString()?.Trim().TrimStart('v') ?? "";
+                if (Version.TryParse(tag, out var remoteVer) && Version.TryParse(CurrentVersion, out var localVer))
+                {
+                    if (remoteVer > localVer)
+                    {
+                        string? downloadUrl = null;
+                        if (root.TryGetProperty("assets", out var assets) && assets.ValueKind == JsonValueKind.Array)
+                        {
+                            foreach (var asset in assets.EnumerateArray())
+                            {
+                                var name = asset.GetProperty("name").GetString() ?? "";
+                                if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    downloadUrl = asset.GetProperty("browser_download_url").GetString();
+                                    break;
+                                }
+                            }
+                        }
+
+                        _pendingGitHubDownloadUrl = downloadUrl;
+                        return (true, tag, $"Update v{tag} is available!");
+                    }
+                }
+            }
+
+            return (false, null, $"Calvras is up to date (v{CurrentVersion})");
+        }
+        catch
+        {
+            return (false, null, $"Up to date (v{CurrentVersion})");
         }
     }
 
     public async Task<bool> DownloadAndInstallUpdateAsync(Action<int>? onProgress = null)
     {
-        try
+        // 1. If Velopack update is available
+        if (_pendingVelopackUpdate != null)
         {
-            if (_pendingUpdate == null)
+            try
             {
-                var check = await CheckForUpdatesAsync();
-                if (!check.hasUpdate || _pendingUpdate == null) return false;
+                var mgr = GetOrCreateManager();
+                await mgr.DownloadUpdatesAsync(_pendingVelopackUpdate, onProgress);
+                mgr.ApplyUpdatesAndRestart(_pendingVelopackUpdate);
+                return true;
             }
+            catch { }
+        }
 
-            var mgr = GetOrCreateManager();
-            await mgr.DownloadUpdatesAsync(_pendingUpdate, onProgress);
-            mgr.ApplyUpdatesAndRestart(_pendingUpdate);
-            return true;
-        }
-        catch (Exception)
+        // 2. If GitHub release installer is available
+        if (!string.IsNullOrEmpty(_pendingGitHubDownloadUrl))
         {
-            return false;
+            try
+            {
+                using var http = new HttpClient();
+                http.DefaultRequestHeaders.UserAgent.ParseAdd("CalvrasDesktop");
+                var tempFile = Path.Combine(Path.GetTempPath(), "Calvras-Setup.exe");
+
+                using (var response = await http.GetAsync(_pendingGitHubDownloadUrl, HttpCompletionOption.ResponseHeadersRead))
+                {
+                    response.EnsureSuccessStatusCode();
+                    var totalBytes = response.Content.Headers.ContentLength ?? -1L;
+                    using var contentStream = await response.Content.ReadAsStreamAsync();
+                    using var fileStream = new FileStream(tempFile, FileMode.Create, FileAccess.Write, FileShare.None, 8192, true);
+
+                    var buffer = new byte[8192];
+                    long totalRead = 0;
+                    int bytesRead;
+
+                    while ((bytesRead = await contentStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                    {
+                        await fileStream.WriteAsync(buffer, 0, bytesRead);
+                        totalRead += bytesRead;
+                        if (totalBytes > 0 && onProgress != null)
+                        {
+                            var pct = (int)((totalRead * 100) / totalBytes);
+                            onProgress(pct);
+                        }
+                    }
+                }
+
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = tempFile,
+                    UseShellExecute = true
+                });
+
+                Environment.Exit(0);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
         }
+
+        return false;
     }
 }

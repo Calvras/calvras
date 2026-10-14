@@ -128,24 +128,11 @@ public partial class MainViewModel : ViewModelBase
             _apiClient.SetAuthToken(savedToken);
         }
 
-        // Check for updates in the background silently
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                var (hasUpdate, newVer, _) = await _updateService.CheckForUpdatesAsync();
-                if (hasUpdate && !string.IsNullOrWhiteSpace(newVer))
-                {
-                    Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-                    {
-                        HasUpdateAvailable = true;
-                        NewVersion = newVer;
-                        UpdateButtonText = "Update";
-                    });
-                }
-            }
-            catch { }
-        });
+        // Check for updates in the background silently and every 10 minutes
+        _ = CheckForUpdatesSilentlyAsync();
+        var updateTimer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromMinutes(10) };
+        updateTimer.Tick += async (_, _) => await CheckForUpdatesSilentlyAsync();
+        updateTimer.Start();
     }
 
     private async Task LoadRecentProjectsAsync()
@@ -279,15 +266,15 @@ public partial class MainViewModel : ViewModelBase
         try
         {
             var (hasUpdate, newVer, _) = await _updateService.CheckForUpdatesAsync();
-            if (hasUpdate && !string.IsNullOrWhiteSpace(newVer))
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
-                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                HasUpdateAvailable = hasUpdate && !string.IsNullOrWhiteSpace(newVer);
+                if (HasUpdateAvailable)
                 {
-                    HasUpdateAvailable = true;
                     NewVersion = newVer;
-                    UpdateButtonText = $"Install v{newVer}";
-                });
-            }
+                    UpdateButtonText = "Update";
+                }
+            });
         }
         catch { }
     }
