@@ -31,14 +31,14 @@ public partial class MarkdownTextControl : UserControl
     };
 
     // Brush cache
-    private static readonly IBrush TextBrush = IBrush.Parse("#E4E4E7")!;
-    private static readonly IBrush DimBrush = IBrush.Parse("#71717A")!;
-    private static readonly IBrush CodeInlineBg = IBrush.Parse("#1C1C1F")!;
-    private static readonly IBrush CodeBlockBg = IBrush.Parse("#0D1117")!;
-    private static readonly IBrush CodeBlockBorder = IBrush.Parse("#30363D")!;
-    private static readonly IBrush CodeHeaderBg = IBrush.Parse("#161B22")!;
-    private static readonly IBrush CodeTextBrush = IBrush.Parse("#C9D1D9")!;
-    private static readonly IBrush CodeMetaBrush = IBrush.Parse("#8B949E")!;
+    private static readonly IBrush TextBrush = new SolidColorBrush(Color.Parse("#E4E4E7"));
+    private static readonly IBrush DimBrush = new SolidColorBrush(Color.Parse("#71717A"));
+    private static readonly IBrush CodeInlineBg = new SolidColorBrush(Color.Parse("#1C1C1F"));
+    private static readonly IBrush CodeBlockBg = new SolidColorBrush(Color.Parse("#0D1117"));
+    private static readonly IBrush CodeBlockBorder = new SolidColorBrush(Color.Parse("#30363D"));
+    private static readonly IBrush CodeHeaderBg = new SolidColorBrush(Color.Parse("#161B22"));
+    private static readonly IBrush CodeTextBrush = new SolidColorBrush(Color.Parse("#C9D1D9"));
+    private static readonly IBrush CodeMetaBrush = new SolidColorBrush(Color.Parse("#8B949E"));
 
     private static readonly FontFamily MonoFamily = new FontFamily("Consolas, Menlo, Monospace");
 
