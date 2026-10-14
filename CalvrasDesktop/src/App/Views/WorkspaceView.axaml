@@ -61,9 +61,7 @@
                                         <c:AgentActivityControl Phases="{Binding Phases}" IsVisible="{Binding Phases.Count}"/>
 
                                         <!-- Final streaming / typed Markdown response -->
-                                        <SelectableTextBlock Text="{Binding Text}" Foreground="#E4E4E7"
-                                                             FontSize="13.5" TextWrapping="Wrap" LineHeight="22"
-                                                             IsVisible="{Binding HasText}"/>
+                                        <c:MarkdownTextControl Text="{Binding Text}" IsVisible="{Binding HasText}"/>
 
                                         <!-- Assistant Response Action Bar (Copy, Thumbs Up, Thumbs Down) -->
                                         <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,4,0,0" IsVisible="{Binding HasText}">
