@@ -1,0 +1,39 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:m="using:Calvras.Core.Models"
+             x:Class="Calvras.App.Controls.FileDiffControl">
+    <Border Background="#0D1117" BorderBrush="#30363D" BorderThickness="1" CornerRadius="6" Margin="0,4,0,4">
+        <Grid RowDefinitions="Auto,Auto">
+            <!-- Diff Header -->
+            <Border Grid.Row="0" Background="#161B22" BorderBrush="#30363D" BorderThickness="0,0,0,1" Padding="8,5" CornerRadius="6,6,0,0">
+                <Grid ColumnDefinitions="Auto,*,Auto">
+                    <TextBlock Grid.Column="0" Text="&lt;/&gt;" Foreground="#F59E0B" FontWeight="Bold" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="1" Text="{Binding DiffFile}" Foreground="#F0F6FC" FontFamily="Consolas, Menlo, Monospace" FontSize="11" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                    
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding Add, StringFormat='+{0}'}" Foreground="#3FB950" FontSize="11" FontWeight="Bold" IsVisible="{Binding Add, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                        <TextBlock Text="{Binding Del, StringFormat='−{0}'}" Foreground="#F85149" FontSize="11" FontWeight="Bold" IsVisible="{Binding Del, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Diff Content Lines -->
+            <Border Grid.Row="1" Padding="0,4" MaxHeight="220" IsVisible="{Binding DiffRows, Converter={x:Static ObjectConverters.IsNotNull}}">
+                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding DiffRows}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="m:DiffRowModel">
+                                <Grid ColumnDefinitions="32,32,20,*" Margin="0,1">
+                                    <TextBlock Grid.Column="0" Text="{Binding Old}" Foreground="#6E7681" FontSize="10" TextAlignment="Right" Margin="0,0,6,0"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding Cur}" Foreground="#6E7681" FontSize="10" TextAlignment="Right" Margin="0,0,6,0"/>
+                                    <TextBlock Grid.Column="2" Text="{Binding Type}" Foreground="#8B949E" FontSize="10" FontWeight="Bold" TextAlignment="Center"/>
+                                    <SelectableTextBlock Grid.Column="3" Text="{Binding Text}" FontFamily="Consolas, Menlo, Monospace" FontSize="11" LineHeight="16" Foreground="#C9D1D9"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+    </Border>
+</UserControl>

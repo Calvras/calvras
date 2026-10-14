@@ -1,0 +1,223 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Calvras.App.ViewModels"
+             xmlns:m="using:Calvras.Core.Models"
+             xmlns:c="using:Calvras.App.Controls"
+             x:Class="Calvras.App.Views.WorkspaceView"
+             x:DataType="vm:WorkspaceViewModel"
+             Background="#121212">
+
+    <Grid ColumnDefinitions="*,Auto">
+        <!-- Main Workspace Area -->
+        <Grid Grid.Column="0">
+            <!-- Scrollable Timeline -->
+            <ScrollViewer Name="TimelineScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" Padding="20,20,20,130">
+                <StackPanel MaxWidth="680" HorizontalAlignment="Stretch">
+                    <!-- Welcome state (calvras.com: logo + text centered, no starter pills) -->
+                    <StackPanel IsVisible="{Binding !Messages.Count}" Margin="0,180,0,0" HorizontalAlignment="Center">
+                        <Image Source="/Assets/calvras-logo.png" Width="56" Height="56"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                               RenderOptions.BitmapInterpolationMode="HighQuality"
+                               Margin="0,0,0,20"/>
+                        <TextBlock Text="Your next idea starts here." FontSize="24" FontWeight="Normal"
+                                   Foreground="#F4F4F5" HorizontalAlignment="Center"/>
+                    </StackPanel>
+
+                    <!-- Chat Message List -->
+                    <ItemsControl ItemsSource="{Binding Messages}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="m:ChatMessageModel">
+                                <StackPanel Margin="0,8">
+                                    <!-- User Message (ONLY visible when IsUser, right-aligned) -->
+                                    <Border IsVisible="{Binding IsUser}"
+                                            HorizontalAlignment="Right" Background="#242426" CornerRadius="18"
+                                            Padding="16,10" MaxWidth="540" Margin="0,4">
+                                        <StackPanel Spacing="4">
+                                            <SelectableTextBlock Text="{Binding Text}" Foreground="#FFFFFF"
+                                                                 FontSize="13.5" TextWrapping="Wrap" LineHeight="20"/>
+                                            <ItemsControl ItemsSource="{Binding AttachedFiles}" IsVisible="{Binding HasAttachedFiles}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <Border Background="#1C1C1F" CornerRadius="4" Padding="6,2" Margin="0,2">
+                                                            <TextBlock Text="{Binding}" Foreground="#8E8E93" FontSize="10" TextTrimming="CharacterEllipsis"/>
+                                                        </Border>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!-- Assistant Message (ONLY visible when IsAssistant, left-aligned) -->
+                                    <StackPanel IsVisible="{Binding IsAssistant}" HorizontalAlignment="Left" MaxWidth="680" Margin="0,4,0,8" Spacing="8">
+                                        <!-- Thinking state while waiting / running -->
+                                        <Border IsVisible="{Binding !Done}" Background="Transparent" Margin="0,2,0,4">
+                                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                                <c:PixelDotsLoaderControl VerticalAlignment="Center"/>
+                                                <TextBlock Text="Thinking…" Foreground="#A1A1AA" FontSize="13.5" FontWeight="Medium" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Border>
+
+                                        <!-- Tool executions and trace view -->
+                                        <c:AgentActivityControl Phases="{Binding Phases}" IsVisible="{Binding Phases.Count}"/>
+
+                                        <!-- Final streaming / typed Markdown response -->
+                                        <SelectableTextBlock Text="{Binding Text}" Foreground="#E4E4E7"
+                                                             FontSize="13.5" TextWrapping="Wrap" LineHeight="22"
+                                                             IsVisible="{Binding HasText}"/>
+
+                                        <!-- Error banner if failed -->
+                                        <Border Background="#1C1C1F" BorderBrush="#EF4444" BorderThickness="1" CornerRadius="8"
+                                                Padding="10,6" IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                            <TextBlock Text="{Binding Error}" Foreground="#EF4444" FontSize="12" TextWrapping="Wrap"/>
+                                        </Border>
+                                    </StackPanel>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- Floating Centered Capsule Prompt Input (Matching calvras.com) -->
+            <Border VerticalAlignment="Bottom" HorizontalAlignment="Center" Width="680" Margin="24,0,24,24">
+                <Grid>
+                    <!-- Approval Mode Popup Picker (above input) -->
+                    <Border IsVisible="{Binding IsApprovalPickerOpen}"
+                            VerticalAlignment="Bottom" HorizontalAlignment="Left"
+                            Margin="0,0,0,105" Width="290"
+                            Background="#1E1E1E" BorderBrush="#333333" BorderThickness="1"
+                            CornerRadius="16" Padding="8" BoxShadow="0 12 36 #80000000" ZIndex="50">
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="When Calvras makes changes" FontSize="11" Foreground="#71717A" Margin="8,4,8,4"/>
+
+                            <!-- Ask first -->
+                            <Button Command="{Binding SelectApprovalModeCommand}" CommandParameter="Ask first"
+                                    Background="Transparent" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                    Padding="8,6" CornerRadius="8" Cursor="Hand">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <TextBlock Text="✋" FontSize="13" VerticalAlignment="Center"/>
+                                    <StackPanel Spacing="1">
+                                        <TextBlock Text="Ask first" FontSize="12" FontWeight="SemiBold" Foreground="#F4F4F5"/>
+                                        <TextBlock Text="Check in before touching files" FontSize="10" Foreground="#71717A"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Button>
+
+                            <!-- Review changes -->
+                            <Button Command="{Binding SelectApprovalModeCommand}" CommandParameter="Review changes"
+                                    Background="Transparent" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                    Padding="8,6" CornerRadius="8" Cursor="Hand">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <TextBlock Text="🛡️" FontSize="13" VerticalAlignment="Center"/>
+                                    <StackPanel Spacing="1">
+                                        <TextBlock Text="Review changes" FontSize="12" FontWeight="SemiBold" Foreground="#F4F4F5"/>
+                                        <TextBlock Text="Handle small edits freely" FontSize="10" Foreground="#71717A"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Button>
+
+                            <!-- Full speed -->
+                            <Button Command="{Binding SelectApprovalModeCommand}" CommandParameter="Full speed"
+                                    Background="#2A2A2A" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                    Padding="8,6" CornerRadius="8" Cursor="Hand">
+                                <Grid ColumnDefinitions="Auto,*,Auto">
+                                    <TextBlock Grid.Column="0" Text="⚡" FontSize="13" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <StackPanel Grid.Column="1" Spacing="1">
+                                        <TextBlock Text="Full speed" FontSize="12" FontWeight="SemiBold" Foreground="#F4F4F5"/>
+                                        <TextBlock Text="Make edits and run tasks directly" FontSize="10" Foreground="#71717A"/>
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="2" Text="✓" FontSize="12" Foreground="#3FB950" VerticalAlignment="Center"/>
+                                </Grid>
+                            </Button>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Capsule Input Pill -->
+                    <Border Background="#1C1C1F" BorderBrush="#2C2C30" BorderThickness="1"
+                            CornerRadius="24" Padding="16,10" BoxShadow="0 8 32 #50000000">
+                        <Grid RowDefinitions="Auto,Auto">
+                            <!-- Prompt Text Box -->
+                            <TextBox Grid.Row="0" Text="{Binding PromptText, Mode=TwoWay}"
+                                     Watermark="Describe a task or /command..."
+                                     Background="Transparent" BorderThickness="0"
+                                     Foreground="#FFFFFF" FontSize="13.5"
+                                     TextWrapping="Wrap" AcceptsReturn="True"
+                                     MaxHeight="120" MinHeight="36" VerticalAlignment="Center">
+                                <TextBox.KeyBindings>
+                                    <KeyBinding Gesture="Enter" Command="{Binding SendCommand}"/>
+                                </TextBox.KeyBindings>
+                            </TextBox>
+
+                            <!-- Bottom Action Row: Approval Mode, Effort, Attachments, Send/Stop -->
+                            <Grid Grid.Row="1" ColumnDefinitions="Auto,Auto,Auto,*,Auto" Margin="0,6,0,0">
+                                <!-- Approval Mode Pill Button -->
+                                <Button Grid.Column="0" Command="{Binding ToggleApprovalPickerCommand}"
+                                        Background="Transparent" BorderThickness="0" CornerRadius="12"
+                                        Padding="6,4" Cursor="Hand" ToolTip.Tip="Approval mode">
+                                    <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+                                        <TextBlock Text="⚡" FontSize="11" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding ApprovalMode}" FontSize="11" FontWeight="Medium" Foreground="#A1A1AA" VerticalAlignment="Center"/>
+                                        <TextBlock Text="⌄" FontSize="9" Foreground="#71717A" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+
+                                <!-- Effort Level Button -->
+                                <Button Grid.Column="1" Command="{Binding CycleEffortCommand}"
+                                        Background="Transparent" BorderThickness="0" CornerRadius="12"
+                                        Padding="6,4" Margin="4,0,0,0" Cursor="Hand" ToolTip.Tip="Click to cycle reasoning effort">
+                                    <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+                                        <TextBlock Text="⬛" FontSize="9" Foreground="#71717A" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding EffortLevel}" FontSize="11" FontWeight="Medium" Foreground="#A1A1AA" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+
+                                <!-- Attachments Count / Add Button -->
+                                <Button Grid.Column="2" Command="{Binding AddAttachmentCommand}" CommandParameter=""
+                                        Background="Transparent" BorderThickness="0" CornerRadius="12"
+                                        Padding="6,4" Margin="4,0,0,0" Cursor="Hand" ToolTip.Tip="Add attachment">
+                                    <TextBlock Text="+" FontSize="13" FontWeight="Bold" Foreground="#71717A" VerticalAlignment="Center"/>
+                                </Button>
+
+                                <!-- Circular Action Button (Send / Stop) -->
+                                <StackPanel Grid.Column="4" VerticalAlignment="Center">
+                                    <!-- Stop Button when busy -->
+                                    <Button Command="{Binding StopCommand}" Width="32" Height="32" CornerRadius="16"
+                                            Background="#EF4444" Foreground="White" Padding="0" Cursor="Hand"
+                                            IsVisible="{Binding IsBusy}" ToolTip.Tip="Stop execution">
+                                        <TextBlock Text="⏹" FontSize="11" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Button>
+
+                                    <!-- Send Button when idle -->
+                                    <Button Command="{Binding SendCommand}" Width="32" Height="32" CornerRadius="16"
+                                            Background="#FFFFFF" Foreground="#121212" Padding="0" Cursor="Hand"
+                                            IsVisible="{Binding !IsBusy}" ToolTip.Tip="Send prompt (Enter)">
+                                        <TextBlock Text="↑" FontSize="15" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Button>
+                                </StackPanel>
+                            </Grid>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- Implementation Plan Side Drawer (Only opens on explicit toggle) -->
+        <Border Grid.Column="1" Width="360" Background="#141416" BorderBrush="#1E1E22" BorderThickness="1,0,0,0" IsVisible="{Binding IsPlanOpen}">
+            <Grid RowDefinitions="Auto,*">
+                <Border Grid.Row="0" BorderBrush="#1E1E22" BorderThickness="0,0,0,1" Padding="16,14">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                            <TextBlock Text="📋" FontSize="12" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding ActivePlan.Title, FallbackValue='Implementation Plan'}" FontWeight="Bold" FontSize="13" Foreground="#F4F4F5" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <Button Grid.Column="1" Command="{Binding TogglePlanCommand}" Background="Transparent" BorderThickness="0" Foreground="#71717A" Content="✕" Cursor="Hand"/>
+                    </Grid>
+                </Border>
+
+                <ScrollViewer Grid.Row="1" Padding="16">
+                    <SelectableTextBlock Text="{Binding ActivePlan.Content}" Foreground="#A1A1AA" FontSize="12" FontFamily="Consolas, Monaco, Monospace" TextWrapping="Wrap" LineHeight="19"/>
+                </ScrollViewer>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

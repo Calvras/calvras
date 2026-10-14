@@ -1,0 +1,56 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Calvras.App.ViewModels"
+             x:Class="Calvras.App.Views.LandingView"
+             x:DataType="vm:LandingViewModel">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel MaxWidth="880" Margin="32,48" Spacing="36" HorizontalAlignment="Center">
+            <!-- Hero Header -->
+            <StackPanel Spacing="16" HorizontalAlignment="Center">
+                <Border Background="#21262D" BorderBrush="#8957E5" BorderThickness="1" CornerRadius="16" Padding="12,4" HorizontalAlignment="Center">
+                    <TextBlock Text="⚡ Native Desktop Autonomous Coding Agent" Foreground="#D2A8FF" FontSize="11" FontWeight="SemiBold"/>
+                </Border>
+
+                <TextBlock Text="{Binding Headline}" FontSize="36" FontWeight="Bold" Foreground="#F0F6FC" TextAlignment="Center" TextWrapping="Wrap"/>
+                <TextBlock Text="{Binding Subheadline}" FontSize="15" Foreground="#8B949E" TextAlignment="Center" TextWrapping="Wrap" MaxWidth="620" LineHeight="22"/>
+
+                <Button Command="{Binding GetStartedCommand}" Background="#8957E5" Foreground="White" CornerRadius="10" Padding="20,10" HorizontalAlignment="Center" Cursor="Hand" Margin="0,8,0,0">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="Launch Workspace" FontWeight="Bold" FontSize="13"/>
+                        <TextBlock Text="→" FontSize="13"/>
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+
+            <!-- Features Showcase Grid -->
+            <UniformGrid Columns="3" Margin="0,16">
+                <!-- Card 1 -->
+                <Border Background="#161B22" BorderBrush="#30363D" BorderThickness="1" CornerRadius="10" Padding="18" Margin="8">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="💻" FontSize="24"/>
+                        <TextBlock Text="Native Shell Runner" FontWeight="Bold" FontSize="14" Foreground="#F0F6FC"/>
+                        <TextBlock Text="Runs npm, dotnet, git, and custom scripts locally with real-time exit codes, timings, and log output." Foreground="#8B949E" FontSize="12" LineHeight="18" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Card 2 -->
+                <Border Background="#161B22" BorderBrush="#30363D" BorderThickness="1" CornerRadius="10" Padding="18" Margin="8">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="🔍" FontSize="24"/>
+                        <TextBlock Text="Context &amp; AST Analysis" FontWeight="Bold" FontSize="14" Foreground="#F0F6FC"/>
+                        <TextBlock Text="Inspects your files before modifying them, generating surgical line diffs with side-by-side verification." Foreground="#8B949E" FontSize="12" LineHeight="18" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Card 3 -->
+                <Border Background="#161B22" BorderBrush="#30363D" BorderThickness="1" CornerRadius="10" Padding="18" Margin="8">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="🔒" FontSize="24"/>
+                        <TextBlock Text="Hardware Security" FontWeight="Bold" FontSize="14" Foreground="#F0F6FC"/>
+                        <TextBlock Text="Credentials and API keys are protected directly in the Windows DPAPI credential store, never plain text." Foreground="#8B949E" FontSize="12" LineHeight="18" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+            </UniformGrid>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

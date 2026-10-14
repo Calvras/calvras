@@ -1,0 +1,55 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:m="using:Calvras.Core.Models"
+             xmlns:c="using:Calvras.App.Controls"
+             x:Class="Calvras.App.Controls.AgentActivityControl">
+    <StackPanel Spacing="6" Margin="0,4,0,8">
+        <!-- Phases Items -->
+        <ItemsControl Name="PhasesList">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="m:AgentPhaseModel">
+                    <StackPanel Spacing="4" Margin="0,2,0,4">
+                        <!-- Trace Nodes -->
+                        <ItemsControl ItemsSource="{Binding Trace}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="m:TraceNodeModel">
+                                    <Border Background="#161B22" BorderBrush="#30363D" BorderThickness="1" CornerRadius="6" Padding="8,6" Margin="0,2">
+                                        <StackPanel Spacing="4">
+                                            <!-- Pill Row -->
+                                            <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+                                                <TextBlock Grid.Column="0" Text="●" Foreground="#3FB950" FontSize="8" VerticalAlignment="Center" Margin="0,0,6,0" IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding Primary}" FontWeight="SemiBold" FontSize="11" Foreground="#F0F6FC" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                                <TextBlock Grid.Column="2" Text="{Binding Secondary}" FontFamily="Consolas, Monospace" FontSize="11" Foreground="#8B949E" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                                <TextBlock Grid.Column="3" Text="{Binding Status}" FontSize="10" Foreground="#58A6FF" VerticalAlignment="Center"/>
+                                            </Grid>
+
+                                            <!-- Embedded Terminal Viewer if terminal command -->
+                                            <c:TerminalViewerControl DataContext="{Binding}" IsVisible="{Binding Command, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+
+                                            <!-- Embedded File Diff Viewer if diff rows exist -->
+                                            <c:FileDiffControl DataContext="{Binding}" IsVisible="{Binding DiffRows, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+
+                                            <!-- Reasoning sentences if reasoning node -->
+                                            <Border Background="#0D1117" BorderBrush="#30363D" BorderThickness="1" CornerRadius="4" Padding="8,4" IsVisible="{Binding Sentences, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                                <ItemsControl ItemsSource="{Binding Sentences}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <TextBlock Text="{Binding}" Foreground="#8B949E" FontSize="11" TextWrapping="Wrap" Margin="0,2"/>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </Border>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <!-- Phase Assistant Message (if any) -->
+                        <SelectableTextBlock Text="{Binding Message}" Foreground="#F0F6FC" FontSize="13" TextWrapping="Wrap" LineHeight="20" Margin="4,4,4,2" IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                    </StackPanel>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+    </StackPanel>
+</UserControl>

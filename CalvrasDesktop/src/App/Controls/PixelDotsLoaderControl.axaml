@@ -1,0 +1,19 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Calvras.App.Controls.PixelDotsLoaderControl"
+             Width="14" Height="14">
+    <Grid RowDefinitions="3,1.5,3,1.5,3" ColumnDefinitions="3,1.5,3,1.5,3"
+          HorizontalAlignment="Center" VerticalAlignment="Center">
+        <Ellipse Name="Dot0" Grid.Row="0" Grid.Column="0" Fill="#D4D4D8" Opacity="0.2" Width="3" Height="3" />
+        <Ellipse Name="Dot1" Grid.Row="0" Grid.Column="2" Fill="#D4D4D8" Opacity="0.2" Width="3" Height="3" />
+        <Ellipse Name="Dot2" Grid.Row="0" Grid.Column="4" Fill="#D4D4D8" Opacity="0.2" Width="3" Height="3" />
+
+        <Ellipse Name="Dot3" Grid.Row="2" Grid.Column="0" Fill="#D4D4D8" Opacity="0.2" Width="3" Height="3" />
+        <Ellipse Name="Dot4" Grid.Row="2" Grid.Column="2" Fill="#D4D4D8" Opacity="0.2" Width="3" Height="3" />
+        <Ellipse Name="Dot5" Grid.Row="2" Grid.Column="4" Fill="#D4D4D8" Opacity="0.2" Width="3" Height="3" />
+
+        <Ellipse Name="Dot6" Grid.Row="4" Grid.Column="0" Fill="#D4D4D8" Opacity="0.2" Width="3" Height="3" />
+        <Ellipse Name="Dot7" Grid.Row="4" Grid.Column="2" Fill="#D4D4D8" Opacity="0.2" Width="3" Height="3" />
+        <Ellipse Name="Dot8" Grid.Row="4" Grid.Column="4" Fill="#D4D4D8" Opacity="0.2" Width="3" Height="3" />
+    </Grid>
+</UserControl>

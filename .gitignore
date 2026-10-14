@@ -16,6 +16,13 @@ dist-ssr
 .nitro
 *.local
 
+# .NET / Avalonia
+**/bin/
+**/obj/
+*.user
+*.userprefs
+CalvrasDesktop/publish/
+
 # Wrangler / Cloudflare
 .wrangler/
 .dev.vars
@@ -28,7 +35,6 @@ dist-ssr
 *.suo
 *.ntvs*
 *.njsproj
-*.sln
 *.sw?
 
 # Environment secrets

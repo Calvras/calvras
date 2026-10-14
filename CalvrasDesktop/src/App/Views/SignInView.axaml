@@ -1,0 +1,43 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Calvras.App.ViewModels"
+             x:Class="Calvras.App.Views.SignInView"
+             x:DataType="vm:SignInViewModel">
+    <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
+        <Border Background="#161B22" BorderBrush="#30363D" BorderThickness="1" CornerRadius="12" Padding="28" Width="380">
+            <StackPanel Spacing="16">
+                <!-- Header -->
+                <StackPanel Spacing="4" HorizontalAlignment="Center">
+                    <TextBlock Text="Calvras Account" FontSize="20" FontWeight="Bold" Foreground="#F0F6FC" TextAlignment="Center"/>
+                    <TextBlock Text="Store your credentials securely in your Windows Vault." FontSize="11" Foreground="#8B949E" TextAlignment="Center"/>
+                </StackPanel>
+
+                <!-- Error Message Banner -->
+                <Border Background="#2B1619" BorderBrush="#F85149" BorderThickness="1" CornerRadius="6" Padding="10,6" IsVisible="{Binding ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                    <TextBlock Text="{Binding ErrorMessage}" Foreground="#F85149" FontSize="11" TextWrapping="Wrap"/>
+                </Border>
+
+                <!-- Inputs -->
+                <StackPanel Spacing="10">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Email address" FontSize="11" Foreground="#8B949E"/>
+                        <TextBox Text="{Binding Email, Mode=TwoWay}" Watermark="you@example.com" Background="#0D1117" BorderBrush="#30363D" Foreground="#F0F6FC" CornerRadius="6" FontSize="12"/>
+                    </StackPanel>
+
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Password" FontSize="11" Foreground="#8B949E"/>
+                        <TextBox Text="{Binding Password, Mode=TwoWay}" PasswordChar="●" Watermark="••••••••" Background="#0D1117" BorderBrush="#30363D" Foreground="#F0F6FC" CornerRadius="6" FontSize="12"/>
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- Submit Button -->
+                <Button Content="{Binding IsSignUp, Converter={x:Null}, FallbackValue='Sign In'}" Command="{Binding SubmitCommand}" Background="#8957E5" Foreground="White" CornerRadius="8" Padding="12,10" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" FontWeight="Bold" Cursor="Hand"/>
+
+                <!-- Mode Switcher -->
+                <Button Command="{Binding ToggleModeCommand}" Background="Transparent" Foreground="#8B949E" FontSize="11" HorizontalAlignment="Center" Cursor="Hand">
+                    <TextBlock Text="{Binding IsSignUp, Converter={x:Null}, FallbackValue='Don\'t have an account? Sign Up'}"/>
+                </Button>
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>
