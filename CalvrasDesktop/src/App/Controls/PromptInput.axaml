@@ -74,7 +74,7 @@
                                             <TextBlock Text="📄" FontSize="16" HorizontalAlignment="Center"/>
                                             <TextBlock Text="{Binding}" FontSize="8" Foreground="#A1A1AA" MaxWidth="46" TextTrimming="CharacterEllipsis" HorizontalAlignment="Center"/>
                                         </StackPanel>
-                                        <Button Command="{Binding $parent[UserControl].((vm:WorkspaceViewModel)DataContext).RemoveAttachmentCommand}"
+                                        <Button Command="{Binding $parent[UserControl].DataContext.RemoveAttachmentCommand}"
                                                 CommandParameter="{Binding}"
                                                 HorizontalAlignment="Right" VerticalAlignment="Top"
                                                 Width="18" Height="18" CornerRadius="9" Padding="0" Margin="2"

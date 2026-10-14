@@ -68,7 +68,7 @@
                                         <!-- Assistant Response Action Bar (Copy, Thumbs Up, Thumbs Down) -->
                                         <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,4,0,0" IsVisible="{Binding HasText}">
                                             <!-- Copy SVG Button -->
-                                            <Button Command="{Binding $parent[UserControl].((vm:WorkspaceViewModel)DataContext).CopyMessageCommand}"
+                                            <Button Command="{Binding $parent[UserControl].DataContext.CopyMessageCommand}"
                                                     CommandParameter="{Binding Text}"
                                                     Background="Transparent" BorderThickness="0" Padding="6,4" CornerRadius="6" Cursor="Hand"
                                                     ToolTip.Tip="Copy response">
@@ -82,7 +82,7 @@
                                             </Button>
 
                                             <!-- Thumbs Up SVG Button -->
-                                            <Button Command="{Binding $parent[UserControl].((vm:WorkspaceViewModel)DataContext).FeedbackUpCommand}"
+                                            <Button Command="{Binding $parent[UserControl].DataContext.FeedbackUpCommand}"
                                                     CommandParameter="{Binding}"
                                                     Background="Transparent" BorderThickness="0" Padding="6,4" CornerRadius="6" Cursor="Hand"
                                                     ToolTip.Tip="Good response">
@@ -96,7 +96,7 @@
                                             </Button>
 
                                             <!-- Thumbs Down SVG Button -->
-                                            <Button Command="{Binding $parent[UserControl].((vm:WorkspaceViewModel)DataContext).FeedbackDownCommand}"
+                                            <Button Command="{Binding $parent[UserControl].DataContext.FeedbackDownCommand}"
                                                     CommandParameter="{Binding}"
                                                     Background="Transparent" BorderThickness="0" Padding="6,4" CornerRadius="6" Cursor="Hand"
                                                     ToolTip.Tip="Bad response">
