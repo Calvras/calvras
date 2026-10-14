@@ -69,6 +69,8 @@ public partial class WorkspaceViewModel : ViewModelBase
     [ObservableProperty]
     private bool _isInputExpanded = false;
 
+    public event Action? ScrollToBottom;
+
     public bool HasTextToSend => !string.IsNullOrWhiteSpace(PromptText) || AttachedFiles.Count > 0;
     public bool ShowMicButton => !HasTextToSend && !IsBusy && !IsRecording;
 
@@ -209,6 +211,7 @@ public partial class WorkspaceViewModel : ViewModelBase
                             var idx = Messages.IndexOf(last);
                             if (idx >= 0 && idx < Messages.Count)
                                 Messages[idx] = last with { Phases = updatedPhases };
+                            ScrollToBottom?.Invoke();
                         }
                     });
                 },
@@ -224,26 +227,12 @@ public partial class WorkspaceViewModel : ViewModelBase
                             var idx = Messages.IndexOf(last);
                             if (idx >= 0 && idx < Messages.Count)
                                 Messages[idx] = last with { Phases = list };
+                            ScrollToBottom?.Invoke();
                         }
                     });
                 },
-                _cts.Token
-            );
-
-            timer.Stop();
-
-            // Streaming typing animation
-            var fullMessage = outcome.Message ?? string.Empty;
-            if (!string.IsNullOrWhiteSpace(fullMessage))
-            {
-                int currentLength = 0;
-                int chunkSize = Math.Max(8, fullMessage.Length / 12);
-
-                while (currentLength < fullMessage.Length && !_cts.Token.IsCancellationRequested)
+                onToken: chunk =>
                 {
-                    currentLength = Math.Min(fullMessage.Length, currentLength + chunkSize);
-                    var partial = fullMessage.Substring(0, currentLength);
-
                     Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                     {
                         var current = Messages.FirstOrDefault(m => m.Id == assistantMsg.Id);
@@ -251,12 +240,19 @@ public partial class WorkspaceViewModel : ViewModelBase
                         {
                             var idx = Messages.IndexOf(current);
                             if (idx >= 0 && idx < Messages.Count)
-                                Messages[idx] = current with { Text = partial };
+                                Messages[idx] = current with { Text = current.Text + chunk };
                         }
+                        ScrollToBottom?.Invoke();
                     });
-                    await Task.Delay(8);
-                }
-            }
+                },
+                _cts.Token
+            );
+
+            timer.Stop();
+
+            // The final message text was already streamed token-by-token via onToken.
+            // Keep fullMessage for the final Done=true update below.
+            var fullMessage = outcome.Message ?? string.Empty;
 
             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {

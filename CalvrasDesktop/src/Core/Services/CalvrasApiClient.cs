@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
@@ -15,6 +16,7 @@ public interface ICalvrasApiClient
     string BaseUrl { get; set; }
     void SetAuthToken(string token);
     Task<string> CallAgentInferenceAsync(string prompt, string? projectSnapshot, CancellationToken cancellationToken = default);
+    Task StreamAgentInferenceAsync(string prompt, string? projectSnapshot, Action<string> onToken, CancellationToken ct = default);
 }
 
 public class CalvrasApiClient : ICalvrasApiClient
@@ -51,6 +53,32 @@ public class CalvrasApiClient : ICalvrasApiClient
         }
     }
 
+    private static readonly string SystemPromptContent = LoadSystemPrompt();
+
+    private static string LoadSystemPrompt()
+    {
+        try
+        {
+            var asm = typeof(CalvrasApiClient).Assembly;
+            using var stream = asm.GetManifestResourceStream("Calvras.Core.Prompts.SystemPrompt.md");
+            if (stream != null)
+            {
+                using var reader = new StreamReader(stream, Encoding.UTF8);
+                return reader.ReadToEnd();
+            }
+        }
+        catch { }
+
+        // Fallback if resource stream cannot be located
+        var diskPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Prompts", "SystemPrompt.md");
+        if (File.Exists(diskPath))
+        {
+            try { return File.ReadAllText(diskPath); } catch { }
+        }
+
+        return "You are Calvras, a senior engineer sitting next to the user. Talk naturally, be helpful, warm and direct.";
+    }
+
     public async Task<string> CallAgentInferenceAsync(string prompt, string? projectSnapshot, CancellationToken cancellationToken = default)
     {
         var messages = new List<object>
@@ -58,30 +86,7 @@ public class CalvrasApiClient : ICalvrasApiClient
             new
             {
                 role = "system",
-                content = @"You are Calvras, an autonomous coding agent with full local terminal and filesystem execution.
-CRITICAL RULES:
-- NEVER introduce yourself ('Hello! I am Calvras...', 'I am an elite coding agent...'). Never give introductory preamble or canned conversational filler.
-- Be immediate, concise, direct, and pragmatic.
-- When the user asks you to build, create, run, or edit anything, immediately emit the concrete actions (create_file, write_file, run_command, etc.) to perform the task.
-- Use an occasional, diverse emoji (🚀, ✨, 🛠️, 💡, ⚡) only when natural. Never overuse.
-
-AVAILABLE ACTIONS:
-- ""read_file"": Read a file before editing it.
-- ""write_file"": Write/overwrite a file.
-- ""create_file"": Create a new file.
-- ""edit_file"": Surgical line-range edit.
-- ""run_command"": Run shell commands (npm install, npm start, dotnet run, python app.py, etc.).
-- ""list_dir"": List directory contents.
-
-OUTPUT FORMAT — raw valid JSON only:
-{
-  ""status"": ""finished"",
-  ""actions"": [
-    { ""type"": ""run_command"", ""command"": ""npm test"" }
-  ],
-  ""message"": ""Direct concise answer or update."",
-  ""plan"": ""Optional markdown plan.""
-}"
+                content = SystemPromptContent
             }
         };
 
@@ -148,5 +153,96 @@ OUTPUT FORMAT — raw valid JSON only:
         }
 
         throw new HttpRequestException("Failed to receive a valid response from the Calvras AI engine.");
+    }
+
+    public async Task StreamAgentInferenceAsync(string prompt, string? projectSnapshot, Action<string> onToken, CancellationToken ct = default)
+    {
+        var messages = new List<object>
+        {
+            new
+            {
+                role = "system",
+                content = SystemPromptContent
+            }
+        };
+
+        if (!string.IsNullOrWhiteSpace(projectSnapshot))
+        {
+            messages.Add(new
+            {
+                role = "system",
+                content = $"[ACTIVE PROJECT CONTEXT]\n{projectSnapshot}"
+            });
+        }
+
+        messages.Add(new
+        {
+            role = "user",
+            content = prompt
+        });
+
+        var requestBody = new
+        {
+            model = "gemini-2.5-flash",
+            messages,
+            temperature = 0.2,
+            stream = true
+        };
+
+        var json = JsonSerializer.Serialize(requestBody);
+
+        async Task StreamFromUrl(string url)
+        {
+            var request = new HttpRequestMessage(HttpMethod.Post, url)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            };
+
+            using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+            response.EnsureSuccessStatusCode();
+
+            using var stream = await response.Content.ReadAsStreamAsync(ct);
+            using var reader = new StreamReader(stream, Encoding.UTF8);
+
+            while (!reader.EndOfStream)
+            {
+                ct.ThrowIfCancellationRequested();
+                var line = await reader.ReadLineAsync();
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                if (!line.StartsWith("data: ")) continue;
+
+                var data = line.Substring(6).Trim();
+                if (data == "[DONE]") break;
+
+                try
+                {
+                    using var doc = JsonDocument.Parse(data);
+                    var root = doc.RootElement;
+                    if (root.TryGetProperty("choices", out var choices) && choices.GetArrayLength() > 0)
+                    {
+                        var delta = choices[0].GetProperty("delta");
+                        if (delta.TryGetProperty("content", out var contentProp))
+                        {
+                            var chunk = contentProp.GetString();
+                            if (!string.IsNullOrEmpty(chunk))
+                                onToken(chunk);
+                        }
+                    }
+                }
+                catch (JsonException)
+                {
+                    // Malformed chunk — skip it
+                }
+            }
+        }
+
+        try
+        {
+            await StreamFromUrl("/api/v1/chat/completions");
+        }
+        catch when (!ct.IsCancellationRequested && !_baseUrl.Contains("workers.dev"))
+        {
+            await StreamFromUrl("https://calvras.zenithzone18.workers.dev/api/v1/chat/completions");
+        }
     }
 }

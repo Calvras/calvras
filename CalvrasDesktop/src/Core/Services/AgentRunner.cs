@@ -17,6 +17,7 @@ public interface IAgentRunner
         string projectPath,
         Action<AgentPhaseModel> onPhaseAdded,
         Action<AgentPhaseModel> onPhaseUpdated,
+        Action<string> onToken,
         CancellationToken cancellationToken = default);
 }
 
@@ -38,6 +39,7 @@ public class AgentRunner : IAgentRunner
         string projectPath,
         Action<AgentPhaseModel> onPhaseAdded,
         Action<AgentPhaseModel> onPhaseUpdated,
+        Action<string> onToken,
         CancellationToken cancellationToken = default)
     {
         var history = new List<string>();
@@ -94,7 +96,12 @@ public class AgentRunner : IAgentRunner
                 if (reply.Status == "blocked")
                     return new AgentRunOutcome("blocked", reply.Message, null, activePlan);
 
-                return new AgentRunOutcome("finished", reply.Message, null, activePlan);
+                var sb = new System.Text.StringBuilder();
+                await _apiClient.StreamAgentInferenceAsync(
+                    fullPrompt, projectSnapshot,
+                    chunk => { sb.Append(chunk); onToken(chunk); },
+                    cancellationToken);
+                return new AgentRunOutcome("finished", sb.ToString(), null, activePlan);
             }
 
             // Create phase with initial running trace nodes
