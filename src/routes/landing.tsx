@@ -1,11 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { motion } from "framer-motion";
-import { Download, Terminal, FolderOpen, Cpu, Shield, Zap, ArrowRight, Github, CheckCircle2 } from "lucide-react";
+import { Download, Terminal, FolderOpen, Cpu, Shield, Zap, CheckCircle2, Github } from "lucide-react";
 import ResponsiveHeroBanner from "@/components/ui/responsive-hero-banner";
 
 export const Route = createFileRoute("/landing")({
   head: () => ({
-    meta: [{ title: "Calvras — Your Local AI Coding Agent" }],
+    meta: [{ title: "Calvras — Native AI Coding Agent" }],
   }),
   component: LandingPage,
 });
@@ -27,6 +27,8 @@ const mediaItem = {
   visible: { opacity: 1, y: 0, filter: "blur(0px)", transition: { duration: 0.6, delay: 0.15, ease: easeOut } },
 };
 
+const DOWNLOAD_URL = "https://github.com/SHIKARI-hey/Calvras/releases/latest/download/Calvras-win-Setup.exe";
+
 function LandingPage() {
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white font-sans overflow-x-hidden">
@@ -41,18 +43,16 @@ function LandingPage() {
           { label: "Pricing", href: "/pricing" },
           { label: "GitHub", href: "https://github.com/SHIKARI-hey/Calvras" },
         ]}
-        ctaButtonText="Get Started"
-        ctaButtonHref="/"
+        ctaButtonText="Download"
+        ctaButtonHref={DOWNLOAD_URL}
         badgeLabel="New"
-        badgeText="Autonomous agent with real filesystem access"
+        badgeText="100% Native Windows & Cross-Platform Desktop App"
         title="Build Real Projects"
         titleLine2="With AI Autonomy"
-        description="Calvras is a desktop-first AI coding agent that reads, writes, and runs code directly on your machine. Full filesystem access, terminal control, and an 8-step autonomous loop."
-        primaryButtonText="Download for Windows"
-        primaryButtonHref="https://github.com/SHIKARI-hey/Calvras/releases/latest/download/Calvras-Setup.exe"
-        secondaryButtonText="Try in Browser"
-        secondaryButtonHref="/"
-        partnersTitle="Built on the best open-source stack"
+        description="Calvras is a native desktop AI coding agent that reads, writes, and runs code directly on your machine. Full filesystem access, local CLI execution, and zero sandbox restrictions."
+        primaryButtonText="Download for Windows (.exe)"
+        primaryButtonHref={DOWNLOAD_URL}
+        partnersTitle="Built on high-performance native technology"
         partners={[
           { logoUrl: "https://cdn.21st.dev/assets/mirror/96/964eca0b0415aebc2718799b530b39d6f552b39634f3fb2072e769df17c6668f.png", href: "#" },
           { logoUrl: "https://cdn.21st.dev/assets/mirror/90/900ad16bdb8bd723836996d2283c47420e719ba8c9a4f7d24ff67e59056e88fe.png", href: "#" },
@@ -62,7 +62,7 @@ function LandingPage() {
         ]}
       />
 
-      {/* Hero14-style body */}
+      {/* Main pitch body */}
       <section className="bg-[#0a0a0a] relative isolate w-full overflow-hidden">
         <motion.div
           className="relative z-10 mx-auto flex max-w-6xl flex-col items-center px-6 py-20 sm:py-28 gap-10 sm:gap-14"
@@ -77,24 +77,18 @@ function LandingPage() {
                 Describe the task.<br />Ship the code.
               </h2>
               <p className="text-white/55 text-sm sm:text-base max-w-xl text-center">
-                Turn a plain-language task into production-ready code across multiple files. Calvras reads, writes, runs commands, and self-corrects — autonomously.
+                Turn a plain-language task into production-ready code across multiple files. Calvras reads, writes, runs commands, and self-corrects — autonomously directly on your computer.
               </p>
             </motion.div>
             <motion.div variants={item} className="flex flex-wrap items-center justify-center gap-3">
               <a
-                href="https://github.com/SHIKARI-hey/Calvras/releases/latest/download/Calvras-Setup.exe"
-                className="inline-flex items-center gap-2 rounded-full bg-indigo-600 hover:bg-indigo-500 px-5 py-3 text-sm font-semibold text-white transition-all active:scale-[0.97] shadow-lg shadow-indigo-500/30"
+                href={DOWNLOAD_URL}
+                download="Calvras-win-Setup.exe"
+                className="inline-flex items-center gap-2 rounded-full bg-indigo-600 hover:bg-indigo-500 px-7 py-3.5 text-sm font-semibold text-white transition-all active:scale-[0.97] shadow-lg shadow-indigo-500/30"
               >
                 <Download className="size-4" />
-                Download for Windows
+                Download for Windows (.exe)
               </a>
-              <Link
-                to="/"
-                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 px-5 py-3 text-sm font-medium text-white/80 hover:text-white transition-all"
-              >
-                Try in Browser
-                <ArrowRight className="size-4" />
-              </Link>
             </motion.div>
           </div>
 
@@ -106,26 +100,27 @@ function LandingPage() {
                 alt="Calvras coding agent in action"
                 className="w-full h-[400px] object-cover"
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-black/10" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-black/20" />
               <div className="absolute inset-0 flex items-center justify-center">
-                <Link
-                  to="/"
-                  className="inline-flex items-center gap-2 rounded-lg bg-indigo-600/20 border border-indigo-500/30 px-6 py-3 text-[14px] font-medium text-indigo-300 hover:bg-indigo-600/30 transition-colors backdrop-blur-sm"
+                <a
+                  href={DOWNLOAD_URL}
+                  download="Calvras-win-Setup.exe"
+                  className="inline-flex items-center gap-2 rounded-xl bg-indigo-600/40 border border-indigo-500/40 px-6 py-3 text-[14px] font-semibold text-white hover:bg-indigo-600/60 transition-colors backdrop-blur-md shadow-lg"
                 >
-                  Open App Preview
-                  <ArrowRight className="size-4" />
-                </Link>
+                  <Download className="size-4" />
+                  Download Calvras Desktop
+                </a>
               </div>
             </div>
           </motion.div>
 
-          {/* Logos row */}
+          {/* Technology badges */}
           <motion.div
             variants={item}
             className="flex w-full flex-wrap items-center justify-center border-t border-white/8 gap-x-10 gap-y-4 pt-8 sm:pt-10"
           >
-            {["Electron", "Vite", "TanStack", "Tailwind", "TypeScript"].map((logo) => (
-              <span key={logo} className="text-white/30 text-sm font-semibold tracking-tight">{logo}</span>
+            {[".NET 8", "Avalonia UI", "C#", "DirectX", "Skia", "Velopack", "SQLite"].map((tech) => (
+              <span key={tech} className="text-white/30 text-sm font-semibold tracking-tight">{tech}</span>
             ))}
           </motion.div>
         </motion.div>
@@ -176,15 +171,13 @@ function LandingPage() {
           <p className="text-white/50 text-[15px] mb-8 leading-relaxed">Download the app. Open it. Start building. That's it.</p>
           <div className="flex flex-wrap items-center justify-center gap-3">
             <a
-              href="https://github.com/SHIKARI-hey/Calvras/releases/latest/download/Calvras-Setup.exe"
-              className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 px-7 py-3.5 text-[15px] font-bold text-white transition-all active:scale-[0.97] shadow-lg shadow-indigo-500/30"
+              href={DOWNLOAD_URL}
+              download="Calvras-win-Setup.exe"
+              className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 px-8 py-4 text-[15px] font-bold text-white transition-all active:scale-[0.97] shadow-lg shadow-indigo-500/30"
             >
               <Download className="size-5" />
-              Download Calvras
+              Download Calvras for Windows
             </a>
-            <Link to="/" className="inline-flex items-center gap-2 text-[14px] text-white/50 hover:text-white transition-colors">
-              Try in browser <ArrowRight className="size-4" />
-            </Link>
           </div>
         </div>
       </section>
@@ -196,12 +189,11 @@ function LandingPage() {
             <Cpu className="size-3 text-white" />
           </div>
           <span className="font-semibold text-white/40">Calvras</span>
-          <span>— Local AI Coding Agent</span>
+          <span>— Native Desktop AI Coding Agent</span>
         </div>
         <div className="flex items-center gap-5">
           <Link to="/capabilities" className="hover:text-white/60 transition-colors">Capabilities</Link>
           <Link to="/pricing" className="hover:text-white/60 transition-colors">Pricing</Link>
-          <Link to="/" className="hover:text-white/60 transition-colors">App</Link>
           <a href="https://github.com/SHIKARI-hey/Calvras" target="_blank" rel="noopener noreferrer" className="hover:text-white/60 transition-colors flex items-center gap-1">
             <Github className="size-3.5" /> GitHub
           </a>
@@ -221,7 +213,7 @@ const FEATURES = [
 ];
 
 const STEPS = [
-  { title: "Download & install", desc: "Run the installer (.exe on Windows, .dmg on macOS). Takes under a minute. No Docker, no Python, no Node required." },
+  { title: "Download & install", desc: "Run the installer (Calvras-win-Setup.exe on Windows). Takes under a minute. No Docker, no Python, no Node required." },
   { title: "Open Calvras", desc: "Launch the app like any other desktop program. A beautiful dark interface greets you, ready to work." },
   { title: "Give it a task", desc: "Type what you want to build — a web app, a script, a game. Calvras figures out the plan and gets to work." },
   { title: "Watch it build", desc: "Calvras creates files, runs commands, and iterates automatically. You see every step in real time." },

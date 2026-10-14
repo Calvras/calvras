@@ -138,6 +138,7 @@ const ResponsiveHeroBanner: React.FC<ResponsiveHeroBannerProps> = ({
                         <div className="flex flex-col sm:flex-row sm:gap-4 mt-10 gap-3 items-center justify-center">
                             <a
                                 href={primaryButtonHref}
+                                download
                                 className="inline-flex items-center gap-2 hover:bg-white/15 text-sm font-medium text-white bg-white/10 ring-white/15 ring-1 rounded-full py-3 px-5 font-sans transition-colors"
                             >
                                 {primaryButtonText}
@@ -146,15 +147,17 @@ const ResponsiveHeroBanner: React.FC<ResponsiveHeroBannerProps> = ({
                                     <path d="m12 5 7 7-7 7" />
                                 </svg>
                             </a>
-                            <a
-                                href={secondaryButtonHref}
-                                className="inline-flex items-center gap-2 rounded-full bg-transparent px-5 py-3 text-sm font-medium text-white/90 hover:text-white font-sans transition-colors"
-                            >
-                                {secondaryButtonText}
-                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-                                    <path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" />
-                                </svg>
-                            </a>
+                            {secondaryButtonText && (
+                                <a
+                                    href={secondaryButtonHref}
+                                    className="inline-flex items-center gap-2 rounded-full bg-transparent px-5 py-3 text-sm font-medium text-white/90 hover:text-white font-sans transition-colors"
+                                >
+                                    {secondaryButtonText}
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                                        <path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" />
+                                    </svg>
+                                </a>
+                            )}
                         </div>
                     </div>
                     <div className="mx-auto mt-20 max-w-5xl">
