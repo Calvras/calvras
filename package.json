@@ -13,7 +13,7 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "patch:wrangler": "node -e \"const fs=require('fs');const p='.output/server/wrangler.json';const c=JSON.parse(fs.readFileSync(p,'utf8'));c.name='calvras';c.workers_dev=true;c.routes=[{pattern:'calvras.com',custom_domain:true}];delete c.custom_domains;fs.writeFileSync(p,JSON.stringify(c,null,2));console.log('Patched wrangler.json');\"",
+    "patch:wrangler": "node -e \"const fs=require('fs');const p='.output/server/wrangler.json';const c=JSON.parse(fs.readFileSync(p,'utf8'));c.name='calvras';c.account_id='6731a2cf3ac3e76d3f399f505a7e5c11';c.workers_dev=true;c.routes=[{pattern:'calvras.com',custom_domain:true}];delete c.custom_domains;fs.writeFileSync(p,JSON.stringify(c,null,2));console.log('Patched wrangler.json');\"",
     "deploy": "npm run build && npm run patch:wrangler && npx wrangler deploy --config .output/server/wrangler.json",
     "electron": "electron .",
     "electron:dev": "npm run build && electron .",

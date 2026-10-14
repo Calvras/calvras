@@ -1,26 +1,8 @@
 import { useEffect, useState } from "react";
-import { ChevronDown, LoaderCircle, Terminal, FileText, AlertCircle } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { MarkdownContent } from "@/components/ui/markdown-content";
-import type { AgentPhase, TraceNode } from "@/components/ui/ai-agent-response";
-import { ResponseActionsToolbar } from "@/components/ui/ai-agent-response";
-
-function ToolActivity({ node }: { node: TraceNode }) {
-  const failed = node.status === "failed" || (node.exitCode !== undefined && node.exitCode !== 0);
-  const running = node.status === "running";
-  return <details className="my-2 text-sm text-muted-foreground">
-    <summary className="flex cursor-pointer items-center gap-2 rounded py-1 hover:text-foreground">
-      {running ? <LoaderCircle size={14} className="animate-spin" /> : failed ? <AlertCircle size={14} className="text-red-400" /> : node.type === "terminal" ? <Terminal size={14} /> : <FileText size={14} />}
-      <span>{node.type === "terminal" ? running ? "Running command" : failed ? "Command failed" : "Ran command" : `${node.primary}${failed ? " failed" : ""}`}</span><span className="min-w-0 flex-1 truncate opacity-70">{node.secondary}</span>
-      {node.durationMs !== undefined && <span className="shrink-0 text-xs">{(node.durationMs / 1000).toFixed(1)}s</span>}<ChevronDown size={12} />
-    </summary>
-    <div className="mt-2 max-h-72 overflow-auto rounded-lg border bg-card p-3">
-      {node.command && <pre className="mb-3 whitespace-pre-wrap break-all text-xs">$ {node.command}</pre>}
-      {node.output !== undefined && <pre className="whitespace-pre-wrap break-words text-xs">{node.output}</pre>}
-      {node.details?.map((detail, index) => <pre key={index} className="whitespace-pre-wrap break-words text-xs">{detail.text}</pre>)}
-      {node.exitCode !== undefined && <p className="mt-3 text-xs">Exit code {node.exitCode}</p>}
-    </div>
-  </details>;
-}
+import type { AgentPhase } from "@/components/ui/ai-agent-response";
+import { ResponseActionsToolbar, TracePillRow, PixelDotsLoader } from "@/components/ui/ai-agent-response";
 
 export function AgentActivity({ phases, done, startedAt, endedAt, status, error }: { phases: AgentPhase[]; done: boolean; startedAt?: number | undefined; endedAt?: number | undefined; status?: string | undefined; error?: string | undefined }) {
   const [now, setNow] = useState(Date.now());
@@ -33,15 +15,15 @@ export function AgentActivity({ phases, done, startedAt, endedAt, status, error 
   const hasWork = toolNodes.length > 0;
   const hasSuccessfulWork = toolNodes.some((node) => node.status === "completed" || (node.status !== "failed" && node.status !== "running" && node.exitCode === 0));
   return <div className="w-full">
-    {hasWork && <button onClick={() => setExpanded(!expanded)} className="mb-4 flex w-full items-center gap-2 border-b pb-3 text-left text-xs text-muted-foreground" aria-expanded={expanded}>
-      {!done && <LoaderCircle size={13} className="animate-spin" />}{done ? hasSuccessfulWork ? "Worked" : "Activity" : "Working"}{duration && (!done || hasSuccessfulWork) && ` for ${duration}`}<ChevronDown size={13} className={expanded ? "rotate-180" : ""} />
+    {hasWork && <button onClick={() => setExpanded(!expanded)} className="mb-3 flex w-fit items-center gap-1.5 rounded-sm bg-transparent p-0 text-left text-[13.5px] font-normal text-muted-foreground/75 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-expanded={expanded}>
+      {!done && <PixelDotsLoader />}{done ? hasSuccessfulWork ? "Worked" : "Activity" : "Working"}{duration && (!done || hasSuccessfulWork) && ` for ${duration}`}<ChevronDown size={13} className={expanded ? "rotate-180" : ""} />
     </button>}
-    {!done && !hasWork && <LoaderCircle aria-label="Waiting for response" size={14} className="mb-3 animate-spin text-muted-foreground" />}
+    {!done && !hasWork && <span role="status" aria-label="Waiting for response" className="mb-3 inline-flex"><PixelDotsLoader /></span>}
     {phases.map((phase, index) => {
       const tools = phase.trace.filter((node) => node.type !== "reasoning" && node.type !== "step");
       return <div key={index}>
-        {expanded && tools.map((node, nodeIndex) => <ToolActivity key={node.id || nodeIndex} node={node} />)}
-        {phase.message && <div className="group/reply my-4 text-sm leading-7"><MarkdownContent content={phase.message} />
+        {expanded && tools.length > 0 && <div className="mb-3 ml-2 flex flex-col gap-0.5 border-l border-border/60 py-0.5 pl-2"><div className="min-w-0">{tools.map((node, nodeIndex) => <TracePillRow key={node.id || nodeIndex} node={node} isActive={node.status === "running"} isFinished={node.status === "completed" || node.status === "failed"} />)}</div></div>}
+        {phase.message && <div className="group/reply my-3 font-sans text-[14.5px] leading-relaxed text-foreground/90 select-text text-pretty"><MarkdownContent content={phase.message} />
           {done && <ResponseActionsToolbar text={phase.message} className="mt-2 opacity-0 transition-opacity group-hover/reply:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100" />}
         </div>}
       </div>;
