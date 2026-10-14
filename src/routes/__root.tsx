@@ -80,7 +80,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Calvras — Autonomous Coding Agent" },
+      { title: "Calvras" },
       { name: "description", content: "Your autonomous coding agent that builds and edits code." },
       { property: "og:title", content: "Calvras" },
       { property: "og:description", content: "Your autonomous coding agent." },

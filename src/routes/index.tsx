@@ -1,13 +1,12 @@
+import { AgentActivity } from "@/components/AgentActivity";
+import { runAgent, type AgentAction, type ToolFeedback } from "@/lib/agent-run";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { PromptInput } from "@/components/ui/ai-chat-input";
 import {
-  AgentWorkflow,
-  CUSTOM_TOOLS,
   type AgentPhase,
   type TraceNode,
-  type DiffRow,
 } from "@/components/ui/ai-agent-response";
 import { useProjects } from "@/lib/project-context";
 import { callAI, type MediaAttachment } from "@/lib/gemini";
@@ -18,7 +17,7 @@ import { Copy, CheckCheck, X } from "lucide-react";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Calvras — Autonomous Coding Agent" },
+      { title: "Calvras" },
       { name: "description", content: "Calvras builds and edits code in your projects." },
       { property: "og:title", content: "Calvras" },
       { property: "og:description", content: "Your autonomous coding agent." },
@@ -43,29 +42,12 @@ interface AttachedFile {
 interface Message {
   id: number;
   text: string;
-  attachments?: AttachedFile[];
+  attachments?: AttachedFile[] | undefined;
   phases: AgentPhase[];
   done: boolean;
+  startedAt?: number;
+  endedAt?: number;
   role: "user" | "assistant";
-}
-
-interface FsAction {
-  type?: "create_file" | "edit_file" | "run_command" | "read_file" | "write_file" | "list_dir";
-  action?: "create_file" | "edit_file" | "run_command" | "read_file" | "write_file" | "list_dir";
-  path?: string;
-  content?: string;
-  lineStart?: number;
-  lineEnd?: number;
-  newContent?: string;
-  command?: string;
-}
-
-interface CalvrasResponsePayload {
-  thought?: string;
-  reasoning?: string[];
-  actions?: FsAction[];
-  message?: string;
-  plan?: string; // Implementation plan markdown content
 }
 
 interface ImplementationPlan {
@@ -78,70 +60,6 @@ interface ImplementationPlan {
  * HELPERS
  * ─────────────────────────────────────────────────────────────────────────────
  */
-
-function parseCalvrasPayload(text: string): CalvrasResponsePayload {
-  const trimmed = text.trim();
-
-  try {
-    const parsed = JSON.parse(trimmed);
-    if (typeof parsed === "object" && parsed !== null) {
-      const actions = parsed.actions || (parsed.action ? [parsed] : []);
-      return {
-        thought: parsed.thought,
-        reasoning: Array.isArray(parsed.reasoning) ? parsed.reasoning : undefined,
-        actions,
-        message: parsed.message || "",
-        plan: typeof parsed.plan === "string" ? parsed.plan : undefined,
-      };
-    }
-  } catch {
-    // not raw json
-  }
-
-  const jsonBlock = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (jsonBlock) {
-    try {
-      const parsed = JSON.parse(jsonBlock[1].trim());
-      if (typeof parsed === "object" && parsed !== null) {
-        const actions = parsed.actions || (parsed.action ? [parsed] : []);
-        return {
-          thought: parsed.thought,
-          reasoning: Array.isArray(parsed.reasoning) ? parsed.reasoning : undefined,
-          actions,
-          message: parsed.message || text.replace(/```(?:json)?[\s\S]*?```/g, "").trim(),
-          plan: typeof parsed.plan === "string" ? parsed.plan : undefined,
-        };
-      }
-    } catch {
-      // not block json
-    }
-  }
-
-  const firstBrace = text.indexOf("{");
-  const lastBrace = text.lastIndexOf("}");
-  if (firstBrace !== -1 && lastBrace > firstBrace) {
-    try {
-      const substr = text.slice(firstBrace, lastBrace + 1);
-      const parsed = JSON.parse(substr);
-      if (typeof parsed === "object" && parsed !== null) {
-        return {
-          thought: parsed.thought,
-          reasoning: Array.isArray(parsed.reasoning) ? parsed.reasoning : undefined,
-          actions: parsed.actions || (parsed.action ? [parsed] : []),
-          message: parsed.message || text.slice(0, firstBrace).trim() + " " + text.slice(lastBrace + 1).trim(),
-          plan: typeof parsed.plan === "string" ? parsed.plan : undefined,
-        };
-      }
-    } catch {
-      // ignore
-    }
-  }
-
-  return {
-    message: text.trim(),
-    actions: [],
-  };
-}
 
 function projectNameFrom(text: string): string {
   const cleaned = text
@@ -156,10 +74,6 @@ function projectNameFrom(text: string): string {
     .slice(0, 24);
 
   return `calvras-${slug || "workspace"}`;
-}
-
-function isCodeProjectIntent(text: string): boolean {
-  return /\b(build|create|make|write|code|implement|edit|change|fix|update|add|component|app|website|page|script|file|function|repo|project)\b/i.test(text);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -450,6 +364,7 @@ function Index() {
   const [folderError, setFolderError] = useState("");
   const [importing, setImporting] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+  useEffect(() => () => { abortControllerRef.current?.abort(); }, []);
   const latestMessageRef = useRef<HTMLDivElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
@@ -508,7 +423,10 @@ function Index() {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          setMessages(parsed);
+          setMessages(parsed.map((message: Message) => ({
+            ...message, done: true,
+            phases: (message.phases || []).map((phase) => ({ ...phase, trace: (phase.trace || []).filter((node) => node.type !== "reasoning" && node.type !== "step") })),
+          })));
         }
       }
       const savedPlan = localStorage.getItem(PLAN_STORAGE_KEY);
@@ -603,10 +521,8 @@ function Index() {
           ? {
               ...m,
               done: true,
-              phases: m.phases.map((p) => ({
-                ...p,
-                message: p.message || "Operation paused by user.",
-              })),
+              endedAt: Date.now(),
+              phases: [...m.phases.map((phase) => ({ ...phase, trace: phase.trace.map((node) => node.status === "running" ? { ...node, status: "failed" as const, output: "Stopped waiting. A command already started on the server may still run." } : node) })), { trace: [], message: "Stopped. Any actions already executed are shown above." }],
             }
           : m
       )
@@ -617,9 +533,10 @@ function Index() {
   const getProjectContextString = useCallback(async (activePath: string): Promise<string> => {
     try {
       const res = await fetch(`/api/fs/tree?projectPath=${encodeURIComponent(activePath)}`);
-      if (!res.ok) return "";
+      if (!res.ok) return "Workspace access failed. Do not infer that this folder is empty.";
       const data = await res.json();
-      if (!data.ok || !Array.isArray(data.files) || data.files.length === 0) {
+      if (!data.ok || !Array.isArray(data.files)) return `Workspace access failed: ${data.error || "invalid folder response"}.`;
+      if (data.files.length === 0) {
         return "Project is empty. No files exist yet.";
       }
       return data.files
@@ -632,181 +549,6 @@ function Index() {
       return "";
     }
   }, []);
-
-  // Execute filesystem actions
-  const executeActions = useCallback(
-    async (actions: FsAction[], activePath: string): Promise<{ nodes: TraceNode[]; summaryNotes: string[]; fileReadResults: Array<{path: string; content: string}>; dirListResults: Array<{path: string; listing: string}> }> => {
-      const nodes: TraceNode[] = [];
-      const summaryNotes: string[] = [];
-      const fileReadResults: Array<{path: string; content: string}> = [];
-      const dirListResults: Array<{path: string; listing: string}> = [];
-
-      for (const act of actions) {
-        const actionType = act.type || act.action;
-
-        if (actionType === "create_file" && act.path) {
-          try {
-            const res = await fetch("/api/fs/create", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ projectPath: activePath, path: act.path, content: act.content ?? "" }),
-            });
-            const data = await res.json();
-            if (data.ok) {
-              nodes.push({
-                type: "tool",
-                primary: "Create file",
-                secondary: act.path,
-                mono: true,
-                details: [{ text: `✓ Created ${act.path} (${(act.content ?? "").split("\n").length} lines)`, tone: "add" }],
-              });
-              summaryNotes.push(`Created \`${act.path}\``);
-            } else {
-              throw new Error(data.error || "Failed to create file");
-            }
-          } catch (err: any) {
-            nodes.push({ type: "tool", primary: "Create file failed", secondary: act.path, status: "failed", details: [{ text: `✗ ${err.message}`, tone: "error" }] });
-          }
-        }
-
-        if (actionType === "edit_file" && act.path) {
-          try {
-            const res = await fetch("/api/fs/edit", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ projectPath: activePath, path: act.path, lineStart: act.lineStart ?? 1, lineEnd: act.lineEnd ?? act.lineStart ?? 1, newContent: act.newContent ?? "" }),
-            });
-            const data = await res.json();
-            if (data.ok) {
-              const diffRows: DiffRow[] = [];
-              const oldLines: string[] = data.oldLines || [];
-              const newLines: string[] = data.newLines || [];
-              oldLines.forEach((line, i) => { diffRows.push({ old: (data.lineStart || 1) + i, cur: null, type: "del", text: line }); });
-              newLines.forEach((line, i) => { diffRows.push({ old: null, cur: (data.lineStart || 1) + i, type: "add", text: line }); });
-              nodes.push({ type: "tool", primary: "Edit file", secondary: `${act.path} (L${data.lineStart}-${data.lineEnd})`, mono: true, diffFile: act.path, diffRows, details: [{ text: `✓ Surgically updated lines ${data.lineStart}–${data.lineEnd} in ${act.path}`, tone: "add" }] });
-              summaryNotes.push(`Surgically updated lines ${data.lineStart}–${data.lineEnd} in \`${act.path}\``);
-            } else {
-              throw new Error(data.error || "Failed to edit file");
-            }
-          } catch (err: any) {
-            nodes.push({ type: "tool", primary: "Edit file failed", secondary: act.path, status: "failed", details: [{ text: `✗ ${err.message}`, tone: "error" }] });
-          }
-        }
-
-        if (actionType === "run_command" && act.command) {
-          try {
-            const startT = Date.now();
-            const res = await fetch("/api/fs/command", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ projectPath: activePath, command: act.command }),
-            });
-            const data = await res.json();
-            const dur = Date.now() - startT;
-            nodes.push({
-              type: "terminal",
-              primary: "Run command",
-              secondary: act.command,
-              command: act.command,
-              exitCode: data.exitCode ?? (data.ok ? 0 : 1),
-              durationMs: dur,
-              output: data.output || (data.ok ? "Done" : "Error executing command"),
-            });
-            summaryNotes.push(`Ran \`${act.command}\``);
-          } catch (err: any) {
-            nodes.push({
-              type: "terminal",
-              primary: "Run command",
-              secondary: act.command,
-              command: act.command,
-              exitCode: 1,
-              durationMs: 120,
-              output: `Error executing command: ${err.message}`,
-            });
-          }
-        }
-
-        if (actionType === "read_file" && act.path) {
-          try {
-            const res = await fetch("/api/fs/read-file", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ projectPath: activePath, path: act.path }),
-            });
-            const data = await res.json();
-            if (data.ok) {
-              nodes.push({
-                type: "tool",
-                primary: "Read file",
-                secondary: act.path,
-                mono: true,
-                details: [{ text: `✓ Read ${act.path} (${data.lines} lines)`, tone: "add" }],
-              });
-              summaryNotes.push(`Read \`${act.path}\``);
-              fileReadResults.push({ path: act.path, content: data.content });
-            } else {
-              nodes.push({ type: "tool", primary: "Read file failed", secondary: act.path, status: "failed", details: [{ text: `✗ ${data.error}`, tone: "error" }] });
-            }
-          } catch (err: any) {
-            nodes.push({ type: "tool", primary: "Read file failed", secondary: act.path, status: "failed", details: [{ text: `✗ ${err.message}`, tone: "error" }] });
-          }
-        }
-
-        if (actionType === "write_file" && act.path) {
-          try {
-            const res = await fetch("/api/fs/write-file", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ projectPath: activePath, path: act.path, content: act.content ?? "" }),
-            });
-            const data = await res.json();
-            if (data.ok) {
-              nodes.push({
-                type: "tool",
-                primary: "Write file",
-                secondary: act.path,
-                mono: true,
-                details: [{ text: `✓ Wrote ${act.path} (${data.lines} lines)`, tone: "add" }],
-              });
-              summaryNotes.push(`Wrote \`${act.path}\``);
-            } else {
-              throw new Error(data.error || "Failed to write file");
-            }
-          } catch (err: any) {
-            nodes.push({ type: "tool", primary: "Write file failed", secondary: act.path, status: "failed", details: [{ text: `✗ ${err.message}`, tone: "error" }] });
-          }
-        }
-
-        if (actionType === "list_dir") {
-          try {
-            const res = await fetch("/api/fs/list-dir", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ projectPath: activePath, path: act.path ?? "" }),
-            });
-            const data = await res.json();
-            if (data.ok) {
-              const listing = data.entries.map((e: any) => `${e.type === "dir" ? "📁" : "📄"} ${e.name}`).join("\n");
-              nodes.push({
-                type: "tool",
-                primary: "List directory",
-                secondary: act.path || "/",
-                mono: true,
-                details: [{ text: listing || "(empty)", tone: "add" }],
-              });
-              summaryNotes.push(`Listed \`${act.path || "/"}\``);
-              dirListResults.push({ path: act.path || "/", listing });
-            }
-          } catch (err: any) {
-            nodes.push({ type: "tool", primary: "List dir failed", secondary: act.path || "/", status: "failed", details: [{ text: `✗ ${err.message}`, tone: "error" }] });
-          }
-        }
-      }
-
-      return { nodes, summaryNotes, fileReadResults, dirListResults };
-    },
-    []
-  );
 
   // ── Main submit handler ────────────────────────────────────────────────────
   const handleSubmit = useCallback(
@@ -832,35 +574,13 @@ function Index() {
       addRecent({
         id: `chat-${Date.now()}`,
         label: (text || attachedForBubble[0]?.name || "Attachment").slice(0, 32) + ((text.length > 32) ? "…" : ""),
-        projectPath: projectPath || undefined,
-        projectName: projectName || undefined,
+        ...(projectPath ? { projectPath } : {}),
+        ...(projectName ? { projectName } : {}),
       });
 
       // Auto-create project folder if needed
       let activePath = projectPath;
       let activeName = projectName;
-
-      if (!activePath && isCodeProjectIntent(text)) {
-        const autoName = projectNameFrom(text);
-        try {
-          const res = await fetch("/api/fs/create-project", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: autoName }),
-            signal: controller.signal,
-          });
-          const data = await res.json();
-          if (data.ok && data.projectPath) {
-            activePath = data.projectPath;
-            activeName = data.name || autoName;
-            setProjectPath(activePath);
-            setProjectName(activeName);
-            addProject({ name: activeName, path: activePath });
-          }
-        } catch (e) {
-          console.warn("Could not auto-create project:", e);
-        }
-      }
 
       // Build conversation history for full memory
       const conversationHistory = messages
@@ -869,7 +589,7 @@ function Index() {
           { role: "user" as const, content: m.text || "(attachment)" },
           {
             role: "assistant" as const,
-            content: m.phases?.[0]?.message || "",
+            content: m.phases.map((phase) => [phase.message, ...phase.trace.map((node) => JSON.stringify({ action: node.primary, path: node.secondary, output: node.output, exitCode: node.exitCode, status: node.status, details: node.details }))].filter(Boolean).join("\n")).join("\n\n"),
           },
         ]);
 
@@ -888,6 +608,7 @@ function Index() {
           attachments: attachedForBubble.length > 0 ? attachedForBubble : undefined,
           phases: [initialThinkingPhase],
           done: false,
+          startedAt: msgId,
           role: "user",
         },
       ]);
@@ -936,186 +657,73 @@ IMPORTANT RULES:
 [CURRENT TIME]: ${timeStr}`;
       fullPrompt = `${systemPrefix}\n\n${fullPrompt}`;
 
-      // ── Full Autonomous Agent Loop (Think -> Work -> Think -> Work -> Complete) ──
-      const allActionNodes: TraceNode[] = [];
-      const allSummaryNotes: string[] = [];
-      const allReasoningSentences: string[] = [];
-      let currentPrompt = fullPrompt;
-      let lastParsed: CalvrasResponsePayload | null = null;
-      let iteration = 0;
-      const MAX_AGENT_STEPS = 8;
-
-      while (iteration < MAX_AGENT_STEPS) {
-        iteration++;
-
-        // Invoke AI
-        let aiRaw = "";
-        try {
-          aiRaw = await callAI(currentPrompt, undefined, mediaList, projectSnapshot);
-        } catch (err: any) {
-          aiRaw = `Connection error: ${err.message}`;
-          break;
-        }
-
-        const parsed = parseCalvrasPayload(aiRaw);
-        lastParsed = parsed;
-
-        if (parsed.reasoning && parsed.reasoning.length > 0) {
-          allReasoningSentences.push(...parsed.reasoning);
-        } else if (parsed.thought) {
-          allReasoningSentences.push(parsed.thought);
-        }
-
-        // Auto-create project folder on desktop if first time actions are needed
-        if (parsed.actions && parsed.actions.length > 0 && !activePath) {
-          const autoName = projectNameFrom(text);
-          try {
-            const res = await fetch("/api/fs/create-project", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ name: autoName }),
-            });
-            const data = await res.json();
-            if (data.ok && data.projectPath) {
-              activePath = data.projectPath;
-              activeName = data.name || autoName;
-              setProjectPath(activePath);
-              setProjectName(activeName);
-              addProject({ name: activeName, path: activePath });
-            }
-          } catch {}
-        }
-
-        // Execute actions if present
-        if (parsed.actions && parsed.actions.length > 0 && activePath) {
-          const execResult = await executeActions(parsed.actions, activePath);
-          allActionNodes.push(...execResult.nodes);
-          allSummaryNotes.push(...execResult.summaryNotes);
-
-          // Compute intermediate thinking out loud progress report
-          const intermediateReport =
-            parsed.message ||
-            (allSummaryNotes.length > 0
-              ? `Working on tasks: ${allSummaryNotes.slice(-2).join(", ")}. Continuing to think and verify...`
-              : "Analyzing tasks and executing actions...");
-
-          // Real-time update in UI: show live progress to the user while loop is running!
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === msgId
-                ? {
-                    ...m,
-                    phases: [
-                      {
-                        trace: [
-                          ...(allReasoningSentences.length > 0
-                            ? [{ type: "reasoning", sentences: allReasoningSentences, durationSeconds: 2.0 }]
-                            : []),
-                          ...allActionNodes,
-                        ],
-                        message: intermediateReport,
-                      },
-                    ],
-                  }
-                : m
-            )
-          );
-
-          // Build rich feedback for next iteration
-          const allFeedbackParts: string[] = [];
-
-          if (execResult.fileReadResults.length > 0) {
-            for (const fr of execResult.fileReadResults) {
-              allFeedbackParts.push(`FILE CONTENTS: ${fr.path}\n\`\`\`\n${fr.content}\n\`\`\``);
+      // Append real feedback and tool states in the order they arrive.
+      const phases: AgentPhase[] = [];
+      const publish = () => {
+        if (controller.signal.aborted) return;
+        setMessages((previous) => previous.map((message) => message.id === msgId ? { ...message, phases: phases.map((phase) => ({ ...phase, trace: [...phase.trace] })) } : message));
+      };
+      const outcome = await runAgent({
+        prompt: fullPrompt,
+        requiresTools: !/^(how|what|why|explain)\b/i.test(text) && /\b(check|inspect|read|edit|fix|build|create|implement|run|deploy|search|update)\b/i.test(text),
+        signal: controller.signal,
+        infer: (prompt) => callAI(prompt, undefined, mediaList, projectSnapshot, controller.signal),
+        onFeedback: (message) => { phases.push({ trace: [], message }); publish(); },
+        execute: async (actions) => {
+          if (!activePath) {
+            const canCreate = actions.some((action) => action.type === "create_file" || action.type === "write_file") && !actions.some((action) => action.type === "read_file" || action.type === "list_dir");
+            if (!canCreate) throw new Error("Select a project folder first so Calvras can inspect the actual files.");
+            const response = await fetch("/api/fs/create-project", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: projectNameFrom(text) }), signal: controller.signal });
+            const data = await response.json();
+            if (!response.ok || !data.ok || !data.projectPath) throw new Error(data.error || "Could not create a workspace.");
+            activePath = data.projectPath;
+            activeName = data.name;
+            setProjectPath(activePath);
+            setProjectName(activeName);
+            addProject({ name: data.name, path: data.projectPath });
+          }
+          const feedback: ToolFeedback[] = [];
+          const routes: Record<AgentAction["type"], string> = { create_file: "create", write_file: "write-file", edit_file: "edit", read_file: "read-file", list_dir: "list-dir", run_command: "command" };
+          const labels: Record<AgentAction["type"], string> = { create_file: "Create file", write_file: "Write file", edit_file: "Edit file", read_file: "Read file", list_dir: "List directory", run_command: "Run command" };
+          for (const action of actions) {
+            controller.signal.throwIfAborted();
+            const node: TraceNode = { id: crypto.randomUUID(), type: action.type === "run_command" ? "terminal" : "tool", primary: labels[action.type], secondary: action.command || action.path || ".", status: "running", ...(action.command ? { command: action.command } : {}) };
+            const phase: AgentPhase = { trace: [node] };
+            phases.push(phase);
+            publish();
+            const started = Date.now();
+            try {
+              const response = await fetch(`/api/fs/${routes[action.type]}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...action, projectPath: activePath }), signal: controller.signal });
+              const data = await response.json();
+              const ok = response.ok && data.ok === true && (action.type !== "run_command" || data.exitCode === 0);
+              node.status = ok ? "completed" : "failed";
+              node.durationMs = Date.now() - started;
+              if (action.type === "run_command") { node.exitCode = data.exitCode ?? 1; node.output = data.output || data.error || ""; }
+              else if (data.content !== undefined) node.output = data.content;
+              else if (Array.isArray(data.entries)) node.output = data.entries.map((entry: { name: string; type: string }) => `${entry.type}: ${entry.name}`).join("\n");
+              else node.output = data.error || JSON.stringify(data);
+              feedback.push({ action, ok, result: data });
+              publish();
+            } catch (error) {
+              node.status = "failed";
+              node.durationMs = Date.now() - started;
+              node.output = controller.signal.aborted ? "Stopped waiting for this action. A command already started on the server may still run." : error instanceof Error ? error.message : "Action failed.";
+              if (!controller.signal.aborted) { feedback.push({ action, ok: false, result: { error: node.output } }); publish(); }
+              else throw error;
             }
           }
-          if (execResult.dirListResults.length > 0) {
-            for (const dl of execResult.dirListResults) {
-              allFeedbackParts.push(`DIRECTORY LISTING: ${dl.path}\n${dl.listing}`);
-            }
-          }
-          const commandOutputs = execResult.nodes
-            .filter((n) => n.type === "terminal")
-            .map((n) => `$ ${(n as any).command || "command"}\nExit: ${(n as any).exitCode}\n${(n as any).output || "Done"}`);
-          if (commandOutputs.length > 0) {
-            allFeedbackParts.push(`COMMAND OUTPUTS:\n${commandOutputs.join("\n\n")}`);
-          }
-
-          // Continue if there's feedback to process
-          const hadActions = parsed.actions && parsed.actions.length > 0;
-          if (allFeedbackParts.length > 0 && iteration < MAX_AGENT_STEPS) {
-            currentPrompt = `${fullPrompt}\n\n[AGENT STEP ${iteration} RESULTS]\n${allFeedbackParts.join("\n\n---\n\n")}\n\nContinue working. If you have more files to read, write, or commands to run, include them in "actions". If the task is fully complete, set "actions" to [] and write your final summary in "message".`;
-            continue;
-          }
-
-          // If agent returned actions but no feedback (pure creates), also continue
-          if (hadActions && iteration < MAX_AGENT_STEPS) {
-            currentPrompt = `${fullPrompt}\n\n[AGENT STEP ${iteration} COMPLETE]\nFiles created/written: ${allSummaryNotes.slice(-5).join(", ")}. Continue with next steps or finalize.`;
-            continue;
-          }
-        }
-
-        // If no more actions to execute, the task is finished
-        break;
-      }
-
-      const finalPhases: AgentPhase[] = [];
-      const parsed = lastParsed || { message: "Task completed." };
-
-      // Adjust reasoning duration based on effort level
-      const reasoningDuration = effortLevel === "Low" ? 1.0 : effortLevel === "Max Effort" ? 3.5 : 2.0;
-
-      // Build the final message — if there's a localhost URL, append it
-      let finalMessage =
-        parsed.message ||
-        (allSummaryNotes.length > 0
-          ? `Finished: ${allSummaryNotes.join(", ")} in project \`${activeName}\`.`
-          : "Task completed.");
-
-      // If the AI returned a plan, register it
-      if (parsed.plan) {
-        const planObj: ImplementationPlan = {
-          title: `Implementation Plan`,
-          content: parsed.plan,
-          messageId: msgId,
-        };
-        setActivePlan(planObj);
-        finalMessage = finalMessage
-          ? `${finalMessage}\n\n📋 I've created an **implementation plan** for this task. Click "View Plan" to see the full structure.`
-          : `📋 I've created an **implementation plan** for this task. Click "View Plan" to see the full structure.`;
-      }
-
-      const traceNodes: TraceNode[] = [];
-      if (allReasoningSentences.length > 0) {
-        traceNodes.push({
-          type: "reasoning",
-          sentences: allReasoningSentences,
-          durationSeconds: reasoningDuration,
-        });
-      }
-      if (allActionNodes.length > 0) {
-        traceNodes.push(...allActionNodes);
-      }
-      traceNodes.push({
-        type: "step",
-        primary: allActionNodes.length > 0 ? "Changes applied" : "Completed",
-        secondary: activeName || "Calvras",
+          return feedback;
+        },
       });
-
-      finalPhases.push({
-        trace: traceNodes,
-        message: finalMessage,
-      });
-
-      setMessages((prev) =>
-        prev.map((m) => (m.id === msgId ? { ...m, phases: finalPhases, done: true } : m))
-      );
+      if (abortControllerRef.current !== controller) return;
+      if (outcome.plan) setActivePlan({ title: "Implementation Plan", content: outcome.plan, messageId: msgId });
+      phases.push({ trace: [], message: outcome.message });
+      setMessages((previous) => previous.map((message) => message.id === msgId ? { ...message, phases, done: true, endedAt: Date.now() } : message));
       setIsLoading(false);
       abortControllerRef.current = null;
     },
-    [projectPath, projectName, isLoading, addProject, addRecent, getProjectContextString, executeActions, messages, effortLevel]
+    [projectPath, projectName, isLoading, addProject, addRecent, getProjectContextString, messages]
   );
-
   // ── Open / Switch Project Folder — uses native file system picker ──────────
   const handleOpenProject = useCallback(() => {
     if (messages.length > 0) return;
@@ -1345,12 +953,7 @@ IMPORTANT RULES:
               </div>
 
               {/* Agent Trace & Response */}
-              <AgentWorkflow
-                phases={message.phases}
-                tools={CUSTOM_TOOLS}
-                isComplete={message.done}
-                workingLabel="Calvras is working..."
-              />
+              <AgentActivity phases={message.phases} done={message.done} startedAt={message.startedAt} endedAt={message.endedAt} />
 
               {/* Compact plan card — shown when this message has an associated plan */}
               {message.done && activePlan && activePlan.messageId === message.id && (
