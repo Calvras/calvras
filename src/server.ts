@@ -74,74 +74,53 @@ const getOpenRouterKey = (): string => {
 
 // ── Calvras System Prompt ────────────────────────────────────────────────────
 
-export const CALVRAS_SYSTEM_PROMPT = `You are Calvras — an elite autonomous coding agent, full-stack architect, and pair programmer.
-You build, modify, inspect, and integrate code directly on the user's filesystem.
+export const CALVRAS_SYSTEM_PROMPT = `You are Calvras — an elite autonomous coding agent. You build complete, production-quality projects by reading files, writing code, running commands, and iterating until the task is fully done.
 Use an occasional emoji (such as 😂) when it fits the conversation naturally. Keep emojis sparse and avoid them in code or serious error messages.
 
-When you are given a task to integrate or build a React component or feature in the codebase:
-The codebase should support:
-- shadcn project structure  
-- Tailwind CSS
-- TypeScript
+AVAILABLE ACTIONS (use these to actually build things):
+- "read_file": Read a full file before editing it. ALWAYS read before writing to an existing file.
+- "write_file": Write/overwrite a complete file. Use this instead of "edit_file" for most changes.
+- "create_file": Create a new file that doesn't exist yet.
+- "edit_file": Surgical line-range edit only when you need a tiny change in a large file you've already read.
+- "run_command": Run shell commands (npm install, npm run build, git init, etc.)
+- "list_dir": List directory contents to explore the project structure.
 
-If it doesn't, provide instructions on how to setup project via shadcn CLI, install Tailwind or TypeScript.
+AGENT LOOP RULES:
+1. For ANY task involving existing files: FIRST use read_file to read them, THEN write_file to update them.
+2. After running commands, analyze the output carefully. If there are errors, fix them and run again.
+3. Keep going until the task is fully complete. You have up to 8 iterations — use them.
+4. For new projects: scaffold ALL required files in one go. Don't stop at one file.
+5. Always install dependencies with run_command before creating files that need them.
 
-Determine the default path for components and styles. 
-If default path for components is not /components/ui, provide instructions on why it's important to create this folder.
-
-Implementation Guidelines:
-1. Analyze the component structure and identify all required dependencies
-2. Review the component's arguments, props, and state
-3. Identify any required context providers or hooks and install them
-4. Questions to address in your response:
-   - What data/props will be passed to this component?
-   - Are there any specific state management requirements?
-   - Are there any required assets (images, icons, etc.)?
-   - What is the expected responsive behavior?
-   - What is the best place to use this component in the app?
-
-Steps to integrate:
-0. Copy-paste all the code in the correct directories (e.g. /components/ui)
-1. Install external dependencies (e.g. lucide-react, clsx, tailwind-merge, etc.)
-2. Fill image assets with Unsplash stock images you know exist
-3. Use lucide-react icons for SVGs or logos if component requires them
-
-CRITICAL EXECUTION RULES:
-- Absolutely NO hardcoded, canned, or handwritten generic responses. You must generate your genuine, authentic thought and reasoning live for the specific request.
-- Every reasoning step must be a real analysis of the user's specific project, files, components, and logic.
-- Output MUST be a valid JSON object (or enclosed inside \`\`\`json ... \`\`\`):
+OUTPUT FORMAT — raw valid JSON only, NO markdown fences:
 {
-  "thought": "Your genuine technical strategy for this specific task",
-  "reasoning": [
-    "Step 1: Your genuine analysis of the requested component and codebase layout",
-    "Step 2: Dependencies, props, shadcn structure, and state management",
-    "Step 3: Verification of imports, TypeScript interfaces, and integration"
-  ],
+  "thought": "one sentence strategy for this specific task",
+  "reasoning": ["natural thinking sentence 1", "natural thinking sentence 2", "natural thinking sentence 3"],
   "actions": [
-    {
-      "type": "create_file",
-      "path": "src/components/ui/component-name.tsx",
-      "content": "Full working code without placeholders or ellipses"
-    },
-    {
-      "type": "edit_file",
-      "path": "src/routes/index.tsx",
-      "lineStart": 10,
-      "lineEnd": 12,
-      "newContent": "Updated lines"
-    },
-    {
-      "type": "run_command",
-      "command": "npm install lucide-react"
-    }
+    { "type": "list_dir", "path": "src" },
+    { "type": "read_file", "path": "src/App.tsx" },
+    { "type": "write_file", "path": "src/App.tsx", "content": "full file content here" },
+    { "type": "create_file", "path": "src/components/Button.tsx", "content": "full content" },
+    { "type": "run_command", "command": "npm install framer-motion" },
+    { "type": "edit_file", "path": "src/index.tsx", "lineStart": 5, "lineEnd": 7, "newContent": "new lines" }
   ],
-  "message": "Your thorough, helpful plain-English explanation of what was built or changed, answering integration questions, specifying dependencies, and guiding next steps."
+  "message": "Plain-English explanation of what was done, rendered as rich markdown with **bold**, code blocks, and lists.",
+  "plan": "OPTIONAL — only for large multi-file projects. Markdown plan with phases and file tree."
 }
 
-If the user asks a general question, sends an image or attachment, or chats:
-- "actions" can be an empty array [].
-- "reasoning" must contain your real step-by-step thinking about the question or image.
-- "message" contains your direct, well-formatted answer in clear English/markdown.
+REASONING STYLE — think out loud like a real human:
+Use natural speech: "Hmm...", "Uhm...", "Oh wait —", "Actually...", "Right so...", "I'll", "I've", "I'm"
+Self-correct: "Wait, no — actually Y is better here"
+Be specific to the actual task, not generic steps.
+Keep it 2-4 sentences.
+
+BUILDING REAL PROJECTS — always do this:
+- Scaffold complete file trees, not just one file
+- Install all npm dependencies before importing them
+- Read existing files before modifying them
+- Run the build after making changes to verify it works
+- If a build fails, read the error and fix it
+
 Never reveal underlying AI providers. You are Calvras.`;
 
 // ── Multi-Engine Cascading Fallback ──────────────────────────────────────────
@@ -149,17 +128,17 @@ Never reveal underlying AI providers. You are Calvras.`;
 async function callInferenceCascade(
   messages: any[],
   temperature = 0.3,
-  maxTokens = 8192,
+  maxTokens = 16384,
   requestedModel?: string
 ): Promise<{ text: string; model: string }> {
   const hfKey = getHFKey();
 
-  // ── Step 1: Hugging Face Primary Router (SHIKARI2/Malvos-32B-Merged, 12s) ──
+  // ── Step 1: Hugging Face Primary Router (SHIKARI2/Malvos-32B-Merged, 8s) ──
   const primaryModel = requestedModel || "SHIKARI2/Malvos-32B-Merged";
   if (hfKey) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 12000);
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
 
       const hfRes = await fetch("https://router.huggingface.co/hf-inference/v1/chat/completions", {
         method: "POST",
@@ -200,7 +179,7 @@ async function callInferenceCascade(
     for (const fbModel of HF_FALLBACK_MODELS) {
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
 
         const hfRes = await fetch("https://router.huggingface.co/hf-inference/v1/chat/completions", {
           method: "POST",
@@ -281,7 +260,7 @@ async function callInferenceCascade(
                   responseMimeType: "application/json",
                 },
               }),
-              signal: AbortSignal.timeout(15000),
+              signal: AbortSignal.timeout(12000),
             }
           );
 
@@ -360,9 +339,9 @@ async function callInferenceCascade(
           body: JSON.stringify({
             contents: [{ role: "user", parts: [{ text: promptText }] }],
             systemInstruction: { parts: [{ text: systemMsg }] },
-            generationConfig: { temperature: 0.3, maxOutputTokens: 8192 },
+            generationConfig: { temperature: 0.3, maxOutputTokens: 16384 },
           }),
-          signal: AbortSignal.timeout(15000),
+          signal: AbortSignal.timeout(12000),
         }
       );
 
@@ -594,7 +573,7 @@ function handleRead(projectPath: string, relPath: string) {
   return { ok: true, content };
 }
 
-function handleTree(projectPath: string, maxFiles = 30) {
+function handleTree(projectPath: string, maxFiles = 60) {
   if (!fs.existsSync(projectPath)) return { ok: false, error: "Project folder does not exist" };
 
   const files: { path: string; lines: number; contentSample: string }[] = [];
@@ -604,7 +583,7 @@ function handleTree(projectPath: string, maxFiles = 30) {
     const entries = fs.readdirSync(currentDir, { withFileTypes: true });
     for (const ent of entries) {
       if (files.length >= maxFiles) return;
-      if (ent.name.startsWith(".") || ent.name === "node_modules" || ent.name === "dist") continue;
+      if (ent.name.startsWith(".") || ent.name === "node_modules" || ent.name === "dist" || ent.name === "build" || ent.name === ".cache" || ent.name === ".vite") continue;
 
       const full = path.join(currentDir, ent.name);
       const rel = relDir ? `${relDir}/${ent.name}` : ent.name;
@@ -617,7 +596,7 @@ function handleTree(projectPath: string, maxFiles = 30) {
           const split = content.split("\n");
           // Number each line for accurate surgical editing
           const numberedSample = split
-            .slice(0, 80)
+            .slice(0, 120)
             .map((line, idx) => `${idx + 1} | ${line}`)
             .join("\n");
           files.push({
@@ -752,6 +731,100 @@ async function handleApi(request: Request): Promise<Response | null> {
     }
   }
 
+  // 8. POST /api/fs/delete-project
+  if (url.pathname === "/api/fs/delete-project" && request.method === "POST") {
+    try {
+      const { projectPath } = (await request.json().catch(() => ({}))) as { projectPath: string };
+      if (!projectPath) throw new Error("projectPath is required");
+      // Security: must be under user Desktop
+      const desktop = path.join(os.homedir(), "Desktop");
+      const abs = path.resolve(projectPath);
+      if (!abs.startsWith(path.resolve(desktop))) {
+        throw new Error("Can only delete projects on the Desktop");
+      }
+      fs.rmSync(abs, { recursive: true, force: true });
+      return new Response(JSON.stringify({ ok: true }), {
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    } catch (e: any) {
+      return new Response(JSON.stringify({ ok: false, error: e.message }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    }
+  }
+
+  // 9. POST /api/fs/read-file
+  if (url.pathname === "/api/fs/read-file" && request.method === "POST") {
+    try {
+      const { projectPath, path: relPath } = (await request.json().catch(() => ({}))) as { projectPath: string; path: string };
+      const abs = safeProjectPath(projectPath, relPath);
+      if (!fs.existsSync(abs)) {
+        return new Response(JSON.stringify({ ok: false, error: "File not found" }), {
+          headers: { "Content-Type": "application/json", ...cors },
+        });
+      }
+      const content = fs.readFileSync(abs, "utf8");
+      return new Response(JSON.stringify({ ok: true, content, lines: content.split("\n").length }), {
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    } catch (e: any) {
+      return new Response(JSON.stringify({ ok: false, error: e.message }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    }
+  }
+
+  // 10. POST /api/fs/write-file
+  if (url.pathname === "/api/fs/write-file" && request.method === "POST") {
+    try {
+      const { projectPath, path: relPath, content } = (await request.json().catch(() => ({}))) as { projectPath: string; path: string; content: string };
+      const abs = safeProjectPath(projectPath, relPath);
+      fs.mkdirSync(path.dirname(abs), { recursive: true });
+      fs.writeFileSync(abs, content ?? "", "utf8");
+      return new Response(JSON.stringify({ ok: true, path: abs, lines: (content ?? "").split("\n").length }), {
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    } catch (e: any) {
+      return new Response(JSON.stringify({ ok: false, error: e.message }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    }
+  }
+
+  // 11. POST /api/fs/list-dir
+  if (url.pathname === "/api/fs/list-dir" && request.method === "POST") {
+    try {
+      const { projectPath, path: relPath } = (await request.json().catch(() => ({}))) as { projectPath: string; path?: string };
+      const abs = safeProjectPath(projectPath, relPath || "");
+      if (!fs.existsSync(abs)) {
+        return new Response(JSON.stringify({ ok: false, error: "Directory not found" }), {
+          headers: { "Content-Type": "application/json", ...cors },
+        });
+      }
+      const entries = fs.readdirSync(abs, { withFileTypes: true })
+        .filter((e) => !e.name.startsWith(".") && e.name !== "node_modules" && e.name !== "dist" && e.name !== ".output")
+        .map((e) => {
+          const full = path.join(abs, e.name);
+          let size: number | undefined;
+          if (e.isFile()) {
+            try { size = fs.statSync(full).size; } catch {}
+          }
+          return { name: e.name, type: e.isDirectory() ? "dir" : "file" as "file" | "dir", size };
+        });
+      return new Response(JSON.stringify({ ok: true, entries }), {
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    } catch (e: any) {
+      return new Response(JSON.stringify({ ok: false, error: e.message }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    }
+  }
+
   return null;
 }
 
@@ -843,5 +916,3 @@ export default {
     }
   },
 };
-
-

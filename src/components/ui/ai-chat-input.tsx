@@ -17,6 +17,8 @@ import {
   Shield,
   Sparkles,
   Radio,
+  FileText,
+  Pencil,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -590,6 +592,7 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
 
     const [attachments, setAttachments] = useState<Attachment[]>([]);
     const [activeAttachment, setActiveAttachment] = useState<{ attachment: Attachment; rect: DOMRect } | null>(null);
+    const [pastedContent, setPastedContent] = useState<string | null>(null);
 
     // Audio/Voice recording states
     const [isRecording, setIsRecording] = useState(false);
@@ -614,7 +617,7 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
 
     const isControlled = controlledValue !== undefined;
     const value = isControlled ? controlledValue : localValue;
-    const hasValue = value.trim() !== "" || attachments.length > 0;
+    const hasValue = value.trim() !== "" || attachments.length > 0 || pastedContent !== null;
     const hasAttachments = attachments.length > 0;
 
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -873,20 +876,21 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
       void el.offsetHeight; // flush
       el.style.transition = `height 0.28s cubic-bezier(0.25, 1, 0.5, 1)`;
 
-      const newHeight = Math.max(68, Math.min(scrollHeight, 160));
+      const newHeight = Math.max(68, Math.min(scrollHeight, 200));
       el.style.height = `${newHeight}px`;
 
       setTextareaHeight(newHeight);
-      setIsScrolling(scrollHeight > 160);
+      setIsScrolling(scrollHeight > 200);
 
       setTimeout(updateFades, 0);
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [value, expanded]);
 
     useEffect(() => {
-      setContainerHeight(Math.max(116, textareaHeight + 48));
+      const chipOffset = pastedContent && expanded ? 48 : 0;
+      setContainerHeight(Math.max(116, textareaHeight + 48 + chipOffset));
       setTimeout(updateFades, 0);
-    }, [textareaHeight]);
+    }, [textareaHeight, pastedContent, expanded]);
 
     useEffect(() => {
       if (!isModelSelectOpen && !approvalOpen) return;
@@ -902,7 +906,7 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
 
     const handleBlur = (e: React.FocusEvent<HTMLDivElement>) => {
       if (internalContainerRef.current && internalContainerRef.current.contains(e.relatedTarget as Node)) return;
-      if (value.trim() === "" && !hasAttachments && !isRecording) {
+      if (value.trim() === "" && !hasAttachments && !isRecording && !pastedContent) {
         setIsSmoothResize(false);
         setExpanded(false);
         setIsModelSelectOpen(false);
@@ -912,8 +916,15 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
     };
 
     const handleSubmit = () => {
-      if (value.trim() === "" && !hasAttachments) return;
+      if (value.trim() === "" && !hasAttachments && !pastedContent) return;
       setIsSmoothResize(false);
+
+      // If there's a pasted content chip, build the final submit value
+      const submitValue = pastedContent
+        ? value.trim()
+          ? `${value}\n\n${pastedContent}`
+          : pastedContent
+        : value;
 
       // Convert all attachment blob URLs to base64 data URLs before submitting
       // so the AI can read them and the chat bubble stays stable after revoke
@@ -935,10 +946,11 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
       );
 
       Promise.all(conversions).then((attachmentData) => {
-        onSubmit?.(value, attachmentData.length > 0 ? attachmentData : undefined);
+        onSubmit?.(submitValue, attachmentData.length > 0 ? attachmentData : undefined);
       });
 
       handleValueChange("");
+      setPastedContent(null);
       attachments.forEach((a) => URL.revokeObjectURL(a.url));
       setAttachments([]);
       setExpanded(false);
@@ -961,11 +973,21 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
       setAttachments((prev) => [...prev, { id, file, url, name: file.name, width, height }]);
     }, []);
 
-    // Paste handler — supports pasting images and files via Ctrl+V
+    // Paste handler — supports pasting images and files via Ctrl+V, and long text as chip
     const handlePaste = useCallback((e: React.ClipboardEvent) => {
       const items = Array.from(e.clipboardData?.items || []);
       const fileItems = items.filter((item) => item.kind === "file");
-      if (fileItems.length === 0) return; // let normal text paste through
+
+      // Check for long text paste first (before file check)
+      const pastedText = e.clipboardData?.getData("text/plain") ?? "";
+      if (fileItems.length === 0 && pastedText.length > 500) {
+        e.preventDefault();
+        setPastedContent(pastedText);
+        if (!expanded) { setIsSmoothResize(false); setExpanded(true); }
+        return;
+      }
+
+      if (fileItems.length === 0) return; // let normal short text paste through
 
       e.preventDefault();
       const room = Math.max(0, maxAttachments - attachments.length);
@@ -1149,6 +1171,33 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
               .prompt-scrollbar:hover::-webkit-scrollbar-thumb { background: hsl(var(--muted-foreground) / 0.3); }
             `}} />
 
+            {/* Pasted content chip — shown above textarea when a long paste is captured */}
+            {pastedContent && expanded && (
+              <div className="absolute top-2 left-3 right-12 z-[3] flex items-center gap-2 bg-[oklch(0.22_0_0)] border border-[oklch(1_0_0/10%)] rounded-xl px-3 py-2 text-xs text-muted-foreground mb-2">
+                <FileText className="h-3.5 w-3.5 shrink-0 text-white/50" strokeWidth={1.5} />
+                <span className="flex-1 min-w-0 truncate text-white/60">
+                  {pastedContent.slice(0, 40)}{pastedContent.length > 40 ? "…" : ""}
+                </span>
+                <span className="bg-[oklch(0.3_0_0)] text-[oklch(0.8_0_0)] text-[10px] px-1.5 py-0.5 rounded font-mono shrink-0">
+                  PASTED
+                </span>
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleValueChange(pastedContent);
+                    setPastedContent(null);
+                    setTimeout(() => textareaRef.current?.focus(), 0);
+                  }}
+                  aria-label="Edit pasted content"
+                  className="shrink-0 flex items-center justify-center h-5 w-5 rounded-md text-white/40 hover:text-white/80 hover:bg-white/10 transition-colors"
+                >
+                  <Pencil className="h-3 w-3" strokeWidth={1.5} />
+                </button>
+              </div>
+            )}
+
             <textarea
               ref={textareaRef}
               value={value}
@@ -1196,16 +1245,18 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
                   setIsSmoothResize(false);
                   setExpanded(false);
                   setIsModelSelectOpen(false);
+                  setPastedContent(null);
                 }
               }}
               placeholder={placeholder}
               aria-label="Prompt"
               disabled={isRecording}
               style={{
-                transition: `opacity 0.28s ${SPRING}, transform 0.28s ${SPRING}, height 0.38s ${SPRING}`
+                transition: `opacity 0.28s ${SPRING}, transform 0.28s ${SPRING}, height 0.38s ${SPRING}`,
+                top: pastedContent && expanded ? 48 : 0,
               }}
               className={cn(
-                "prompt-scrollbar absolute top-0 inset-x-0 z-[1] w-full resize-none bg-transparent pl-4 pr-12 py-3.5 text-sm leading-[22px] text-[oklch(0.13_0_0)] outline-none placeholder:font-medium placeholder:text-[oklch(0.55_0_0)] cursor-text",
+                "prompt-scrollbar absolute inset-x-0 z-[1] w-full resize-none bg-transparent pl-4 pr-12 py-3.5 text-sm leading-[22px] text-[oklch(0.13_0_0)] outline-none placeholder:font-medium placeholder:text-[oklch(0.55_0_0)] cursor-text",
                 expanded ? "opacity-100 scale-100 translate-y-0" : "opacity-0 scale-95 -translate-y-1 pointer-events-none",
                 isScrolling ? "overflow-y-auto" : "overflow-y-hidden",
                 isRecording && "pointer-events-none"

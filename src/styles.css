@@ -59,6 +59,8 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --animate-marquee: marquee var(--duration) linear infinite;
+  --animate-marquee-vertical: marquee-vertical var(--duration) linear infinite;
 }
 
 :root {
@@ -156,10 +158,10 @@
   width: 100%;
   max-width: 42rem;
   margin-inline: auto;
-  padding: 3.5rem 1.5rem 11rem;
+  padding: 3.5rem 1.5rem 0.5rem;
   display: flex;
   flex-direction: column;
-  gap: 2rem;
+  gap: 1.5rem;
 }
 
 .chat-welcome {
@@ -183,7 +185,7 @@
 .chat-composer::before {
   content: "";
   position: absolute;
-  inset: -1.25rem 0 calc(-1.5rem - env(safe-area-inset-bottom));
+  inset: -5px 0 calc(-1.5rem - env(safe-area-inset-bottom));
   background: linear-gradient(to top, var(--background) 70%, transparent);
   pointer-events: none;
   z-index: -1;
@@ -215,3 +217,18 @@
 .auth-input { display: block; width: 100%; margin-top: .5rem; border: 1px solid #ffffff20; border-radius: 9px; background: #111; color: #eee; padding: .8rem; font-size: .875rem; }
 .auth-input:focus { outline: 2px solid #aaa; outline-offset: 2px; }
 .auth-primary { display: flex; align-items: center; justify-content: center; gap: .5rem; border-radius: 9px; padding: .8rem; margin-top: .5rem; background: #eeece8; color: #181818; font-size: .875rem; font-weight: 500; }
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(calc(-100% - var(--gap))); }
+}
+
+@keyframes marquee-vertical {
+  from { transform: translateY(0); }
+  to { transform: translateY(calc(-100% - var(--gap))); }
+}
+
+/* Hero banner fade animations */
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}

@@ -125,8 +125,14 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     setNewChatSignal((s) => s + 1);
   };
 
-  const deleteRecent = (id: string) => {
-    setRecents((prev) => prev.filter((r) => r.id !== id));
+  const deleteRecent = (idOrLabel: string) => {
+    setRecents((prev) => prev.filter((r) => r.id !== idOrLabel && r.label !== idOrLabel));
+    setProjects((prev) =>
+      prev.map((proj) => ({
+        ...proj,
+        tasks: proj.tasks?.filter((t) => t !== idOrLabel),
+      }))
+    );
   };
 
   const deleteProject = (path: string) => {
@@ -134,8 +140,16 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     setActiveProject((prev) => (prev?.path === path ? null : prev));
   };
 
-  const renameRecent = (id: string, newLabel: string) => {
-    setRecents((prev) => prev.map((r) => (r.id === id ? { ...r, label: newLabel } : r)));
+  const renameRecent = (idOrLabel: string, newLabel: string) => {
+    setRecents((prev) =>
+      prev.map((r) => (r.id === idOrLabel || r.label === idOrLabel ? { ...r, label: newLabel } : r))
+    );
+    setProjects((prev) =>
+      prev.map((proj) => ({
+        ...proj,
+        tasks: proj.tasks?.map((t) => (t === idOrLabel ? newLabel : t)),
+      }))
+    );
   };
 
   const renameProject = (path: string, newName: string) => {

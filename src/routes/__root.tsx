@@ -147,8 +147,22 @@ function SidebarWithProjects() {
           router.navigate({ to: "/" });
         }
       }}
-      onDeleteRecent={(item) => deleteRecent(item.id || item.label)}
-      onDeleteProject={(project) => deleteProject(project.path || project.name)}
+      onDeleteRecent={(item) => {
+        if (item.id) deleteRecent(item.id);
+        if (item.label) deleteRecent(item.label);
+      }}
+      onDeleteProject={async (project) => {
+        if (project.path) {
+          try {
+            await fetch('/api/fs/delete-project', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ projectPath: project.path }),
+            });
+          } catch {}
+        }
+        deleteProject(project.path || project.name);
+      }}
       onRenameRecent={(item, newLabel) => renameRecent(item.id || item.label, newLabel)}
       onRenameProject={(project, newName) => renameProject(project.path || project.name, newName)}
     />
@@ -158,7 +172,10 @@ function SidebarWithProjects() {
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const router = useRouter();
-  const isExcludedPage = router.state.location.pathname === "/signin" || router.state.location.pathname === "/pricing";
+  const isExcludedPage =
+    router.state.location.pathname === "/signin" ||
+    router.state.location.pathname === "/pricing" ||
+    router.state.location.pathname === "/landing";
 
   return (
     <QueryClientProvider client={queryClient}>

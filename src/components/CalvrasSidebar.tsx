@@ -4,6 +4,7 @@ import { PenSquare, FolderOpen, ChevronDown, ChevronRight, Bell, Search, PanelLe
 import { Link } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { QuotaBanner } from "@/components/ui/quota-banner";
 
 interface Project {
   id?: string;
@@ -42,6 +43,8 @@ export function CalvrasSidebar({
   onSelectProject,
   onRenameRecent,
   onDeleteRecent,
+  onRenameProject,
+  onDeleteProject,
 }: CalvrasSidebarProps) {
   const [open, setOpen] = useState(false);
   const [pluginsOpen, setPluginsOpen] = useState(false);
@@ -54,6 +57,7 @@ export function CalvrasSidebar({
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [usagePanelOpen, setUsagePanelOpen] = useState(false);
 
   // Close sidebar on outside click
   useEffect(() => {
@@ -123,6 +127,80 @@ export function CalvrasSidebar({
   const handleDelete = (item: RecentItem) => {
     onDeleteRecent?.(item);
     setOpenMenuId(null);
+  };
+
+  const startRenameProject = (project: Project) => {
+    setRenamingId(project.id || project.name);
+    setRenameValue(project.name);
+    setOpenMenuId(null);
+  };
+
+  const commitRenameProject = (project: Project) => {
+    const trimmed = renameValue.trim();
+    if (trimmed && trimmed !== project.name) {
+      onRenameProject?.(project, trimmed);
+    }
+    setRenamingId(null);
+    setRenameValue("");
+  };
+
+  const renderProjectMenu = (project: Project) => {
+    const projectId = project.id || project.name;
+    const menuId = `proj-${projectId}`;
+    const isMenuOpen = openMenuId === menuId;
+
+    return (
+      <>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpenMenuId((prev) => (prev === menuId ? null : menuId));
+          }}
+          className={cn(
+            "ml-auto shrink-0 flex h-5 w-5 items-center justify-center rounded transition-opacity",
+            "opacity-0 group-hover:opacity-100 hover:bg-[oklch(0.35_0_0)] text-[oklch(0.7_0_0)] hover:text-[oklch(0.985_0_0)]",
+            isMenuOpen && "opacity-100"
+          )}
+          aria-label="More options"
+          tabIndex={-1}
+        >
+          <MoreHorizontal className="h-3.5 w-3.5" />
+        </button>
+
+        <AnimatePresence>
+          {isMenuOpen && (
+            <motion.div
+              id={`chat-menu-${menuId}`}
+              initial={{ opacity: 0, x: 8 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 8 }}
+              transition={{ duration: 0.12 }}
+              className="absolute right-0 top-0 z-10 flex h-full items-center gap-px rounded-md bg-[oklch(0.285_0_0)] px-1 shadow-lg border border-[oklch(1_0_0/8%)]"
+              style={{ minWidth: 140 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                onClick={() => startRenameProject(project)}
+                className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-[oklch(0.85_0_0)] hover:bg-[oklch(0.35_0_0)] hover:text-white transition-colors"
+              >
+                <Pencil className="h-3 w-3 shrink-0" />
+                Rename
+              </button>
+              <button
+                onClick={() => {
+                  onDeleteProject?.(project);
+                  setOpenMenuId(null);
+                }}
+                className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-[oklch(0.7_0.15_20)] hover:bg-[oklch(0.35_0_0)] hover:text-red-400 transition-colors"
+              >
+                <Trash2 className="h-3 w-3 shrink-0" />
+                Delete
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </>
+    );
   };
 
   /** Renders the ⋯ button + slide-in action panel for a recent item */
@@ -282,7 +360,7 @@ export function CalvrasSidebar({
 
                   return (
                     <div key={project.id || key} className="mt-0.5">
-                      <div className="flex items-center">
+                      <div className="relative group flex items-center">
                         {/* Collapse toggle for sub-recents */}
                         {hasTasks ? (
                           <button
@@ -300,21 +378,38 @@ export function CalvrasSidebar({
                           <span className="w-5 shrink-0" />
                         )}
 
-                        <button
-                          onClick={() => {
-                            onSelectProject?.(project);
-                            setOpen(false);
-                          }}
-                          className="flex flex-1 items-center gap-2 rounded-md px-1.5 py-1.5 text-sm hover:bg-[oklch(0.285_0_0)] transition-colors text-left min-w-0"
-                        >
-                          <FolderOpen className="h-4 w-4 shrink-0 opacity-60 text-emerald-400" />
-                          <span className="truncate font-medium">{project.name}</span>
-                          {hasTasks && (
-                            <span className="ml-auto text-[10px] text-muted-foreground/60 font-mono tabular-nums">
-                              {project.tasks!.length}
-                            </span>
-                          )}
-                        </button>
+                        {renamingId === (project.id || project.name) ? (
+                          <input
+                            autoFocus
+                            value={renameValue}
+                            onChange={(e) => setRenameValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") commitRenameProject(project);
+                              if (e.key === "Escape") { setRenamingId(null); setRenameValue(""); }
+                            }}
+                            onBlur={() => commitRenameProject(project)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="flex-1 min-w-0 bg-[oklch(0.32_0_0)] text-[oklch(0.985_0_0)] rounded px-1.5 py-0.5 text-sm outline-none border border-[oklch(0.5_0_0/50%)] focus:border-[oklch(0.6_0_0)]"
+                          />
+                        ) : (
+                          <button
+                            onClick={() => {
+                              onSelectProject?.(project);
+                              setOpen(false);
+                            }}
+                            className="flex flex-1 items-center gap-2 rounded-md px-1.5 py-1.5 text-sm hover:bg-[oklch(0.285_0_0)] transition-colors text-left min-w-0"
+                          >
+                            <FolderOpen className="h-4 w-4 shrink-0 text-zinc-500" />
+                            <span className="truncate font-medium">{project.name}</span>
+                            {hasTasks && (
+                              <span className="ml-auto text-[10px] text-muted-foreground/60 font-mono tabular-nums">
+                                {project.tasks!.length}
+                              </span>
+                            )}
+                          </button>
+                        )}
+
+                        {renamingId !== (project.id || project.name) && renderProjectMenu(project)}
                       </div>
 
                       {/* Collapsible sub-recent tasks under this folder */}
@@ -430,18 +525,22 @@ export function CalvrasSidebar({
 
         {/* ── User Profile & Upgrade Footer ───────────────────────── */}
         <div className="p-3 border-t border-[oklch(1_0_0/8%)] bg-[oklch(0.18_0_0)] flex flex-col gap-2.5">
-          {/* Creamy White Upgrade Button */}
-          <Link
-            to="/pricing"
-            onClick={() => setOpen(false)}
+          {/* View Usage Button */}
+          <button
+            type="button"
+            onClick={() => setUsagePanelOpen(true)}
             className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs font-semibold bg-[#faf8f5] hover:bg-[#f3ede4] text-[#1a1918] transition-all shadow-sm group active:scale-[0.98]"
           >
             <div className="flex items-center gap-1.5">
-              <Sparkles className="h-3.5 w-3.5 text-amber-600 fill-amber-500/20" />
-              <span>Upgrade plan</span>
+              <svg className="h-3.5 w-3.5 text-[#6b5e4e]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.4"/>
+                <path d="M5 8.5 Q6.5 5.5 8 8 Q9.5 10.5 11 7.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                <circle cx="8" cy="8" r="1" fill="currentColor"/>
+              </svg>
+              <span>View Usage</span>
             </div>
             <ArrowUpRight className="h-3.5 w-3.5 opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
-          </Link>
+          </button>
 
           {/* User Profile Info */}
           <div className="flex items-center justify-between rounded-md px-1 py-1 text-left">
@@ -465,6 +564,40 @@ export function CalvrasSidebar({
         </div>
       </aside>
       <PluginsPanel open={pluginsOpen} onOpenChange={setPluginsOpen} />
+
+      {/* ── Slide-out Usage Popover (by the side, outside the sidebar) ─ */}
+      <AnimatePresence>
+        {usagePanelOpen && (
+          <>
+            {/* Click-outside backdrop */}
+            <div
+              className="fixed inset-0 z-40 bg-transparent"
+              onClick={() => setUsagePanelOpen(false)}
+              aria-hidden="true"
+            />
+            <motion.div
+              initial={{ opacity: 0, x: -16, scale: 0.98 }}
+              animate={{ opacity: 1, x: 0, scale: 1 }}
+              exit={{ opacity: 0, x: -16, scale: 0.98 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+              className="fixed bottom-3 left-[260px] z-50 w-[450px] max-w-[calc(100vw-280px)]"
+            >
+              <QuotaBanner
+                limit={1000}
+                used={742}
+                resetsAt="October 1"
+                unit="runs"
+                label="Monthly agent usage"
+                onUpgrade={() => {
+                  setUsagePanelOpen(false);
+                  window.location.href = "/pricing";
+                }}
+                onClose={() => setUsagePanelOpen(false)}
+              />
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </>
   );
 }
@@ -479,4 +612,3 @@ function AlertIcon() {
     </span>
   );
 }
-

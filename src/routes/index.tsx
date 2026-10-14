@@ -13,6 +13,7 @@ import { useProjects } from "@/lib/project-context";
 import { callAI, type MediaAttachment } from "@/lib/gemini";
 import { cn } from "@/lib/utils";
 import { ChapterScrubber, type Chapter } from "@/components/ui/chapter-scrubber";
+import { Copy, CheckCheck, X } from "lucide-react";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -49,8 +50,8 @@ interface Message {
 }
 
 interface FsAction {
-  type?: "create_file" | "edit_file" | "run_command";
-  action?: "create_file" | "edit_file" | "run_command";
+  type?: "create_file" | "edit_file" | "run_command" | "read_file" | "write_file" | "list_dir";
+  action?: "create_file" | "edit_file" | "run_command" | "read_file" | "write_file" | "list_dir";
   path?: string;
   content?: string;
   lineStart?: number;
@@ -64,6 +65,13 @@ interface CalvrasResponsePayload {
   reasoning?: string[];
   actions?: FsAction[];
   message?: string;
+  plan?: string; // Implementation plan markdown content
+}
+
+interface ImplementationPlan {
+  title: string;
+  content: string;
+  messageId: number;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -83,6 +91,7 @@ function parseCalvrasPayload(text: string): CalvrasResponsePayload {
         reasoning: Array.isArray(parsed.reasoning) ? parsed.reasoning : undefined,
         actions,
         message: parsed.message || "",
+        plan: typeof parsed.plan === "string" ? parsed.plan : undefined,
       };
     }
   } catch {
@@ -100,6 +109,7 @@ function parseCalvrasPayload(text: string): CalvrasResponsePayload {
           reasoning: Array.isArray(parsed.reasoning) ? parsed.reasoning : undefined,
           actions,
           message: parsed.message || text.replace(/```(?:json)?[\s\S]*?```/g, "").trim(),
+          plan: typeof parsed.plan === "string" ? parsed.plan : undefined,
         };
       }
     } catch {
@@ -119,6 +129,7 @@ function parseCalvrasPayload(text: string): CalvrasResponsePayload {
           reasoning: Array.isArray(parsed.reasoning) ? parsed.reasoning : undefined,
           actions: parsed.actions || (parsed.action ? [parsed] : []),
           message: parsed.message || text.slice(0, firstBrace).trim() + " " + text.slice(lastBrace + 1).trim(),
+          plan: typeof parsed.plan === "string" ? parsed.plan : undefined,
         };
       }
     } catch {
@@ -219,6 +230,7 @@ function AttachmentPreview({ att }: { att: AttachedFile }) {
  */
 function UserMessageBubble({ text }: { text: string }) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
   const bubbleRef = useRef<HTMLDivElement>(null);
 
   const isLong = text.includes("\n") || text.length > 60;
@@ -234,33 +246,191 @@ function UserMessageBubble({ text }: { text: string }) {
     return () => document.removeEventListener("mousedown", handleOutsideClick);
   }, [isExpanded]);
 
+  const copyButton = (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }}
+      aria-label={copied ? "Copied" : "Copy prompt"}
+      title={copied ? "Copied!" : "Copy"}
+      className="flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-muted/60 active:scale-[0.92] transition-opacity duration-150 mt-1 self-end opacity-0 group-hover:opacity-100 cursor-pointer"
+    >
+      {copied ? (
+        <CheckCheck className="size-3.5 text-emerald-500" aria-hidden="true" />
+      ) : (
+        <Copy className="size-3.5" aria-hidden="true" />
+      )}
+    </button>
+  );
+
   if (!isLong) {
     return (
-      <div className="break-words rounded-2xl bg-muted px-4 py-2.5 text-sm leading-relaxed text-foreground shadow-xs select-text">
-        {text}
+      <div className="group flex flex-col items-end gap-0.5">
+        <div className="break-words rounded-2xl bg-muted px-4 py-2.5 text-sm leading-relaxed text-foreground shadow-xs select-text">
+          {text}
+        </div>
+        {copyButton}
       </div>
     );
   }
 
   return (
-    <div
-      ref={bubbleRef}
-      onClick={() => setIsExpanded((prev) => !prev)}
-      title={isExpanded ? "Click to fold message" : "Click to expand message"}
-      className={cn(
-        "group relative break-words rounded-2xl bg-muted text-foreground shadow-xs transition-all duration-200 cursor-pointer select-text",
-        isExpanded
-          ? "px-4 py-2.5 text-sm leading-relaxed max-w-full"
-          : "px-4 py-2.5 max-h-[100px] overflow-hidden hover:bg-muted/90 text-sm leading-relaxed"
-      )}
-    >
-      {isExpanded ? (
-        <div className="whitespace-pre-wrap">{text}</div>
-      ) : (
-        <div className="relative">
+    <div className="group flex flex-col items-end gap-0.5">
+      <div
+        ref={bubbleRef}
+        onClick={() => setIsExpanded((prev) => !prev)}
+        title={isExpanded ? "Click to fold message" : "Click to expand message"}
+        className={cn(
+          "relative break-words rounded-2xl bg-muted text-foreground shadow-xs transition-all duration-200 cursor-pointer select-text",
+          isExpanded
+            ? "px-4 py-2.5 text-sm leading-relaxed max-w-full"
+            : "px-4 py-2.5 max-h-[100px] overflow-hidden hover:bg-muted/90 text-sm leading-relaxed"
+        )}
+      >
+        {isExpanded ? (
           <div className="whitespace-pre-wrap">{text}</div>
-          <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-muted via-muted/60 to-transparent" />
+        ) : (
+          <div className="relative">
+            <div className="whitespace-pre-wrap">{text}</div>
+            <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-muted via-muted/60 to-transparent" />
+          </div>
+        )}
+      </div>
+      {copyButton}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * PLAN PANEL CONTENT — rich structured renderer
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+function PlanPanelContent({ content }: { content: string }) {
+  // Parse markdown into sections by ## headers
+  const lines = content.split('\n');
+  const sections: { title: string; items: string[] }[] = [];
+  let currentSection: { title: string; items: string[] } | null = null;
+  let preamble: string[] = [];
+
+  for (const line of lines) {
+    const h2 = line.match(/^##\s+(.+)/);
+    const h1 = line.match(/^#\s+(.+)/);
+    if (h1 && !currentSection) {
+      preamble.push(line.replace(/^#+\s+/, '').trim());
+      continue;
+    }
+    if (h2) {
+      if (currentSection) sections.push(currentSection);
+      currentSection = { title: line.replace(/^#+\s+/, '').trim(), items: [] };
+    } else if (currentSection) {
+      const trimmed = line.trim();
+      if (trimmed && !trimmed.match(/^#+/)) {
+        currentSection.items.push(trimmed);
+      }
+    } else {
+      const trimmed = line.trim();
+      if (trimmed && !trimmed.match(/^#+/)) preamble.push(trimmed);
+    }
+  }
+  if (currentSection) sections.push(currentSection);
+
+  const phaseColors = [
+    { badge: 'bg-blue-500/15 text-blue-400 border-blue-500/30', dot: '#3b82f6', line: '#3b82f620' },
+    { badge: 'bg-violet-500/15 text-violet-400 border-violet-500/30', dot: '#8b5cf6', line: '#8b5cf620' },
+    { badge: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30', dot: '#10b981', line: '#10b98120' },
+    { badge: 'bg-orange-500/15 text-orange-400 border-orange-500/30', dot: '#f97316', line: '#f9731620' },
+    { badge: 'bg-pink-500/15 text-pink-400 border-pink-500/30', dot: '#ec4899', line: '#ec489920' },
+  ];
+
+  const renderItem = (raw: string, idx: number, totalItems: number, dotColor: string) => {
+    const text = raw.replace(/^[-*•]\s+/, '').replace(/^\d+\.\s+/, '');
+    const isFilePath = /`[^`]*[\/\\][^`]*`/.test(text) || /\.(tsx?|jsx?|css|json|ts|js|md)/.test(text);
+    const parts = text.split(/(`[^`]+`)/);
+
+    return (
+      <div key={idx} className="flex items-start gap-2 relative" style={{minHeight: 22}}>
+        <div className="relative flex flex-col items-center" style={{width: 16, minHeight: 22}}>
+          {idx > 0 && (
+            <svg width="16" height="10" style={{position: 'absolute', top: -10, left: 0}} aria-hidden="true">
+              <line x1="8" y1="0" x2="8" y2="10" stroke={dotColor} strokeWidth="1.5" strokeOpacity="0.35" />
+            </svg>
+          )}
+          <svg width="16" height="16" style={{flexShrink: 0, marginTop: 3}} aria-hidden="true">
+            <circle cx="8" cy="8" r="3" fill={dotColor} fillOpacity="0.85" />
+          </svg>
+          {idx < totalItems - 1 && (
+            <svg width="16" height="100%" style={{flex: 1, minHeight: 8}} aria-hidden="true">
+              <line x1="8" y1="0" x2="8" y2="100%" stroke={dotColor} strokeWidth="1.5" strokeOpacity="0.25" />
+            </svg>
+          )}
         </div>
+        <div className="flex-1 min-w-0 pb-1.5">
+          <span className={cn('text-[12.5px] leading-relaxed break-words', isFilePath ? 'text-foreground/80' : 'text-foreground/75')}>
+            {parts.map((part, pi) =>
+              part.startsWith('`') && part.endsWith('`') ? (
+                <code
+                  key={pi}
+                  className="mx-0.5 rounded px-1 py-0.5 text-[11px] font-mono bg-muted/60 border border-border/40 text-primary/90"
+                >
+                  {part.slice(1, -1)}
+                </code>
+              ) : (
+                <span key={pi}>{part}</span>
+              )
+            )}
+          </span>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-5 pb-4">
+      {preamble.length > 0 && (
+        <div className="rounded-xl border border-border/40 bg-muted/20 px-4 py-3">
+          {preamble.map((line, i) => (
+            <p key={i} className="text-[13px] text-foreground/70 leading-relaxed">{line}</p>
+          ))}
+        </div>
+      )}
+
+      {sections.map((section, si) => {
+        const color = phaseColors[si % phaseColors.length];
+        const phaseNum = si + 1;
+        const visibleItems = section.items.filter(item => {
+          const t = item.replace(/^[-*•]\s+/, '').replace(/^\d+\.\s+/, '').trim();
+          return t.length > 0;
+        });
+
+        return (
+          <div key={si} className="rounded-xl border border-border/50 bg-card/40 overflow-hidden">
+            <div className="flex items-center gap-2.5 px-4 py-2.5 border-b border-border/30 bg-muted/10">
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true" className="shrink-0 opacity-70">
+                <rect x="2" y="3" width="11" height="13" rx="2" stroke="currentColor" strokeWidth="1.3" />
+                <rect x="5" y="1" width="11" height="13" rx="2" fill="currentColor" fillOpacity="0.08" stroke="currentColor" strokeWidth="1.3" />
+                <path d="M7 6h6M7 8.5h6M7 11h4" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+              </svg>
+              <span className={cn('text-[11px] font-semibold rounded-full border px-2 py-0.5 shrink-0', color.badge)}>
+                Phase {phaseNum}
+              </span>
+              <span className="text-[12.5px] font-semibold text-foreground/90 truncate">{section.title}</span>
+            </div>
+
+            {visibleItems.length > 0 && (
+              <div className="px-4 py-3 space-y-0">
+                {visibleItems.map((item, ii) => renderItem(item, ii, visibleItems.length, color.dot))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {sections.length === 0 && preamble.length === 0 && (
+        <pre className="whitespace-pre-wrap font-sans text-[13px] leading-relaxed select-text text-foreground/80">{content}</pre>
       )}
     </div>
   );
@@ -271,7 +441,7 @@ function UserMessageBubble({ text }: { text: string }) {
  * ─────────────────────────────────────────────────────────────────────────────
  */
 function Index() {
-  const { activeProject, setActiveProject, addProject, addRecent, newChatSignal } = useProjects();
+  const { activeProject, setActiveProject, addProject, addRecent, deleteProject, renameProject, newChatSignal } = useProjects();
   const [messages, setMessages] = useState<Message[]>([]);
   const [projectPath, setProjectPath] = useState<string | null>(activeProject?.path || null);
   const [projectName, setProjectName] = useState<string | null>(activeProject?.name || null);
@@ -281,6 +451,42 @@ function Index() {
   const [importing, setImporting] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const latestMessageRef = useRef<HTMLDivElement>(null);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+
+  // Effort level: "Low" | "Medium" | "Max Effort"
+  const [effortLevel, setEffortLevel] = useState<string>("Medium");
+
+  // Implementation plan slide-out panel
+  const [activePlan, setActivePlan] = useState<ImplementationPlan | null>(null);
+  const [planPanelOpen, setPlanPanelOpen] = useState(false);
+
+  // Live clock
+  const [clockTime, setClockTime] = useState('');
+  useEffect(() => {
+    const update = () => {
+      const now = new Date();
+      setClockTime(now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }));
+    };
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Project dropdown
+  const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
+  const projectBadgeRef = useRef<HTMLButtonElement>(null);
+
+  // Close project dropdown on outside click
+  useEffect(() => {
+    if (!projectDropdownOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (projectBadgeRef.current && !projectBadgeRef.current.closest('[data-project-badge-wrapper]')?.contains(e.target as Node)) {
+        setProjectDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [projectDropdownOpen]);
 
   // Sync when activeProject changes from context
   useEffect(() => {
@@ -290,12 +496,80 @@ function Index() {
     }
   }, [activeProject]);
 
+  // Storage keys for persisting conversation across page refresh
+  const CHAT_STORAGE_KEY = "calvras_chat_messages";
+  const PLAN_STORAGE_KEY = "calvras_active_plan";
+
+  // Hydrate messages & plan from localStorage on client mount
+  const hasHydratedRef = useRef(false);
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(CHAT_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setMessages(parsed);
+        }
+      }
+      const savedPlan = localStorage.getItem(PLAN_STORAGE_KEY);
+      if (savedPlan) {
+        const parsedPlan = JSON.parse(savedPlan);
+        if (parsedPlan && typeof parsedPlan === "object") {
+          setActivePlan(parsedPlan);
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to restore chat from localStorage:", e);
+    } finally {
+      hasHydratedRef.current = true;
+    }
+  }, []);
+
+  // Persist messages to localStorage whenever they update (after hydration)
+  useEffect(() => {
+    if (!hasHydratedRef.current) return;
+    try {
+      if (messages.length > 0) {
+        // Strip out huge data: URLs from attachments to stay well within localStorage 5MB quota
+        const safeMessages = messages.map((m) => ({
+          ...m,
+          attachments: m.attachments?.map((a) => ({
+            ...a,
+            url: a.url && a.url.startsWith("data:") ? "" : a.url,
+          })),
+        }));
+        localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(safeMessages));
+      } else {
+        localStorage.removeItem(CHAT_STORAGE_KEY);
+      }
+    } catch (e) {
+      console.warn("Failed to persist chat:", e);
+    }
+  }, [messages]);
+
+  // Persist activePlan to localStorage
+  useEffect(() => {
+    if (!hasHydratedRef.current) return;
+    try {
+      if (activePlan) {
+        localStorage.setItem(PLAN_STORAGE_KEY, JSON.stringify(activePlan));
+      } else {
+        localStorage.removeItem(PLAN_STORAGE_KEY);
+      }
+    } catch {}
+  }, [activePlan]);
+
   // Handle New Chat signal
   const prevSignalRef = useRef(newChatSignal);
   useEffect(() => {
     if (newChatSignal !== prevSignalRef.current) {
       prevSignalRef.current = newChatSignal;
       setMessages([]);
+      setActivePlan(null);
+      try {
+        localStorage.removeItem(CHAT_STORAGE_KEY);
+        localStorage.removeItem(PLAN_STORAGE_KEY);
+      } catch {}
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
         abortControllerRef.current = null;
@@ -309,6 +583,12 @@ function Index() {
     if (messages.length === 0) return;
     latestMessageRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [messages.length]);
+
+  // Auto-scroll while AI is typing
+  useEffect(() => {
+    if (!isLoading) return;
+    scrollAreaRef.current?.scrollTo({ top: scrollAreaRef.current.scrollHeight, behavior: 'smooth' });
+  }, [messages, isLoading]);
 
   // Stop handler
   const handleStop = useCallback(() => {
@@ -355,9 +635,11 @@ function Index() {
 
   // Execute filesystem actions
   const executeActions = useCallback(
-    async (actions: FsAction[], activePath: string): Promise<{ nodes: TraceNode[]; summaryNotes: string[] }> => {
+    async (actions: FsAction[], activePath: string): Promise<{ nodes: TraceNode[]; summaryNotes: string[]; fileReadResults: Array<{path: string; content: string}>; dirListResults: Array<{path: string; listing: string}> }> => {
       const nodes: TraceNode[] = [];
       const summaryNotes: string[] = [];
+      const fileReadResults: Array<{path: string; content: string}> = [];
+      const dirListResults: Array<{path: string; listing: string}> = [];
 
       for (const act of actions) {
         const actionType = act.type || act.action;
@@ -443,9 +725,85 @@ function Index() {
             });
           }
         }
+
+        if (actionType === "read_file" && act.path) {
+          try {
+            const res = await fetch("/api/fs/read-file", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ projectPath: activePath, path: act.path }),
+            });
+            const data = await res.json();
+            if (data.ok) {
+              nodes.push({
+                type: "tool",
+                primary: "Read file",
+                secondary: act.path,
+                mono: true,
+                details: [{ text: `✓ Read ${act.path} (${data.lines} lines)`, tone: "add" }],
+              });
+              summaryNotes.push(`Read \`${act.path}\``);
+              fileReadResults.push({ path: act.path, content: data.content });
+            } else {
+              nodes.push({ type: "tool", primary: "Read file failed", secondary: act.path, status: "failed", details: [{ text: `✗ ${data.error}`, tone: "error" }] });
+            }
+          } catch (err: any) {
+            nodes.push({ type: "tool", primary: "Read file failed", secondary: act.path, status: "failed", details: [{ text: `✗ ${err.message}`, tone: "error" }] });
+          }
+        }
+
+        if (actionType === "write_file" && act.path) {
+          try {
+            const res = await fetch("/api/fs/write-file", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ projectPath: activePath, path: act.path, content: act.content ?? "" }),
+            });
+            const data = await res.json();
+            if (data.ok) {
+              nodes.push({
+                type: "tool",
+                primary: "Write file",
+                secondary: act.path,
+                mono: true,
+                details: [{ text: `✓ Wrote ${act.path} (${data.lines} lines)`, tone: "add" }],
+              });
+              summaryNotes.push(`Wrote \`${act.path}\``);
+            } else {
+              throw new Error(data.error || "Failed to write file");
+            }
+          } catch (err: any) {
+            nodes.push({ type: "tool", primary: "Write file failed", secondary: act.path, status: "failed", details: [{ text: `✗ ${err.message}`, tone: "error" }] });
+          }
+        }
+
+        if (actionType === "list_dir") {
+          try {
+            const res = await fetch("/api/fs/list-dir", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ projectPath: activePath, path: act.path ?? "" }),
+            });
+            const data = await res.json();
+            if (data.ok) {
+              const listing = data.entries.map((e: any) => `${e.type === "dir" ? "📁" : "📄"} ${e.name}`).join("\n");
+              nodes.push({
+                type: "tool",
+                primary: "List directory",
+                secondary: act.path || "/",
+                mono: true,
+                details: [{ text: listing || "(empty)", tone: "add" }],
+              });
+              summaryNotes.push(`Listed \`${act.path || "/"}\``);
+              dirListResults.push({ path: act.path || "/", listing });
+            }
+          } catch (err: any) {
+            nodes.push({ type: "tool", primary: "List dir failed", secondary: act.path || "/", status: "failed", details: [{ text: `✗ ${err.message}`, tone: "error" }] });
+          }
+        }
       }
 
-      return { nodes, summaryNotes };
+      return { nodes, summaryNotes, fileReadResults, dirListResults };
     },
     []
   );
@@ -515,24 +873,11 @@ function Index() {
           },
         ]);
 
-      // Add the initial thinking phase — starts with progressive live sentences
+      // Add the initial thinking phase — clean live indicator without fake or hardcoded sentences
       const msgId = Date.now();
 
-      // Build a rich set of thinking sentences based on context
-      const hasAttachments = (attachmentFiles || []).length > 0;
       const initialThinkingPhase: AgentPhase = {
-        trace: [
-          {
-            type: "reasoning",
-            sentences: [
-              hasAttachments
-                ? `Analyzing attachment${(attachmentFiles?.length ?? 0) > 1 ? "s" : ""} and task...`
-                : `Analyzing task: "${text.slice(0, 90)}${text.length > 90 ? "…" : ""}"`,
-              activeName ? `Target workspace: "${activeName}"` : "Synthesizing requirements and architecture...",
-            ],
-            durationSeconds: 1.2,
-          },
-        ],
+        trace: [],
       };
 
       setMessages((prev) => [
@@ -573,72 +918,193 @@ function Index() {
         fullPrompt = `[CONVERSATION HISTORY]\n${historyStr}\n\n[CURRENT USER MESSAGE]\n${text || "(attachment)"}`;
       }
 
-      // Invoke AI
-      let aiRaw = "";
-      try {
-        aiRaw = await callAI(fullPrompt, undefined, mediaList, projectSnapshot);
-      } catch (err: any) {
-        aiRaw = `Connection error: ${err.message}`;
-      }
+      // Inject system prompt and time context on every message
+      const now = new Date();
+      const timeStr = now.toLocaleString('en-US', {
+        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+      });
+      const systemPrefix = `You are Calvras, an autonomous coding agent. You are helpful, direct, and conversational.
+IMPORTANT RULES:
+- Do NOT introduce yourself.
+- Do NOT assume the user wants to start coding immediately.
+- If the user sends a casual greeting or vague message (like hey, hello, hi, what can you do), respond conversationally and ask what they would like to work on. Keep it short, one or two sentences max.
+- Only provide code, setup instructions, or technical steps when the user has clearly described a specific task.
+- Do not suggest Vite, Tailwind, shadcn, or any stack unprompted.
+- When helping with code, be concise and focused on exactly what was asked.
 
-      const parsed = parseCalvrasPayload(aiRaw);
+[CURRENT TIME]: ${timeStr}`;
+      fullPrompt = `${systemPrefix}\n\n${fullPrompt}`;
 
-      let actionNodes: TraceNode[] = [];
-      let summaryNotes: string[] = [];
+      // ── Full Autonomous Agent Loop (Think -> Work -> Think -> Work -> Complete) ──
+      const allActionNodes: TraceNode[] = [];
+      const allSummaryNotes: string[] = [];
+      const allReasoningSentences: string[] = [];
+      let currentPrompt = fullPrompt;
+      let lastParsed: CalvrasResponsePayload | null = null;
+      let iteration = 0;
+      const MAX_AGENT_STEPS = 8;
 
-      if (parsed.actions && parsed.actions.length > 0 && !activePath) {
-        const autoName = projectNameFrom(text);
+      while (iteration < MAX_AGENT_STEPS) {
+        iteration++;
+
+        // Invoke AI
+        let aiRaw = "";
         try {
-          const res = await fetch("/api/fs/create-project", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: autoName }),
-          });
-          const data = await res.json();
-          if (data.ok && data.projectPath) {
-            activePath = data.projectPath;
-            activeName = data.name || autoName;
-            setProjectPath(activePath);
-            setProjectName(activeName);
-            addProject({ name: activeName, path: activePath });
-          }
-        } catch {}
-      }
+          aiRaw = await callAI(currentPrompt, undefined, mediaList, projectSnapshot);
+        } catch (err: any) {
+          aiRaw = `Connection error: ${err.message}`;
+          break;
+        }
 
-      if (parsed.actions && parsed.actions.length > 0 && activePath) {
-        const execResult = await executeActions(parsed.actions, activePath);
-        actionNodes = execResult.nodes;
-        summaryNotes = execResult.summaryNotes;
+        const parsed = parseCalvrasPayload(aiRaw);
+        lastParsed = parsed;
+
+        if (parsed.reasoning && parsed.reasoning.length > 0) {
+          allReasoningSentences.push(...parsed.reasoning);
+        } else if (parsed.thought) {
+          allReasoningSentences.push(parsed.thought);
+        }
+
+        // Auto-create project folder on desktop if first time actions are needed
+        if (parsed.actions && parsed.actions.length > 0 && !activePath) {
+          const autoName = projectNameFrom(text);
+          try {
+            const res = await fetch("/api/fs/create-project", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ name: autoName }),
+            });
+            const data = await res.json();
+            if (data.ok && data.projectPath) {
+              activePath = data.projectPath;
+              activeName = data.name || autoName;
+              setProjectPath(activePath);
+              setProjectName(activeName);
+              addProject({ name: activeName, path: activePath });
+            }
+          } catch {}
+        }
+
+        // Execute actions if present
+        if (parsed.actions && parsed.actions.length > 0 && activePath) {
+          const execResult = await executeActions(parsed.actions, activePath);
+          allActionNodes.push(...execResult.nodes);
+          allSummaryNotes.push(...execResult.summaryNotes);
+
+          // Compute intermediate thinking out loud progress report
+          const intermediateReport =
+            parsed.message ||
+            (allSummaryNotes.length > 0
+              ? `Working on tasks: ${allSummaryNotes.slice(-2).join(", ")}. Continuing to think and verify...`
+              : "Analyzing tasks and executing actions...");
+
+          // Real-time update in UI: show live progress to the user while loop is running!
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === msgId
+                ? {
+                    ...m,
+                    phases: [
+                      {
+                        trace: [
+                          ...(allReasoningSentences.length > 0
+                            ? [{ type: "reasoning", sentences: allReasoningSentences, durationSeconds: 2.0 }]
+                            : []),
+                          ...allActionNodes,
+                        ],
+                        message: intermediateReport,
+                      },
+                    ],
+                  }
+                : m
+            )
+          );
+
+          // Build rich feedback for next iteration
+          const allFeedbackParts: string[] = [];
+
+          if (execResult.fileReadResults.length > 0) {
+            for (const fr of execResult.fileReadResults) {
+              allFeedbackParts.push(`FILE CONTENTS: ${fr.path}\n\`\`\`\n${fr.content}\n\`\`\``);
+            }
+          }
+          if (execResult.dirListResults.length > 0) {
+            for (const dl of execResult.dirListResults) {
+              allFeedbackParts.push(`DIRECTORY LISTING: ${dl.path}\n${dl.listing}`);
+            }
+          }
+          const commandOutputs = execResult.nodes
+            .filter((n) => n.type === "terminal")
+            .map((n) => `$ ${(n as any).command || "command"}\nExit: ${(n as any).exitCode}\n${(n as any).output || "Done"}`);
+          if (commandOutputs.length > 0) {
+            allFeedbackParts.push(`COMMAND OUTPUTS:\n${commandOutputs.join("\n\n")}`);
+          }
+
+          // Continue if there's feedback to process
+          const hadActions = parsed.actions && parsed.actions.length > 0;
+          if (allFeedbackParts.length > 0 && iteration < MAX_AGENT_STEPS) {
+            currentPrompt = `${fullPrompt}\n\n[AGENT STEP ${iteration} RESULTS]\n${allFeedbackParts.join("\n\n---\n\n")}\n\nContinue working. If you have more files to read, write, or commands to run, include them in "actions". If the task is fully complete, set "actions" to [] and write your final summary in "message".`;
+            continue;
+          }
+
+          // If agent returned actions but no feedback (pure creates), also continue
+          if (hadActions && iteration < MAX_AGENT_STEPS) {
+            currentPrompt = `${fullPrompt}\n\n[AGENT STEP ${iteration} COMPLETE]\nFiles created/written: ${allSummaryNotes.slice(-5).join(", ")}. Continue with next steps or finalize.`;
+            continue;
+          }
+        }
+
+        // If no more actions to execute, the task is finished
+        break;
       }
 
       const finalPhases: AgentPhase[] = [];
+      const parsed = lastParsed || { message: "Task completed." };
 
-      const reasoningSentences =
-        parsed.reasoning && parsed.reasoning.length > 0
-          ? parsed.reasoning
-          : parsed.thought
-          ? [parsed.thought]
-          : [`Analyzed "${text.slice(0, 80)}"`, actionNodes.length > 0 ? "Applying filesystem changes" : "Preparing response"];
+      // Adjust reasoning duration based on effort level
+      const reasoningDuration = effortLevel === "Low" ? 1.0 : effortLevel === "Max Effort" ? 3.5 : 2.0;
+
+      // Build the final message — if there's a localhost URL, append it
+      let finalMessage =
+        parsed.message ||
+        (allSummaryNotes.length > 0
+          ? `Finished: ${allSummaryNotes.join(", ")} in project \`${activeName}\`.`
+          : "Task completed.");
+
+      // If the AI returned a plan, register it
+      if (parsed.plan) {
+        const planObj: ImplementationPlan = {
+          title: `Implementation Plan`,
+          content: parsed.plan,
+          messageId: msgId,
+        };
+        setActivePlan(planObj);
+        finalMessage = finalMessage
+          ? `${finalMessage}\n\n📋 I've created an **implementation plan** for this task. Click "View Plan" to see the full structure.`
+          : `📋 I've created an **implementation plan** for this task. Click "View Plan" to see the full structure.`;
+      }
+
+      const traceNodes: TraceNode[] = [];
+      if (allReasoningSentences.length > 0) {
+        traceNodes.push({
+          type: "reasoning",
+          sentences: allReasoningSentences,
+          durationSeconds: reasoningDuration,
+        });
+      }
+      if (allActionNodes.length > 0) {
+        traceNodes.push(...allActionNodes);
+      }
+      traceNodes.push({
+        type: "step",
+        primary: allActionNodes.length > 0 ? "Changes applied" : "Completed",
+        secondary: activeName || "Calvras",
+      });
 
       finalPhases.push({
-        trace: [
-          {
-            type: "reasoning",
-            sentences: reasoningSentences,
-            durationSeconds: 2.0,
-          },
-          ...actionNodes,
-          {
-            type: "step",
-            primary: actionNodes.length > 0 ? "Changes applied" : "Completed",
-            secondary: activeName || "Calvras",
-          },
-        ],
-        message:
-          parsed.message ||
-          (summaryNotes.length > 0
-            ? `Finished: ${summaryNotes.join(", ")} in project \`${activeName}\`.`
-            : "Task completed."),
+        trace: traceNodes,
+        message: finalMessage,
       });
 
       setMessages((prev) =>
@@ -647,7 +1113,7 @@ function Index() {
       setIsLoading(false);
       abortControllerRef.current = null;
     },
-    [projectPath, projectName, isLoading, addProject, addRecent, getProjectContextString, executeActions, messages]
+    [projectPath, projectName, isLoading, addProject, addRecent, getProjectContextString, executeActions, messages, effortLevel]
   );
 
   // ── Open / Switch Project Folder — uses native file system picker ──────────
@@ -725,46 +1191,91 @@ function Index() {
         </DialogContent>
       </Dialog>
       {/* ── Top-right project badge & switcher ─────────────────────────── */}
-      <button
-        type="button"
-        onClick={handleOpenProject}
-        title={
-          messages.length > 0
-            ? `Active Project: ${projectName || "Workspace"} — start a New chat to switch`
-            : projectName
-            ? `Active Desktop Project: ${projectName} (${projectPath})`
-            : "Open project folder"
-        }
-        className={cn(
-          "fixed top-4 right-4 z-20 flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium backdrop-blur-md transition-all shadow-xs",
-          messages.length > 0
-            ? "border-border/60 bg-card/60 text-muted-foreground/80 cursor-default"
-            : "border-border bg-card/90 text-muted-foreground hover:bg-card hover:text-foreground cursor-pointer"
-        )}
+      <div
+        data-project-badge-wrapper=""
+        className="fixed top-3 right-4 z-20"
       >
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 14 14"
-          fill="none"
-          aria-hidden="true"
-          className="shrink-0"
+        <button
+          ref={projectBadgeRef}
+          type="button"
+          onClick={() => {
+            if (messages.length > 0) return;
+            setProjectDropdownOpen(prev => !prev);
+          }}
+          title={
+            messages.length > 0
+              ? `Active Project: ${projectName || "Workspace"} — start a New chat to switch`
+              : projectName
+              ? `Active Desktop Project: ${projectName} (${projectPath})`
+              : "Open project folder"
+          }
+          className={cn(
+            "flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium backdrop-blur-md transition-all shadow-xs",
+            messages.length > 0
+              ? "border-border/60 bg-card/60 text-muted-foreground/80 cursor-default"
+              : "border-border bg-card/90 text-muted-foreground hover:bg-card hover:text-foreground cursor-pointer"
+          )}
         >
-          <path
-            d="M1.5 4.5C1.5 3.67 2.17 3 3 3h2.38c.28 0 .55.1.74.3l.88.88H11c.83 0 1.5.67 1.5 1.5v5c0 .83-.67 1.5-1.5 1.5H3c-.83 0-1.5-.67-1.5-1.5v-6Z"
-            stroke="currentColor"
-            strokeWidth="1.3"
-            strokeLinejoin="round"
-          />
-        </svg>
-        {projectName ? (
-          <span className="max-w-[160px] truncate text-foreground font-semibold">
-            {projectName}
-          </span>
-        ) : (
-          <span>Open project</span>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 14 14"
+            fill="none"
+            aria-hidden="true"
+            className="shrink-0"
+          >
+            <path
+              d="M1.5 4.5C1.5 3.67 2.17 3 3 3h2.38c.28 0 .55.1.74.3l.88.88H11c.83 0 1.5.67 1.5 1.5v5c0 .83-.67 1.5-1.5 1.5H3c-.83 0-1.5-.67-1.5-1.5v-6Z"
+              stroke="currentColor"
+              strokeWidth="1.3"
+              strokeLinejoin="round"
+            />
+          </svg>
+          {projectName ? (
+            <span className="max-w-[160px] truncate text-foreground font-semibold">
+              {projectName}
+            </span>
+          ) : (
+            <span>Open project</span>
+          )}
+        </button>
+
+        {projectDropdownOpen && messages.length === 0 && (
+          <div
+            className="absolute right-0 top-full mt-1 z-30 w-52 rounded-lg border border-border bg-card shadow-lg py-1"
+            onClick={e => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors"
+              onClick={() => { handleOpenProject(); setProjectDropdownOpen(false); }}
+            >
+              Open project folder
+            </button>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+              onClick={() => {
+                setActiveProject(null);
+                setProjectPath(null);
+                setProjectName(null);
+                setProjectDropdownOpen(false);
+              }}
+            >
+              Don&#39;t work in a project
+            </button>
+          </div>
         )}
-      </button>
+      </div>
+
+      {/* ── Live clock at top center ────────────────────────────────────── */}
+      {clockTime && (
+        <div className="fixed top-3 left-1/2 -translate-x-1/2 z-20 pointer-events-none select-none">
+          <span className="text-xs text-muted-foreground/60 tabular-nums font-mono font-bold">
+            {clockTime}
+          </span>
+        </div>
+      )}
 
       {/* ── ChapterScrubber — right side, vertically centered ──────────── */}
       {scrubberChapters.length > 0 && (
@@ -789,6 +1300,7 @@ function Index() {
 
       {/* ── Inner scrollable area (no scrollbar) ───────────────────────── */}
       <div
+        ref={scrollAreaRef}
         className="chat-scroll-area"
         style={{ height: "100dvh", overflowY: "auto" }}
       >
@@ -839,12 +1351,35 @@ function Index() {
                 isComplete={message.done}
                 workingLabel="Calvras is working..."
               />
+
+              {/* Compact plan card — shown when this message has an associated plan */}
+              {message.done && activePlan && activePlan.messageId === message.id && (
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setPlanPanelOpen(true)}
+                  onKeyDown={(e) => e.key === 'Enter' && setPlanPanelOpen(true)}
+                  className="mt-2 max-h-[100px] overflow-hidden rounded-xl border border-border bg-card/60 px-4 py-3 cursor-pointer hover:bg-card transition-colors relative group"
+                  aria-label="View implementation plan"
+                >
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" className="text-primary shrink-0">
+                      <rect x="1.5" y="1.5" width="11" height="11" rx="2.5" stroke="currentColor" strokeWidth="1.3"/>
+                      <path d="M4 4.5h6M4 7h6M4 9.5h3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                    </svg>
+                    <span className="text-xs font-semibold text-foreground">Implementation Plan</span>
+                    <span className="ml-auto text-[10px] text-muted-foreground/60 group-hover:text-primary transition-colors">Click to expand →</span>
+                  </div>
+                  <p className="text-[11.5px] text-muted-foreground leading-relaxed line-clamp-3">{activePlan.content.slice(0, 200)}</p>
+                  <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-card/80 to-transparent rounded-b-xl" />
+                </div>
+              )}
             </div>
           ))}
         </div>
 
-        {/* Spacer for composer */}
-        <div style={{ height: "8rem" }} />
+        {/* Spacer for composer — exactly 5px space between AI message and top of input */}
+        <div style={{ height: "calc(1.5rem + 54px + 18px)" }} />
       </div>
 
       {/* ── Chat Composer ────────────────────────────────────────────────── */}
@@ -855,6 +1390,75 @@ function Index() {
           onStop={handleStop}
           placeholder="Describe a task or /command..."
         />
+      </div>
+
+      {/* ── Implementation Plan slide-out panel ──────────────────────────── */}
+      {/* Backdrop */}
+      {planPanelOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-transparent pointer-events-auto"
+          onClick={() => setPlanPanelOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+      {/* Panel */}
+      <div
+        className={cn(
+          "fixed top-0 right-0 z-50 h-full w-full max-w-[520px] bg-card border-l border-border shadow-2xl flex flex-col",
+          "transition-transform duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
+          planPanelOpen ? "translate-x-0" : "translate-x-full"
+        )}
+        aria-modal="true"
+        role="dialog"
+        aria-label="Implementation Plan"
+      >
+        {/* Panel header */}
+        <div className="flex items-center justify-between border-b border-border px-5 py-4 shrink-0">
+          <div className="flex items-center gap-2.5">
+            <svg width="16" height="16" viewBox="0 0 14 14" fill="none" aria-hidden="true" className="text-primary">
+              <rect x="2" y="2" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.4"/>
+              <path d="M4.5 5h5M4.5 7h5M4.5 9h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+            </svg>
+            <span className="text-sm font-semibold text-foreground">
+              {activePlan?.title || "Implementation Plan"}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setPlanPanelOpen(false)}
+            className="flex size-7 items-center justify-center rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-muted/60 active:scale-[0.92] transition-colors"
+            aria-label="Close plan panel"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+
+        {/* Plan content */}
+        <div className="flex-1 overflow-y-auto px-5 py-4 text-[13.5px] leading-relaxed text-foreground/90 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {activePlan?.content ? (
+            <PlanPanelContent content={activePlan.content} />
+          ) : (
+            <p className="text-muted-foreground italic">No plan available.</p>
+          )}
+        </div>
+
+        {/* Footer: Proceed button */}
+        <div className="shrink-0 border-t border-border px-5 py-4 flex items-center justify-between gap-3">
+          <p className="text-[11.5px] text-muted-foreground">
+            Tell Calvras to proceed when you're ready.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setPlanPanelOpen(false);
+              // Submit "Proceed with the implementation plan" as the next message
+              handleSubmit("Proceed with the implementation plan as outlined. Follow it exactly step by step.");
+            }}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-[13px] font-semibold text-primary-foreground shadow-xs hover:bg-primary/90 active:scale-[0.97] transition-all duration-150 cursor-pointer"
+          >
+            Proceed
+          </button>
+        </div>
       </div>
     </main>
   );

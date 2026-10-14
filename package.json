@@ -3,6 +3,7 @@
   "private": true,
   "sideEffects": false,
   "type": "module",
+  "main": "electron/main.js",
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
@@ -11,7 +12,22 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "patch:wrangler": "node -e \"const fs=require('fs');const p='.output/server/wrangler.json';const c=JSON.parse(fs.readFileSync(p,'utf8'));c.name='calvras';c.workers_dev=true;c.routes=[{pattern:'calvras.com',custom_domain:true}];delete c.custom_domains;fs.writeFileSync(p,JSON.stringify(c,null,2));console.log('Patched wrangler.json');\"",
+    "deploy": "npm run build && npm run patch:wrangler && npx wrangler deploy --config .output/server/wrangler.json",
+    "electron": "electron .",
+    "electron:dev": "npm run build && electron .",
+    "electron:pack": "electron-builder --dir",
+    "electron:dist": "npm run build && electron-builder"
+  },
+  "build": {
+    "appId": "com.calvras.app",
+    "productName": "Calvras",
+    "directories": { "output": "electron-dist" },
+    "files": ["electron/**/*", ".output/**/*", "public/**/*"],
+    "win": { "target": "nsis", "icon": "public/calvras-logo.png" },
+    "mac": { "target": "dmg", "icon": "public/calvras-logo.png" },
+    "linux": { "target": "AppImage" }
   },
   "overrides": {
     "rolldown": "1.2.1"
@@ -92,6 +108,8 @@
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.56.1",
     "vite": "8.1.5",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
   }
 }
