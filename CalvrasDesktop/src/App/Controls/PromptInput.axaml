@@ -182,17 +182,13 @@
                                  Watermark="Ask anything..."
                                  FontSize="13.5"
                                  TextWrapping="Wrap"
-                                 AcceptsReturn="True"
+                                 AcceptsReturn="False"
                                  MinHeight="36"
                                  MaxHeight="160"
                                  Padding="18,13,48,10"
                                  GotFocus="OnTextBoxGotFocus"
-                                 LostFocus="OnTextBoxLostFocus">
-                            <TextBox.KeyBindings>
-                                <KeyBinding Gesture="Enter" Command="{Binding SendCommand}"/>
-                                <KeyBinding Gesture="Escape" Command="{Binding CollapseInputCommand}"/>
-                            </TextBox.KeyBindings>
-                        </TextBox>
+                                 LostFocus="OnTextBoxLostFocus"
+                                 KeyDown="OnTextBoxKeyDown"/>
 
                         <!-- Collapsed Action Button (Right-aligned in collapsed mode) -->
                         <Button Grid.Column="0"

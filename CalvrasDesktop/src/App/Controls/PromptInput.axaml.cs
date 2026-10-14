@@ -39,6 +39,42 @@ public partial class PromptInput : UserControl
         // It stays open until the user sends a message or presses Escape.
     }
 
+    private void OnTextBoxKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (DataContext is not WorkspaceViewModel vm) return;
+
+        if (e.Key == Key.Enter)
+        {
+            if (e.KeyModifiers.HasFlag(KeyModifiers.Shift))
+            {
+                // Shift+Enter: insert a newline manually
+                var tb = sender as TextBox;
+                if (tb != null)
+                {
+                    var pos = tb.CaretIndex;
+                    var text = tb.Text ?? string.Empty;
+                    tb.Text = text.Insert(pos, "\n");
+                    tb.CaretIndex = pos + 1;
+                }
+                e.Handled = true;
+            }
+            else
+            {
+                // Enter alone: send the message
+                e.Handled = true;
+                if (vm.HasTextToSend && !vm.IsBusy)
+                {
+                    _ = vm.SendAsync();
+                }
+            }
+        }
+        else if (e.Key == Key.Escape)
+        {
+            e.Handled = true;
+            vm.CollapseInput();
+        }
+    }
+
     private async void OnAddAttachmentClick(object? sender, RoutedEventArgs e)
     {
         var topLevel = TopLevel.GetTopLevel(this);
