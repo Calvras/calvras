@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import SignIn1 from "@/components/ui/modern-stunning-sign-in";
+import SignIn1 from "@/components/ui/modern-login-signup";
 
 export const Route = createFileRoute("/signin")({
   head: () => ({
@@ -7,3 +7,4 @@ export const Route = createFileRoute("/signin")({
   }),
   component: SignIn1,
 });
+

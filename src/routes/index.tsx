@@ -1,3 +1,4 @@
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { PromptInput } from "@/components/ui/ai-chat-input";
@@ -275,6 +276,9 @@ function Index() {
   const [projectPath, setProjectPath] = useState<string | null>(activeProject?.path || null);
   const [projectName, setProjectName] = useState<string | null>(activeProject?.name || null);
   const [isLoading, setIsLoading] = useState(false);
+  const [pendingFolder, setPendingFolder] = useState<File[] | null>(null);
+  const [folderError, setFolderError] = useState("");
+  const [importing, setImporting] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const latestMessageRef = useRef<HTMLDivElement>(null);
 
@@ -647,88 +651,43 @@ function Index() {
   );
 
   // ── Open / Switch Project Folder — uses native file system picker ──────────
-  const handleOpenProject = useCallback(async () => {
-    if (messages.length > 0) return; // locked during active chat
+  const handleOpenProject = useCallback(() => {
+    if (messages.length > 0) return;
+    const input = document.createElement("input");
+    input.type = "file";
+    input.setAttribute("webkitdirectory", "");
+    input.onchange = () => {
+      const files = Array.from(input.files || []).filter((file) =>
+        !file.webkitRelativePath.split("/").some((part) => ["node_modules", ".git", ".env"].includes(part) || part.startsWith(".env."))
+      );
+      setFolderError("");
+      if (files.length) setPendingFolder(files);
+    };
+    input.click();
+  }, [messages.length]);
 
+  const confirmFolder = async () => {
+    if (!pendingFolder || importing) return;
+    setImporting(true);
+    setFolderError("");
     try {
-      // Use the File System Access API to let the user pick a directory
-      if ("showDirectoryPicker" in window) {
-        const dirHandle = await (window as any).showDirectoryPicker({ mode: "readwrite" });
-        const folderName = dirHandle.name;
-        // Try to register the selected path via backend
-        try {
-          const res = await fetch("/api/fs/create-project", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: folderName }),
-          });
-          const data = await res.json();
-          if (data.ok && data.projectPath) {
-            const newProj = { name: data.name || folderName, path: data.projectPath };
-            setProjectPath(data.projectPath);
-            setProjectName(newProj.name);
-            setActiveProject(newProj);
-            addProject(newProj);
-            return;
-          }
-        } catch {
-          // If backend registration fails, still set locally
-          const newProj = { name: folderName, path: folderName };
-          setProjectPath(folderName);
-          setProjectName(folderName);
-          setActiveProject(newProj);
-          addProject(newProj);
-        }
-      } else {
-        // Fallback: use a hidden <input type="file" webkitdirectory> trick
-        const input = document.createElement("input");
-        input.type = "file";
-        input.setAttribute("webkitdirectory", "");
-        input.setAttribute("directory", "");
-        input.style.display = "none";
-        document.body.appendChild(input);
-        await new Promise<void>((resolve) => {
-          input.onchange = async () => {
-            const files = Array.from(input.files || []);
-            if (files.length > 0) {
-              // Extract folder name from webkitRelativePath
-              const folderName = files[0].webkitRelativePath?.split("/")?.[0] || "project";
-              try {
-                const res = await fetch("/api/fs/create-project", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ name: folderName }),
-                });
-                const data = await res.json();
-                if (data.ok && data.projectPath) {
-                  const newProj = { name: data.name || folderName, path: data.projectPath };
-                  setProjectPath(data.projectPath);
-                  setProjectName(newProj.name);
-                  setActiveProject(newProj);
-                  addProject(newProj);
-                }
-              } catch {
-                const newProj = { name: folderName, path: folderName };
-                setProjectPath(folderName);
-                setProjectName(folderName);
-                setActiveProject(newProj);
-                addProject(newProj);
-              }
-            }
-            document.body.removeChild(input);
-            resolve();
-          };
-          input.click();
-        });
-      }
-    } catch (err: any) {
-      // User cancelled picker — that's fine, do nothing
-      if (err?.name !== "AbortError") {
-        console.error("Open project failed:", err);
-      }
-    }
-  }, [messages.length, addProject, setActiveProject]);
-
+      if (pendingFolder.length > 2000 || pendingFolder.reduce((total, file) => total + file.size, 0) > 50 * 1024 * 1024) throw new Error("Choose a folder with up to 2,000 files and 50 MB.");
+      const form = new FormData();
+      form.append("name", pendingFolder[0]?.webkitRelativePath.split("/")[0] || "project");
+      pendingFolder.forEach((file) => form.append("files", file, file.webkitRelativePath));
+      const response = await fetch("/api/fs/import", { method: "POST", body: form });
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.error || "Unable to import folder.");
+      const project = { name: data.name, path: data.projectPath };
+      setProjectPath(project.path);
+      setProjectName(project.name);
+      setActiveProject(project);
+      addProject(project);
+      setPendingFolder(null);
+    } catch (error) {
+      setFolderError(error instanceof Error ? error.message : "Unable to import folder.");
+    } finally { setImporting(false); }
+  };
   // ── Build ChapterScrubber chapters from message history ───────────────────
   const scrubberChapters: Chapter[] = messages
     .filter((m) => m.done)
@@ -754,6 +713,17 @@ function Index() {
         .chat-scroll-area::-webkit-scrollbar { display: none; }
       ` }} />
 
+      <Dialog open={!!pendingFolder} onOpenChange={(open) => { if (!open && !importing) setPendingFolder(null); }}>
+        <DialogContent className="max-w-[440px] rounded-2xl bg-card p-7">
+          <DialogTitle className="text-center text-xl">Bring this folder into Calvras?</DialogTitle>
+          <DialogDescription className="text-center leading-6">Calvras will work with an uploaded copy of your project. Your original folder stays on your computer.</DialogDescription>
+          <div className="rounded-lg border bg-background px-4 py-3 text-center text-sm">{pendingFolder?.[0]?.webkitRelativePath.split("/")[0]}<span className="mt-1 block text-xs text-muted-foreground">{pendingFolder?.length} files · dependencies, Git data, and environment secrets excluded</span></div>
+          <p className="text-center text-xs leading-5 text-muted-foreground">Only import projects you trust. Review generated commands before running them.</p>
+          {folderError && <p role="alert" className="text-sm text-red-400">{folderError}</p>}
+          <button disabled={importing} onClick={confirmFolder} className="auth-primary disabled:opacity-50">{importing ? "Importing folder…" : "Import and continue"}</button>
+          <button disabled={importing} onClick={() => setPendingFolder(null)} className="rounded-lg border py-2.5 text-sm text-muted-foreground">Cancel</button>
+        </DialogContent>
+      </Dialog>
       {/* ── Top-right project badge & switcher ─────────────────────────── */}
       <button
         type="button"
@@ -830,10 +800,8 @@ function Index() {
               alt="Calvras"
               className="h-14 w-14 rounded-xl object-contain mb-4 mx-auto"
             />
-            <h1 className="text-3xl font-bold tracking-tight text-foreground">What should Calvras build?</h1>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Describe a component, an app, or an edit. Calvras creates folders and writes real code directly on your Desktop.
-            </p>
+            <h1 className="text-[clamp(1.5rem,3vw,2rem)] font-normal tracking-tight text-foreground">Your next idea starts here.</h1>
+
           </div>
         )}
 
@@ -891,3 +859,5 @@ function Index() {
     </main>
   );
 }
+
+

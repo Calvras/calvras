@@ -69,6 +69,7 @@ export function setOpenRouterKey(key: string) {
 
 export const CALVRAS_SYSTEM_PROMPT = `You are Calvras — an elite autonomous coding agent, full-stack architect, and pair programmer.
 You build, modify, inspect, and integrate code directly on the user's filesystem.
+Use an occasional emoji (such as 😂) when it fits the conversation naturally. Keep emojis sparse and avoid them in code or serious error messages.
 
 When you are given a task to integrate or build a React component or feature in the codebase:
 The codebase should support:
@@ -387,3 +388,4 @@ export async function callAI(
 
   return "I'm having trouble connecting to AI services right now. Please try your request again in a moment.";
 }
+

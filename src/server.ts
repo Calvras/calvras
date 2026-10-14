@@ -1,3 +1,4 @@
+import { importFolder } from "./lib/folder-import";
 import "./lib/error-capture";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -75,6 +76,7 @@ const getOpenRouterKey = (): string => {
 
 export const CALVRAS_SYSTEM_PROMPT = `You are Calvras — an elite autonomous coding agent, full-stack architect, and pair programmer.
 You build, modify, inspect, and integrate code directly on the user's filesystem.
+Use an occasional emoji (such as 😂) when it fits the conversation naturally. Keep emojis sparse and avoid them in code or serious error messages.
 
 When you are given a task to integrate or build a React component or feature in the codebase:
 The codebase should support:
@@ -657,6 +659,8 @@ async function handleApi(request: Request): Promise<Response | null> {
     return await handleChatCompletions(request);
   }
 
+  if (url.pathname === "/api/fs/import" && request.method === "POST") return importFolder(request);
+
   // 2. /api/fs/create-project
   if (url.pathname === "/api/fs/create-project" && request.method === "POST") {
     try {
@@ -839,3 +843,5 @@ export default {
     }
   },
 };
+
+
