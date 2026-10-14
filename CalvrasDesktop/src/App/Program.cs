@@ -15,6 +15,17 @@ sealed class Program
             System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(logPath)!);
             System.IO.File.WriteAllText(logPath, $"Starting at {DateTime.Now}\n");
 
+            AppDomain.CurrentDomain.UnhandledException += (s, e) =>
+            {
+                try { System.IO.File.AppendAllText(logPath, $"UNHANDLED: {e.ExceptionObject}\n"); } catch { }
+            };
+
+            System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (s, e) =>
+            {
+                try { System.IO.File.AppendAllText(logPath, $"UNOBSERVED TASK: {e.Exception}\n"); } catch { }
+                e.SetObserved();
+            };
+
             try
             {
                 VelopackApp.Build().Run();

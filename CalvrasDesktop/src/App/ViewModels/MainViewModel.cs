@@ -185,19 +185,23 @@ public partial class MainViewModel : ViewModelBase
     {
         if (Directory.Exists(folderPath))
         {
-            var name = Path.GetFileName(folderPath);
-            if (string.IsNullOrWhiteSpace(name)) name = "workspace";
+            var cleanPath = folderPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var dirInfo = new DirectoryInfo(cleanPath);
+            var name = dirInfo.Name;
+            if (string.IsNullOrWhiteSpace(name)) name = Path.GetFileName(cleanPath);
+            if (string.IsNullOrWhiteSpace(name)) name = "project";
 
-            var files = await _fs.GetTreeAsync(folderPath);
+            var files = await _fs.GetTreeAsync(cleanPath);
             var proj = new ProjectModel
             {
                 Name = name,
-                Path = folderPath,
+                Path = cleanPath,
                 LastOpened = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 FileCount = files.Count
             };
 
             await SelectProjectAsync(proj);
+            ShowToast($"Opened {name}");
         }
     }
 

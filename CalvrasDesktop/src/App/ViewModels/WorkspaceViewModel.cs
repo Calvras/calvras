@@ -66,11 +66,18 @@ public partial class WorkspaceViewModel : ViewModelBase
     [ObservableProperty]
     private bool _isRecording = false;
 
+    [ObservableProperty]
+    private bool _isInputExpanded = false;
+
     public bool HasTextToSend => !string.IsNullOrWhiteSpace(PromptText) || AttachedFiles.Count > 0;
     public bool ShowMicButton => !HasTextToSend && !IsBusy && !IsRecording;
 
     partial void OnPromptTextChanged(string value)
     {
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            IsInputExpanded = true;
+        }
         OnPropertyChanged(nameof(HasTextToSend));
         OnPropertyChanged(nameof(ShowMicButton));
     }
@@ -137,12 +144,14 @@ public partial class WorkspaceViewModel : ViewModelBase
         var text = PromptText.Trim();
         if (string.IsNullOrWhiteSpace(text) || IsBusy) return;
 
+        IsInputExpanded = false; // Smoothly close back to small pill!
         IsApprovalPickerOpen = false;
+        IsModelPickerOpen = false;
 
         if (ActiveProject == null)
         {
             // Auto create an active project if none selected
-            var proj = await _fs.CreateProjectAsync("workspace");
+            var proj = await _fs.CreateProjectAsync("project");
             await InitializeProjectAsync(proj);
         }
 
@@ -176,15 +185,14 @@ public partial class WorkspaceViewModel : ViewModelBase
         ElapsedSeconds = 0;
         _cts = new CancellationTokenSource();
 
-        using var timerCts = new CancellationTokenSource();
-        _ = Task.Run(async () =>
+        // UI-safe DispatcherTimer (NEVER crashes background threads)
+        var timer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        timer.Tick += (_, _) =>
         {
-            while (!timerCts.Token.IsCancellationRequested)
-            {
-                await Task.Delay(1000);
-                if (IsBusy) ElapsedSeconds++;
-            }
-        });
+            if (IsBusy) ElapsedSeconds++;
+            else timer.Stop();
+        };
+        timer.Start();
 
         try
         {
@@ -200,7 +208,8 @@ public partial class WorkspaceViewModel : ViewModelBase
                         {
                             var updatedPhases = new List<AgentPhaseModel>(last.Phases) { phase };
                             var idx = Messages.IndexOf(last);
-                            Messages[idx] = last with { Phases = updatedPhases };
+                            if (idx >= 0 && idx < Messages.Count)
+                                Messages[idx] = last with { Phases = updatedPhases };
                         }
                     });
                 },
@@ -214,14 +223,15 @@ public partial class WorkspaceViewModel : ViewModelBase
                             var list = new List<AgentPhaseModel>(last.Phases);
                             list[list.Count - 1] = updatedPhase;
                             var idx = Messages.IndexOf(last);
-                            Messages[idx] = last with { Phases = list };
+                            if (idx >= 0 && idx < Messages.Count)
+                                Messages[idx] = last with { Phases = list };
                         }
                     });
                 },
                 _cts.Token
             );
 
-            timerCts.Cancel();
+            timer.Stop();
 
             // Snappy streaming typing animation for the assistant reply
             var fullMessage = outcome.Message ?? string.Empty;
@@ -235,64 +245,81 @@ public partial class WorkspaceViewModel : ViewModelBase
                     currentLength = Math.Min(fullMessage.Length, currentLength + chunkSize);
                     var partial = fullMessage.Substring(0, currentLength);
 
-                    var current = Messages.FirstOrDefault(m => m.Id == assistantMsg.Id);
-                    if (current != null)
+                    Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                     {
-                        var idx = Messages.IndexOf(current);
-                        Messages[idx] = current with { Text = partial };
-                    }
+                        var current = Messages.FirstOrDefault(m => m.Id == assistantMsg.Id);
+                        if (current != null)
+                        {
+                            var idx = Messages.IndexOf(current);
+                            if (idx >= 0 && idx < Messages.Count)
+                                Messages[idx] = current with { Text = partial };
+                        }
+                    });
                     await Task.Delay(8);
                 }
             }
 
             // Finalize message state
-            var finalMsg = Messages.FirstOrDefault(m => m.Id == assistantMsg.Id);
-            if (finalMsg != null)
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
-                var idx = Messages.IndexOf(finalMsg);
-                Messages[idx] = finalMsg with
+                var finalMsg = Messages.FirstOrDefault(m => m.Id == assistantMsg.Id);
+                if (finalMsg != null)
                 {
-                    Done = true,
-                    Text = fullMessage,
-                    Status = outcome.Status,
-                    Error = outcome.Error,
-                    EndedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-                };
-            }
+                    var idx = Messages.IndexOf(finalMsg);
+                    if (idx >= 0 && idx < Messages.Count)
+                    {
+                        Messages[idx] = finalMsg with
+                        {
+                            Done = true,
+                            Text = fullMessage,
+                            Status = outcome.Status,
+                            Error = outcome.Error,
+                            EndedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                        };
+                    }
+                }
 
-            if (!string.IsNullOrWhiteSpace(outcome.Plan))
-            {
-                ActivePlan = new ImplementationPlanModel
+                if (!string.IsNullOrWhiteSpace(outcome.Plan))
                 {
-                    Title = "Implementation Plan",
-                    Content = outcome.Plan,
-                    MessageId = assistantMsg.Id
-                };
-                // Do not auto-force drawer open
-                IsPlanOpen = false;
-            }
+                    ActivePlan = new ImplementationPlanModel
+                    {
+                        Title = "Implementation Plan",
+                        Content = outcome.Plan,
+                        MessageId = assistantMsg.Id
+                    };
+                    IsPlanOpen = false;
+                }
+            });
         }
         catch (OperationCanceledException)
         {
-            var finalMsg = Messages.FirstOrDefault(m => m.Id == assistantMsg.Id);
-            if (finalMsg != null)
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
-                var idx = Messages.IndexOf(finalMsg);
-                Messages[idx] = finalMsg with { Done = true, Status = "stopped", Error = "Stopped by user.", EndedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() };
-            }
+                var finalMsg = Messages.FirstOrDefault(m => m.Id == assistantMsg.Id);
+                if (finalMsg != null)
+                {
+                    var idx = Messages.IndexOf(finalMsg);
+                    if (idx >= 0 && idx < Messages.Count)
+                        Messages[idx] = finalMsg with { Done = true, Status = "stopped", Error = "Stopped by user.", EndedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() };
+                }
+            });
         }
         catch (Exception ex)
         {
-            var finalMsg = Messages.FirstOrDefault(m => m.Id == assistantMsg.Id);
-            if (finalMsg != null)
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
-                var idx = Messages.IndexOf(finalMsg);
-                Messages[idx] = finalMsg with { Done = true, Status = "failed", Error = ex.Message, EndedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() };
-            }
+                var finalMsg = Messages.FirstOrDefault(m => m.Id == assistantMsg.Id);
+                if (finalMsg != null)
+                {
+                    var idx = Messages.IndexOf(finalMsg);
+                    if (idx >= 0 && idx < Messages.Count)
+                        Messages[idx] = finalMsg with { Done = true, Status = "failed", Error = ex.Message, EndedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() };
+                }
+            });
         }
         finally
         {
-            timerCts.Cancel();
+            timer.Stop();
             IsBusy = false;
             WorkingStatus = "Thinking…";
             _cts = null;
@@ -322,6 +349,21 @@ public partial class WorkspaceViewModel : ViewModelBase
     public void ToggleModelPicker()
     {
         IsModelPickerOpen = !IsModelPickerOpen;
+    }
+
+    [RelayCommand]
+    public void ExpandInput()
+    {
+        IsInputExpanded = true;
+    }
+
+    [RelayCommand]
+    public void CollapseInput()
+    {
+        if (string.IsNullOrWhiteSpace(PromptText) && AttachedFiles.Count == 0 && !IsBusy && !IsRecording)
+        {
+            IsInputExpanded = false;
+        }
     }
 
     [RelayCommand]
