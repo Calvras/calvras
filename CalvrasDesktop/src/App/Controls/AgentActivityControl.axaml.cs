@@ -35,12 +35,17 @@ public partial class AgentActivityControl : UserControl
         set => SetValue(ElapsedSecondsProperty, value);
     }
 
-    private bool _collapsed = false;
+    private bool _collapsed = true;
     private bool _userToggled = false;
 
     public AgentActivityControl()
     {
         InitializeComponent();
+    }
+
+    public void ResetToggle()
+    {
+        _userToggled = false;
     }
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
@@ -49,13 +54,14 @@ public partial class AgentActivityControl : UserControl
         if (change.Property == PhasesProperty)
         {
             PhasesList.ItemsSource = change.GetNewValue<IEnumerable?>();
+            PhaseMessagesList.ItemsSource = change.GetNewValue<IEnumerable?>();
         }
         else if (change.Property == IsWorkingProperty)
         {
             var working = change.GetNewValue<bool>();
-            // Auto-expand while working, auto-collapse when done (unless user toggled)
             if (!_userToggled)
             {
+                // Auto-expand while working, collapse when done
                 SetCollapsed(!working);
             }
         }
@@ -78,7 +84,6 @@ public partial class AgentActivityControl : UserControl
     {
         if (sender is Border pillBorder)
         {
-            // Find sibling DetailPanel in the parent StackPanel
             var parent = pillBorder.Parent as StackPanel;
             if (parent != null)
             {

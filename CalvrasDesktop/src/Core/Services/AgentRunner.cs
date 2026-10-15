@@ -18,6 +18,7 @@ public interface IAgentRunner
         Action<AgentPhaseModel> onPhaseAdded,
         Action<AgentPhaseModel> onPhaseUpdated,
         Action<string> onToken,
+        IReadOnlyList<(string role, string content)>? conversationHistory = null,
         CancellationToken cancellationToken = default);
 }
 
@@ -40,6 +41,7 @@ public class AgentRunner : IAgentRunner
         Action<AgentPhaseModel> onPhaseAdded,
         Action<AgentPhaseModel> onPhaseUpdated,
         Action<string> onToken,
+        IReadOnlyList<(string role, string content)>? conversationHistory = null,
         CancellationToken cancellationToken = default)
     {
         var history = new List<string>();
@@ -63,7 +65,11 @@ public class AgentRunner : IAgentRunner
             string rawInference;
             try
             {
-                rawInference = await _apiClient.CallAgentInferenceAsync(fullPrompt, projectSnapshot, cancellationToken);
+                rawInference = await _apiClient.CallAgentInferenceAsync(
+                    fullPrompt,
+                    projectSnapshot,
+                    step == 0 ? conversationHistory : null,
+                    cancellationToken);
             }
             catch (Exception ex)
             {

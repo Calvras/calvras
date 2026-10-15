@@ -8,9 +8,25 @@
         <local:ViewLocator />
     </Application.DataTemplates>
 
+    <Application.Resources>
+        <FontFamily x:Key="DefaultFont">avares://Avalonia.Fonts.Inter/Assets#Inter</FontFamily>
+    </Application.Resources>
+
     <Application.Styles>
         <FluentTheme />
         <StyleInclude Source="avares://Avalonia.Controls.DataGrid/Themes/Fluent.xaml"/>
+        <Style Selector="TextBlock">
+            <Setter Property="FontFamily" Value="{StaticResource DefaultFont}"/>
+        </Style>
+        <Style Selector="SelectableTextBlock">
+            <Setter Property="FontFamily" Value="{StaticResource DefaultFont}"/>
+        </Style>
+        <Style Selector="TextBox">
+            <Setter Property="FontFamily" Value="{StaticResource DefaultFont}"/>
+        </Style>
+        <Style Selector="Button">
+            <Setter Property="FontFamily" Value="{StaticResource DefaultFont}"/>
+        </Style>
     </Application.Styles>
 
     <TrayIcon.Icons>

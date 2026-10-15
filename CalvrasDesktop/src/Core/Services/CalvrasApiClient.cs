@@ -15,8 +15,8 @@ public interface ICalvrasApiClient
 {
     string BaseUrl { get; set; }
     void SetAuthToken(string token);
-    Task<string> CallAgentInferenceAsync(string prompt, string? projectSnapshot, CancellationToken cancellationToken = default);
-    Task StreamAgentInferenceAsync(string prompt, string? projectSnapshot, Action<string> onToken, CancellationToken ct = default);
+    Task<string> CallAgentInferenceAsync(string prompt, string? projectSnapshot, IReadOnlyList<(string role, string content)>? conversationHistory = null, CancellationToken cancellationToken = default);
+    Task StreamAgentInferenceAsync(string prompt, string? projectSnapshot, Action<string> onToken, IReadOnlyList<(string role, string content)>? conversationHistory = null, CancellationToken ct = default);
 }
 
 public class CalvrasApiClient : ICalvrasApiClient
@@ -79,7 +79,7 @@ public class CalvrasApiClient : ICalvrasApiClient
         return "You are Calvras, a senior engineer sitting next to the user. Talk naturally, be helpful, warm and direct.";
     }
 
-    public async Task<string> CallAgentInferenceAsync(string prompt, string? projectSnapshot, CancellationToken cancellationToken = default)
+    public async Task<string> CallAgentInferenceAsync(string prompt, string? projectSnapshot, IReadOnlyList<(string role, string content)>? conversationHistory = null, CancellationToken cancellationToken = default)
     {
         var messages = new List<object>
         {
@@ -99,11 +99,20 @@ public class CalvrasApiClient : ICalvrasApiClient
             });
         }
 
-        messages.Add(new
+        if (conversationHistory != null && conversationHistory.Count > 0)
         {
-            role = "user",
-            content = prompt
-        });
+            foreach (var (histRole, histContent) in conversationHistory)
+                messages.Add(new { role = histRole, content = histContent });
+            // Current user message already included as last entry in history
+        }
+        else
+        {
+            messages.Add(new
+            {
+                role = "user",
+                content = prompt
+            });
+        }
 
         var requestBody = new
         {
@@ -155,7 +164,7 @@ public class CalvrasApiClient : ICalvrasApiClient
         throw new HttpRequestException("Failed to receive a valid response from the Calvras AI engine.");
     }
 
-    public async Task StreamAgentInferenceAsync(string prompt, string? projectSnapshot, Action<string> onToken, CancellationToken ct = default)
+    public async Task StreamAgentInferenceAsync(string prompt, string? projectSnapshot, Action<string> onToken, IReadOnlyList<(string role, string content)>? conversationHistory = null, CancellationToken ct = default)
     {
         var messages = new List<object>
         {
@@ -175,11 +184,20 @@ public class CalvrasApiClient : ICalvrasApiClient
             });
         }
 
-        messages.Add(new
+        if (conversationHistory != null && conversationHistory.Count > 0)
         {
-            role = "user",
-            content = prompt
-        });
+            foreach (var (histRole, histContent) in conversationHistory)
+                messages.Add(new { role = histRole, content = histContent });
+            // Current user message already included as last entry in history
+        }
+        else
+        {
+            messages.Add(new
+            {
+                role = "user",
+                content = prompt
+            });
+        }
 
         var requestBody = new
         {

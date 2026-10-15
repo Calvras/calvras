@@ -20,6 +20,7 @@ public partial class WorkspaceViewModel : ViewModelBase
     private readonly LocalDatabase _db;
     private CancellationTokenSource? _cts;
     private System.Speech.Recognition.SpeechRecognitionEngine? _recognizer;
+    private readonly List<(string role, string content)> _conversationHistory = new();
 
     [ObservableProperty]
     private ProjectModel? _activeProject;
@@ -164,6 +165,10 @@ public partial class WorkspaceViewModel : ViewModelBase
         };
         Messages.Add(userMsg);
 
+        // Cap history at 40 entries (20 turns), then add current user message
+        if (_conversationHistory.Count >= 40)
+            _conversationHistory.RemoveRange(0, 2);
+        _conversationHistory.Add(("user", text));
         // 2. Assistant Message placeholder
         var assistantMsg = new ChatMessageModel
         {
@@ -245,7 +250,8 @@ public partial class WorkspaceViewModel : ViewModelBase
                         ScrollToBottom?.Invoke();
                     });
                 },
-                _cts.Token
+                conversationHistory: _conversationHistory,
+                cancellationToken: _cts.Token
             );
 
             timer.Stop();
@@ -284,6 +290,10 @@ public partial class WorkspaceViewModel : ViewModelBase
                     IsPlanOpen = false;
                 }
             });
+
+            // Record assistant reply in conversation history
+            if (!string.IsNullOrWhiteSpace(fullMessage))
+                _conversationHistory.Add(("assistant", fullMessage));
         }
         catch (OperationCanceledException)
         {

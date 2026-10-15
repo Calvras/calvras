@@ -4,32 +4,28 @@
              xmlns:c="using:Calvras.App.Controls"
              x:Class="Calvras.App.Controls.AgentActivityControl">
     <StackPanel Spacing="0">
-        <!-- Header row: working indicator OR elapsed time, plus collapse toggle -->
+        <!-- Header row -->
         <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,6">
-            <!-- Working state -->
             <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"
                         IsVisible="{Binding IsWorking, RelativeSource={RelativeSource AncestorType=UserControl}}">
                 <c:PixelDotsLoaderControl VerticalAlignment="Center"/>
                 <TextBlock Text="Working..." Foreground="#A1A1AA" FontSize="12" VerticalAlignment="Center"/>
             </StackPanel>
-            <!-- Done state -->
             <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center"
                         IsVisible="{Binding !IsWorking, RelativeSource={RelativeSource AncestorType=UserControl}}">
                 <TextBlock Text="Worked for " Foreground="#71717A" FontSize="12" VerticalAlignment="Center"/>
                 <TextBlock Text="{Binding ElapsedSeconds, RelativeSource={RelativeSource AncestorType=UserControl}, StringFormat='{}{0}s'}"
                            Foreground="#A1A1AA" FontFamily="Consolas, Monospace" FontSize="12" FontWeight="Medium" VerticalAlignment="Center"/>
             </StackPanel>
-            <!-- Spacer -->
             <Border Grid.Column="1"/>
-            <!-- Collapse Toggle -->
             <Button Grid.Column="2" Name="CollapseButton" Click="OnCollapseToggle"
                     Background="Transparent" BorderThickness="0" Padding="4,2" CornerRadius="4" Cursor="Hand">
-                <TextBlock Name="ChevronText" Text="▼" Foreground="#71717A" FontSize="10"/>
+                <TextBlock Name="ChevronText" Text="▶" Foreground="#71717A" FontSize="10"/>
             </Button>
         </Grid>
 
         <!-- Collapsible trace body -->
-        <Border Name="TraceBody" BorderBrush="#2A2A2E" BorderThickness="2,0,0,0" Padding="12,0,0,0" Margin="4,0,0,0">
+        <Border Name="TraceBody" IsVisible="False" BorderBrush="#2A2A2E" BorderThickness="2,0,0,0" Padding="12,0,0,0" Margin="4,0,0,0">
             <ItemsControl Name="PhasesList">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="m:AgentPhaseModel">
@@ -38,21 +34,14 @@
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="m:TraceNodeModel">
                                         <StackPanel Spacing="0">
-                                            <!-- Pill row -->
+                                            <!-- Pill row (no green dot) -->
                                             <Border Height="28" CornerRadius="4" Padding="6,0" Margin="0,2"
                                                     Background="Transparent" Cursor="Hand"
                                                     PointerPressed="OnPillPressed">
-                                                <Grid ColumnDefinitions="Auto,Auto,*,Auto">
-                                                    <!-- Status icon -->
-                                                    <TextBlock Grid.Column="0" Foreground="#3FB950" FontSize="9" VerticalAlignment="Center" Margin="0,0,6,0"
-                                                               Text="●"
-                                                               IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
-                                                    <!-- Tool label -->
-                                                    <TextBlock Grid.Column="1" Text="{Binding Primary}" FontWeight="SemiBold" FontSize="12" Foreground="#F0F6FC" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                                    <!-- Path/secondary -->
-                                                    <TextBlock Grid.Column="2" Text="{Binding Secondary}" FontFamily="Consolas, Monospace" FontSize="11" Foreground="#8B949E" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
-                                                    <!-- Diff counts -->
-                                                    <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center"
+                                                <Grid ColumnDefinitions="Auto,*,Auto">
+                                                    <TextBlock Grid.Column="0" Text="{Binding Primary}" FontWeight="SemiBold" FontSize="12" Foreground="#F0F6FC" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                                    <TextBlock Grid.Column="1" Text="{Binding Secondary}" FontFamily="Consolas, Monospace" FontSize="11" Foreground="#8B949E" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center"
                                                                 IsVisible="{Binding Add, Converter={x:Static ObjectConverters.IsNotNull}}">
                                                         <TextBlock Text="{Binding Add, StringFormat='+{0}'}" Foreground="#3FB950" FontSize="10" FontWeight="Bold"/>
                                                         <TextBlock Text="{Binding Del, StringFormat='-{0}'}" Foreground="#F85149" FontSize="10" FontWeight="Bold"
@@ -60,7 +49,6 @@
                                                     </StackPanel>
                                                 </Grid>
                                             </Border>
-
                                             <!-- Expandable detail panel -->
                                             <Border Name="DetailPanel" IsVisible="False" Margin="0,0,0,4">
                                                 <StackPanel Spacing="4">
@@ -72,14 +60,20 @@
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
-
-                            <!-- Phase message if any -->
-                            <SelectableTextBlock Text="{Binding Message}" Foreground="#F0F6FC" FontSize="13" TextWrapping="Wrap" LineHeight="20"
-                                                 Margin="4,4,4,2" IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                         </StackPanel>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
         </Border>
+
+        <!-- Phase messages always visible (outside the collapsible border) -->
+        <ItemsControl Name="PhaseMessagesList">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="m:AgentPhaseModel">
+                    <SelectableTextBlock Text="{Binding Message}" Foreground="#F0F6FC" FontSize="13" TextWrapping="Wrap" LineHeight="20"
+                                         Margin="4,2,4,2" IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
     </StackPanel>
 </UserControl>
