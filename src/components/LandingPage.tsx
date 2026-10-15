@@ -1,11 +1,12 @@
 import { DownloadDetails } from "@/components/DownloadDetails";
+import { DOWNLOAD } from "@/lib/download";
 import { useRef } from "react";
 import { motion, useReducedMotion, useScroll } from "framer-motion";
 import { ArrowUpRight, Download } from "lucide-react";
 import { MarketingHeader, MarketingFooter } from "@/components/MarketingLayout";
 
 
-const DOWNLOAD_URL = "https://github.com/SHIKARI-hey/Calvras/releases/download/v1.0.3/Calvras-win-Setup.exe";
+const DOWNLOAD_URL = DOWNLOAD.installer;
 
 export function LandingPage() {
   const reducedMotion = useReducedMotion();
@@ -70,9 +71,9 @@ export function LandingPage() {
         </div>
       </section>
       <div className="landing-technologies" aria-label="Built with">
-        {[".NET 8", "Avalonia UI", "C#", "DirectX", "Skia", "Velopack", "SQLite"].map(tech => <span key={tech}>{tech}</span>)}
+        {["Electron", "TypeScript", "React 19", "Vite", "Nitro", "Tailwind CSS", "Inno Setup"].map(tech => <span key={tech}>{tech}</span>)}
       </div>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: '{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Calvras","url":"https://calvras.com/","applicationCategory":"DeveloperApplication","operatingSystem":"Windows 10, Windows 11 (x64)","softwareVersion":"1.0.3","downloadUrl":"https://github.com/SHIKARI-hey/Calvras/releases/download/v1.0.3/Calvras-win-Setup.exe","image":"https://calvras.com/social-preview.png","description":"A Windows x64 desktop AI coding agent for project files, local commands, and visible change review."}' }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: '{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Calvras","url":"https://calvras.com/","applicationCategory":"DeveloperApplication","operatingSystem":"Windows 10, Windows 11 (x64)","softwareVersion":"10.0.0","downloadUrl":"https://github.com/SHIKARI-hey/Calvras/releases/download/v10.0.0/Calvras-Setup-win-x64.exe","image":"https://calvras.com/social-preview.png","description":"A Windows x64 desktop AI coding agent for project files, local commands, and visible change review."}' }} />
       <MarketingFooter />
     </div>
   );
