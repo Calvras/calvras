@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -19,6 +20,7 @@ public interface IAgentRunner
         Action<AgentPhaseModel> onPhaseUpdated,
         Action<string> onToken,
         IReadOnlyList<(string role, string content)>? conversationHistory = null,
+        IReadOnlyList<string>? attachedImages = null,
         CancellationToken cancellationToken = default);
 }
 
@@ -27,12 +29,18 @@ public class AgentRunner : IAgentRunner
     private readonly ICalvrasApiClient _apiClient;
     private readonly IFilesystemService _fs;
     private readonly IProcessRunner _process;
+    private readonly IAgentToolService _toolService;
 
-    public AgentRunner(ICalvrasApiClient apiClient, IFilesystemService fs, IProcessRunner process)
+    public AgentRunner(
+        ICalvrasApiClient apiClient,
+        IFilesystemService fs,
+        IProcessRunner process,
+        IAgentToolService? toolService = null)
     {
         _apiClient = apiClient;
         _fs = fs;
         _process = process;
+        _toolService = toolService ?? new AgentToolService(process);
     }
 
     public async Task<AgentRunOutcome> RunAsync(
@@ -42,24 +50,21 @@ public class AgentRunner : IAgentRunner
         Action<AgentPhaseModel> onPhaseUpdated,
         Action<string> onToken,
         IReadOnlyList<(string role, string content)>? conversationHistory = null,
+        IReadOnlyList<string>? attachedImages = null,
         CancellationToken cancellationToken = default)
     {
         var history = new List<string>();
         int invalidReplies = 0;
         int executedActions = 0;
         string? activePlan = null;
+        string? detectedLocalhostUrl = null;
 
-        for (int step = 0; step < 24; step++)
+        // Pre-scan and understand folder context before first prompt
+        string workspaceOverview = await _toolService.BuildWorkspaceOverviewAsync(projectPath);
+
+        for (int step = 0; step < 25; step++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-
-            string projectSnapshot = string.Empty;
-            try
-            {
-                var tree = await _fs.GetTreeAsync(projectPath);
-                projectSnapshot = $"Files in workspace:\n{string.Join("\n", tree.Take(40))}";
-            }
-            catch { }
 
             var fullPrompt = history.Count > 0 ? $"{prompt}\n\n{string.Join("\n\n", history)}" : prompt;
             string rawInference;
@@ -67,8 +72,9 @@ public class AgentRunner : IAgentRunner
             {
                 rawInference = await _apiClient.CallAgentInferenceAsync(
                     fullPrompt,
-                    projectSnapshot,
+                    workspaceOverview,
                     step == 0 ? conversationHistory : null,
+                    step == 0 ? attachedImages : null,
                     cancellationToken);
             }
             catch (Exception ex)
@@ -102,12 +108,16 @@ public class AgentRunner : IAgentRunner
                 if (reply.Status == "blocked")
                     return new AgentRunOutcome("blocked", reply.Message, null, activePlan);
 
-                // Stream reply.Message token by token — no second API call needed.
-                // The model already returned the conversational reply in the message field.
                 var message = reply.Message ?? string.Empty;
+
+                // Ensure localhost link is prominently displayed if a dev server was started
+                if (!string.IsNullOrWhiteSpace(detectedLocalhostUrl) && !message.Contains(detectedLocalhostUrl))
+                {
+                    message = message.TrimEnd() + $"\n\n🔗 **Local Dev Server**: [{detectedLocalhostUrl}]({detectedLocalhostUrl})";
+                }
+
                 if (!string.IsNullOrWhiteSpace(message))
                 {
-                    // Simulate natural streaming: emit in small chunks so the UI types it in
                     int chunkSize = 4;
                     for (int i = 0; i < message.Length; i += chunkSize)
                     {
@@ -126,10 +136,10 @@ public class AgentRunner : IAgentRunner
             {
                 traceNodes.Add(new TraceNodeModel
                 {
-                    Type = action.Type == "run_command" ? "terminal" : "tool",
+                    Type = action.Type == "run_command" || action.Type == "run_terminal" ? "terminal" : "tool",
                     ToolName = action.Type,
                     Primary = GetActionLabel(action.Type),
-                    Secondary = action.Command ?? action.Path ?? ".",
+                    Secondary = action.Command ?? action.Path ?? action.Query ?? action.Url ?? ".",
                     Status = "running",
                     Command = action.Command
                 });
@@ -142,7 +152,7 @@ public class AgentRunner : IAgentRunner
             };
             onPhaseAdded(phase);
 
-            // Execute each action in sequence
+            // Execute each action in sequence using AgentToolService
             var toolResults = new List<object>();
             for (int i = 0; i < reply.Actions.Count; i++)
             {
@@ -152,76 +162,33 @@ public class AgentRunner : IAgentRunner
 
                 try
                 {
-                    if (action.Type == "run_command" && !string.IsNullOrWhiteSpace(action.Command))
+                    var result = await _toolService.ExecuteToolAsync(action, projectPath, cancellationToken);
+
+                    if (!string.IsNullOrEmpty(result.LocalhostUrl))
                     {
-                        var workingDir = !string.IsNullOrWhiteSpace(action.Path)
-                            ? Path.Combine(projectPath, action.Path)
-                            : projectPath;
-                        var result = await _process.ExecuteCommandAsync(action.Command, workingDir, cancellationToken);
-                        traceNodes[i] = node with
-                        {
-                            Status = result.ExitCode == 0 ? "completed" : "failed",
-                            Output = result.Output,
-                            ExitCode = result.ExitCode,
-                            DurationMs = (int)result.DurationMs
-                        };
-                        var hint = string.Empty;
-                        if (result.ExitCode != 0 && (
-                            result.Output.Contains("not recognized", StringComparison.OrdinalIgnoreCase) ||
-                            result.Output.Contains("not found", StringComparison.OrdinalIgnoreCase) ||
-                            result.Output.Contains("ENOENT", StringComparison.Ordinal) ||
-                            result.Output.Contains("cannot find", StringComparison.OrdinalIgnoreCase)))
-                        {
-                            hint = "Command not found — consider installing with winget install <PackageId> or checking PATH.";
-                        }
-                        toolResults.Add(new { action = action.Type, command = action.Command, ok = result.ExitCode == 0, output = result.Output, exitCode = result.ExitCode, hint = hint == string.Empty ? (string?)null : hint });
+                        detectedLocalhostUrl = result.LocalhostUrl;
                     }
-                    else if ((action.Type == "create_file" || action.Type == "write_file") && !string.IsNullOrWhiteSpace(action.Path))
+
+                    traceNodes[i] = node with
                     {
-                        var diff = await _fs.WriteFileAsync(projectPath, action.Path, action.Content ?? "");
-                        traceNodes[i] = node with
-                        {
-                            Status = "completed",
-                            DiffFile = action.Path,
-                            DiffRows = diff,
-                            Add = diff.Count(d => d.Type == "add"),
-                            Del = diff.Count(d => d.Type == "del")
-                        };
-                        toolResults.Add(new { action = action.Type, path = action.Path, ok = true });
-                    }
-                    else if (action.Type == "edit_file" && !string.IsNullOrWhiteSpace(action.Path))
+                        Status = result.Ok ? "completed" : "failed",
+                        Output = result.Output.Length > 1000 ? result.Output.Substring(0, 1000) + "..." : result.Output,
+                        LocalhostUrl = result.LocalhostUrl,
+                        ExitCode = result.ExitCode,
+                        DiffFile = result.DiffFile,
+                        DiffRows = result.DiffRows,
+                        Add = result.Add,
+                        Del = result.Del
+                    };
+
+                    toolResults.Add(new
                     {
-                        var diff = await _fs.EditFileAsync(projectPath, action.Path, action.LineStart ?? 1, action.LineEnd ?? 1, action.NewContent ?? "");
-                        traceNodes[i] = node with
-                        {
-                            Status = "completed",
-                            DiffFile = action.Path,
-                            DiffRows = diff,
-                            Add = diff.Count(d => d.Type == "add"),
-                            Del = diff.Count(d => d.Type == "del")
-                        };
-                        toolResults.Add(new { action = action.Type, path = action.Path, ok = true });
-                    }
-                    else if (action.Type == "read_file" && !string.IsNullOrWhiteSpace(action.Path))
-                    {
-                        var text = await _fs.ReadFileAsync(projectPath, action.Path);
-                        traceNodes[i] = node with
-                        {
-                            Status = "completed",
-                            Output = text.Length > 800 ? text.Substring(0, 800) + "..." : text
-                        };
-                        toolResults.Add(new { action = action.Type, path = action.Path, ok = true, lines = text.Split('\n').Length });
-                    }
-                    else if (action.Type == "list_dir")
-                    {
-                        var entries = await _fs.ListDirAsync(projectPath, action.Path);
-                        traceNodes[i] = node with
-                        {
-                            Status = "completed",
-                            Output = string.Join("\n", entries)
-                        };
-                        toolResults.Add(new { action = action.Type, path = action.Path, ok = true, count = entries.Count });
-                    }
+                        action = action.Type,
+                        ok = result.Ok,
+                        output = result.Output,
+                        localhostUrl = result.LocalhostUrl,
+                        exitCode = result.ExitCode
+                    });
                 }
                 catch (Exception ex)
                 {
@@ -243,14 +210,109 @@ public class AgentRunner : IAgentRunner
         return new AgentRunOutcome("limit", null, "Maximum step limit reached.", activePlan);
     }
 
-    private static string GetActionLabel(string type) => type switch
+    private static string GetActionLabel(string type) => type?.ToLowerInvariant() switch
     {
-        "create_file" => "Create file",
-        "write_file" => "Write file",
-        "edit_file" => "Patch file",
+        // File Operations
         "read_file" => "Read file",
-        "list_dir" => "Inspect folder",
-        "run_command" => "Run command",
+        "write_file" => "Write file",
+        "create_file" => "Create file",
+        "list_files" or "list_dir" => "List files",
+        "rename_file" => "Rename file",
+        "move_file" => "Move file",
+        "copy_file" => "Copy file",
+        "get_file_info" => "File info",
+        "directory_tree" => "Directory tree",
+
+        // Search & Code Navigation
+        "grep_search" => "Grep search",
+        "find_files" => "Find files",
+        "search_symbols" => "Search symbols",
+        "go_to_definition" => "Go to definition",
+        "find_references" => "Find references",
+        "get_hover_info" => "Hover info",
+        "list_symbols" => "List symbols",
+        "read_diagnostics" => "Read diagnostics",
+
+        // Code Editing
+        "search_replace" or "edit_file" => "Search & replace",
+        "multi_replace" => "Multi replace",
+        "insert_code" => "Insert code",
+        "delete_lines" => "Delete lines",
+        "undo_edit" => "Undo edit",
+        "apply_patch" => "Apply patch",
+        "format_file" => "Format file",
+        "format_code" => "Format code",
+        "organize_imports" => "Organize imports",
+
+        // Terminal & Execution
+        "run_command" or "run_terminal" => "Run command",
+        "run_code" => "Run code",
+        "install_dependencies" => "Install dependencies",
+        "start_dev_server" => "Start dev server",
+        "stop_dev_server" => "Stop dev server",
+        "get_terminal_output" => "Terminal output",
+        "run_background_process" => "Background process",
+
+        // Debugging & Testing
+        "run_tests" => "Run tests",
+        "run_single_test" => "Run single test",
+        "run_linter" => "Run linter",
+        "run_typecheck" => "Typecheck",
+        "run_build" => "Run build",
+        "get_errors" => "Get errors",
+        "get_stack_trace" => "Get stack trace",
+        "debug_code" => "Debug code",
+
+        // Git & Version Control
+        "git_status" => "Git status",
+        "git_diff" or "git_show_diff" => "Git diff",
+        "git_log" => "Git log",
+        "git_add" => "Git add",
+        "git_commit" => "Git commit",
+        "git_checkout" => "Git checkout",
+        "git_branch" => "Git branch",
+        "git_restore" => "Git restore",
+
+        // Project Understanding
+        "analyze_project" or "analyze_codebase" => "Analyze project",
+        "detect_framework" => "Detect framework",
+        "read_project_structure" => "Project structure",
+        "read_package_json" => "Read package.json",
+        "find_entry_point" => "Find entry point",
+        "map_dependencies" or "inspect_dependencies" => "Map dependencies",
+        "trace_function_calls" => "Trace calls",
+
+        // Browser & UI Testing
+        "open_browser" => "Open browser",
+        "navigate_browser" => "Navigate browser",
+        "take_screenshot" => "Take screenshot",
+        "click_element" => "Click element",
+        "fill_input" => "Fill input",
+        "inspect_element" => "Inspect element",
+        "check_console_errors" => "Check console",
+        "test_responsive_layout" => "Test layout",
+
+        // Agent Intelligence
+        "plan_tasks" or "create_task_list" => "Plan tasks",
+        "delegate_task" => "Delegate task",
+        "request_user_approval" => "Request approval",
+        "track_progress" => "Track progress",
+        "summarize_changes" => "Summarize changes",
+        "verify_changes" => "Verify changes",
+        "ask_subagent" => "Ask subagent",
+
+        // Advanced Features
+        "apply_diff" => "Apply diff",
+        "multi_file_edit" => "Multi-file edit",
+        "refactor_code" => "Refactor code",
+        "generate_tests" => "Generate tests",
+        "resolve_imports" => "Resolve imports",
+        "detect_security_issues" => "Security check",
+        "explain_code" => "Explain code",
+        "generate_documentation" => "Generate docs",
+        "manage_environment_variables" => "Manage .env",
+        "rollback_changes" => "Rollback changes",
+
         _ => "Execute tool"
     };
 

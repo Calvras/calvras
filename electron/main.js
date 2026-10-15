@@ -48,7 +48,7 @@ function createWindow() {
     show: false,
   })
 
-  mainWindow.loadURL(`http://localhost:${PORT}`)
+  mainWindow.loadURL(`http://localhost:${PORT}/app`)
   mainWindow.once('ready-to-show', () => mainWindow.show())
   mainWindow.on('closed', () => { mainWindow = null })
 

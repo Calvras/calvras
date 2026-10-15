@@ -15,8 +15,8 @@ public interface ICalvrasApiClient
 {
     string BaseUrl { get; set; }
     void SetAuthToken(string token);
-    Task<string> CallAgentInferenceAsync(string prompt, string? projectSnapshot, IReadOnlyList<(string role, string content)>? conversationHistory = null, CancellationToken cancellationToken = default);
-    Task StreamAgentInferenceAsync(string prompt, string? projectSnapshot, Action<string> onToken, IReadOnlyList<(string role, string content)>? conversationHistory = null, CancellationToken ct = default);
+    Task<string> CallAgentInferenceAsync(string prompt, string? projectSnapshot, IReadOnlyList<(string role, string content)>? conversationHistory = null, IReadOnlyList<string>? attachedImages = null, CancellationToken cancellationToken = default);
+    Task StreamAgentInferenceAsync(string prompt, string? projectSnapshot, Action<string> onToken, IReadOnlyList<(string role, string content)>? conversationHistory = null, IReadOnlyList<string>? attachedImages = null, CancellationToken ct = default);
 }
 
 public class CalvrasApiClient : ICalvrasApiClient
@@ -79,7 +79,12 @@ public class CalvrasApiClient : ICalvrasApiClient
         return "You are Calvras, a senior engineer sitting next to the user. Talk naturally, be helpful, warm and direct.";
     }
 
-    public async Task<string> CallAgentInferenceAsync(string prompt, string? projectSnapshot, IReadOnlyList<(string role, string content)>? conversationHistory = null, CancellationToken cancellationToken = default)
+    public async Task<string> CallAgentInferenceAsync(
+        string prompt,
+        string? projectSnapshot,
+        IReadOnlyList<(string role, string content)>? conversationHistory = null,
+        IReadOnlyList<string>? attachedImages = null,
+        CancellationToken cancellationToken = default)
     {
         var messages = new List<object>
         {
@@ -103,7 +108,41 @@ public class CalvrasApiClient : ICalvrasApiClient
         {
             foreach (var (histRole, histContent) in conversationHistory)
                 messages.Add(new { role = histRole, content = histContent });
-            // Current user message already included as last entry in history
+        }
+        else if (attachedImages != null && attachedImages.Count > 0)
+        {
+            var parts = new List<object>
+            {
+                new { type = "text", text = prompt }
+            };
+
+            foreach (var imgPath in attachedImages)
+            {
+                try
+                {
+                    if (File.Exists(imgPath))
+                    {
+                        var bytes = await File.ReadAllBytesAsync(imgPath, cancellationToken);
+                        var base64 = Convert.ToBase64String(bytes);
+                        var ext = Path.GetExtension(imgPath).ToLowerInvariant();
+                        var mime = ext switch
+                        {
+                            ".png" => "image/png",
+                            ".gif" => "image/gif",
+                            ".webp" => "image/webp",
+                            _ => "image/jpeg"
+                        };
+                        parts.Add(new
+                        {
+                            type = "image_url",
+                            image_url = new { url = $"data:{mime};base64,{base64}" }
+                        });
+                    }
+                }
+                catch { }
+            }
+
+            messages.Add(new { role = "user", content = parts });
         }
         else
         {
@@ -164,7 +203,13 @@ public class CalvrasApiClient : ICalvrasApiClient
         throw new HttpRequestException("Failed to receive a valid response from the Calvras AI engine.");
     }
 
-    public async Task StreamAgentInferenceAsync(string prompt, string? projectSnapshot, Action<string> onToken, IReadOnlyList<(string role, string content)>? conversationHistory = null, CancellationToken ct = default)
+    public async Task StreamAgentInferenceAsync(
+        string prompt,
+        string? projectSnapshot,
+        Action<string> onToken,
+        IReadOnlyList<(string role, string content)>? conversationHistory = null,
+        IReadOnlyList<string>? attachedImages = null,
+        CancellationToken ct = default)
     {
         var messages = new List<object>
         {
@@ -188,7 +233,41 @@ public class CalvrasApiClient : ICalvrasApiClient
         {
             foreach (var (histRole, histContent) in conversationHistory)
                 messages.Add(new { role = histRole, content = histContent });
-            // Current user message already included as last entry in history
+        }
+        else if (attachedImages != null && attachedImages.Count > 0)
+        {
+            var parts = new List<object>
+            {
+                new { type = "text", text = prompt }
+            };
+
+            foreach (var imgPath in attachedImages)
+            {
+                try
+                {
+                    if (File.Exists(imgPath))
+                    {
+                        var bytes = await File.ReadAllBytesAsync(imgPath, ct);
+                        var base64 = Convert.ToBase64String(bytes);
+                        var ext = Path.GetExtension(imgPath).ToLowerInvariant();
+                        var mime = ext switch
+                        {
+                            ".png" => "image/png",
+                            ".gif" => "image/gif",
+                            ".webp" => "image/webp",
+                            _ => "image/jpeg"
+                        };
+                        parts.Add(new
+                        {
+                            type = "image_url",
+                            image_url = new { url = $"data:{mime};base64,{base64}" }
+                        });
+                    }
+                }
+                catch { }
+            }
+
+            messages.Add(new { role = "user", content = parts });
         }
         else
         {

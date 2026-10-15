@@ -1,3 +1,5 @@
+import { marketingHead } from "@/lib/marketing-seo";
+import { LandingPage } from "@/components/LandingPage";
 import { AgentActivity } from "@/components/AgentActivity";
 import { runAgent, type AgentAction, type ToolFeedback } from "@/lib/agent-run";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -15,17 +17,8 @@ import { ChapterScrubber, type Chapter } from "@/components/ui/chapter-scrubber"
 import { Copy, CheckCheck, X } from "lucide-react";
 
 export const Route = createFileRoute("/")({
-  head: () => ({
-    meta: [
-      { title: "Calvras" },
-      { name: "description", content: "Calvras builds and edits code in your projects." },
-      { property: "og:title", content: "Calvras" },
-      { property: "og:description", content: "Your autonomous coding agent." },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
-    ],
-  }),
-  component: Index,
+  head: () => marketingHead("/", "Calvras — Native AI Coding Agent", "Build real projects with Calvras, a Windows x64 desktop AI coding agent for local files, commands, and visible change review."),
+  component: LandingPage,
 });
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -356,7 +349,7 @@ function PlanPanelContent({ content }: { content: string }) {
  * COMPONENT
  * ─────────────────────────────────────────────────────────────────────────────
  */
-function Index() {
+export function Index() {
   const { activeProject, setActiveProject, addProject, addRecent, deleteProject, renameProject, newChatSignal } = useProjects();
   const [messages, setMessages] = useState<Message[]>([]);
   const [projectPath, setProjectPath] = useState<string | null>(activeProject?.path || null);

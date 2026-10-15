@@ -10,13 +10,13 @@
     <Grid ColumnDefinitions="*,Auto">
         <!-- Main Workspace Area -->
         <DockPanel Grid.Column="0" LastChildFill="True">
-            <!-- Input docked to bottom -->
-            <Border DockPanel.Dock="Bottom" Background="#121212" Padding="20,8,20,16">
-                <c:PromptInput DataContext="{Binding}" HorizontalAlignment="Stretch"/>
+            <!-- Input docked to bottom with strict 25px top separation from timeline -->
+            <Border DockPanel.Dock="Bottom" Background="#121212" Margin="0,25,0,0" Padding="20,0,20,18">
+                <c:PromptInput DataContext="{Binding}" HorizontalAlignment="Center"/>
             </Border>
 
-            <!-- Scrollable Timeline fills remaining space above -->
-            <ScrollViewer Name="TimelineScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" Padding="20,20,20,8">
+            <!-- Scrollable Timeline fills space above, guaranteed 25px above the input -->
+            <ScrollViewer Name="TimelineScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" Padding="20,20,20,0">
                 <StackPanel MaxWidth="680" HorizontalAlignment="Stretch">
                     <!-- Welcome state (calvras.com: logo + text centered, no starter pills) -->
                     <StackPanel IsVisible="{Binding !Messages.Count}" Margin="0,180,0,0" HorizontalAlignment="Center">

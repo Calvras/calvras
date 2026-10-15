@@ -104,6 +104,9 @@ public record TraceNodeModel
 
     [JsonPropertyName("sources")]
     public List<TraceSourceModel>? Sources { get; init; }
+
+    [JsonPropertyName("localhostUrl")]
+    public string? LocalhostUrl { get; init; }
 }
 
 public record AgentPhaseModel
@@ -166,6 +169,102 @@ public record AgentActionModel
 
     [JsonPropertyName("lineEnd")]
     public int? LineEnd { get; init; }
+
+    [JsonPropertyName("query")]
+    public string? Query { get; init; }
+
+    [JsonPropertyName("pattern")]
+    public string? Pattern { get; init; }
+
+    [JsonPropertyName("symbol")]
+    public string? Symbol { get; init; }
+
+    [JsonPropertyName("destination")]
+    public string? Destination { get; init; }
+
+    [JsonPropertyName("targetPath")]
+    public string? TargetPath { get; init; }
+
+    [JsonPropertyName("oldText")]
+    public string? OldText { get; init; }
+
+    [JsonPropertyName("newText")]
+    public string? NewText { get; init; }
+
+    [JsonPropertyName("search")]
+    public string? Search { get; init; }
+
+    [JsonPropertyName("replace")]
+    public string? Replace { get; init; }
+
+    [JsonPropertyName("patch")]
+    public string? Patch { get; init; }
+
+    [JsonPropertyName("diff")]
+    public string? Diff { get; init; }
+
+    [JsonPropertyName("testName")]
+    public string? TestName { get; init; }
+
+    [JsonPropertyName("packages")]
+    public string? Packages { get; init; }
+
+    [JsonPropertyName("language")]
+    public string? Language { get; init; }
+
+    [JsonPropertyName("url")]
+    public string? Url { get; init; }
+
+    [JsonPropertyName("selector")]
+    public string? Selector { get; init; }
+
+    [JsonPropertyName("value")]
+    public string? Value { get; init; }
+
+    [JsonPropertyName("key")]
+    public string? Key { get; init; }
+
+    [JsonPropertyName("action")]
+    public string? Action { get; init; }
+
+    [JsonPropertyName("subagent")]
+    public string? Subagent { get; init; }
+
+    [JsonPropertyName("percent")]
+    public int? Percent { get; init; }
+
+    [JsonPropertyName("message")]
+    public string? Message { get; init; }
+
+    [JsonPropertyName("port")]
+    public int? Port { get; init; }
+
+    [JsonPropertyName("recursive")]
+    public bool? Recursive { get; init; }
+
+    [JsonPropertyName("replacements")]
+    public List<ReplacementPair>? Replacements { get; init; }
+
+    [JsonPropertyName("files")]
+    public List<FileEditPair>? Files { get; init; }
+}
+
+public record ReplacementPair
+{
+    [JsonPropertyName("search")]
+    public string Search { get; init; } = string.Empty;
+
+    [JsonPropertyName("replace")]
+    public string Replace { get; init; } = string.Empty;
+}
+
+public record FileEditPair
+{
+    [JsonPropertyName("path")]
+    public string Path { get; init; } = string.Empty;
+
+    [JsonPropertyName("content")]
+    public string Content { get; init; } = string.Empty;
 }
 
 public record AgentReplyModel

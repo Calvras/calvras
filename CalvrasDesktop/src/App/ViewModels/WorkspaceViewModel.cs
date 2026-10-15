@@ -246,6 +246,7 @@ public partial class WorkspaceViewModel : ViewModelBase
                     });
                 },
                 conversationHistory: _conversationHistory,
+                attachedImages: attachments,
                 cancellationToken: _cts.Token
             );
 

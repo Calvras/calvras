@@ -127,24 +127,24 @@ function SidebarWithProjects() {
       recents={recents}
       onNewChat={() => {
         triggerNewChat();
-        if (router.state.location.pathname !== "/") {
-          router.navigate({ to: "/" });
+        if (router.state.location.pathname !== "/app") {
+          router.navigate({ to: "/app" });
         }
       }}
       onSelectProject={(project) => {
         if (project.path) {
           setActiveProject({ name: project.name, path: project.path, tasks: project.tasks });
         }
-        if (router.state.location.pathname !== "/") {
-          router.navigate({ to: "/" });
+        if (router.state.location.pathname !== "/app") {
+          router.navigate({ to: "/app" });
         }
       }}
       onSelectRecent={(recent) => {
         if (recent.projectPath && recent.projectName) {
           setActiveProject({ name: recent.projectName, path: recent.projectPath });
         }
-        if (router.state.location.pathname !== "/") {
-          router.navigate({ to: "/" });
+        if (router.state.location.pathname !== "/app") {
+          router.navigate({ to: "/app" });
         }
       }}
       onDeleteRecent={(item) => {
@@ -173,9 +173,11 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const router = useRouter();
   const isExcludedPage =
+    router.state.location.pathname === "/" ||
     router.state.location.pathname === "/signin" ||
     router.state.location.pathname === "/pricing" ||
-    router.state.location.pathname === "/landing";
+    router.state.location.pathname === "/landing" ||
+    ["/terms", "/privacy", "/about", "/partner", "/changelog", "/docs", "/support", "/capabilities"].includes(router.state.location.pathname);
 
   return (
     <QueryClientProvider client={queryClient}>

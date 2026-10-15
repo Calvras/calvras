@@ -16,9 +16,30 @@ public partial class PromptInput : UserControl
         InitializeComponent();
     }
 
+    private void OnComposerPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (DataContext is WorkspaceViewModel vm)
+        {
+            vm.ExpandInput();
+            var tb = this.FindControl<TextBox>("PromptTextBox");
+            tb?.Focus();
+        }
+    }
+
+    private void OnTextBoxGotFocus(object? sender, GotFocusEventArgs e)
+    {
+        if (DataContext is WorkspaceViewModel vm)
+        {
+            vm.ExpandInput();
+        }
+    }
+
     private void OnTextBoxLostFocus(object? sender, RoutedEventArgs e)
     {
-        // No collapse on focus loss — input is always expanded.
+        if (DataContext is WorkspaceViewModel vm)
+        {
+            vm.CollapseInput();
+        }
     }
 
     private void OnTextBoxKeyDown(object? sender, KeyEventArgs e)

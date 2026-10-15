@@ -28,10 +28,32 @@
             <Setter Property="BorderBrush" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="0"/>
         </Style>
+
+        <!-- Base Composer Border: Collapsed Size -->
+        <Style Selector="Border.composer-box">
+            <Setter Property="Width" Value="380"/>
+            <Setter Property="MinHeight" Value="46"/>
+            <Setter Property="CornerRadius" Value="23"/>
+            <Setter Property="Background" Value="#161618"/>
+            <Setter Property="BorderBrush" Value="#2A2A2E"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BoxShadow" Value="0 6 24 #40000000"/>
+        </Style>
+
+        <!-- Expanded Composer Border -->
+        <Style Selector="Border.composer-box.expanded">
+            <Setter Property="Width" Value="580"/>
+            <Setter Property="MinHeight" Value="96"/>
+            <Setter Property="CornerRadius" Value="20"/>
+            <Setter Property="Background" Value="#17171A"/>
+            <Setter Property="BorderBrush" Value="#333338"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BoxShadow" Value="0 10 32 #60000000"/>
+        </Style>
     </UserControl.Styles>
 
-    <Grid HorizontalAlignment="Stretch">
-        <StackPanel Spacing="0" HorizontalAlignment="Stretch">
+    <Grid HorizontalAlignment="Center">
+        <StackPanel Spacing="0" HorizontalAlignment="Center">
 
             <!-- Attachments drawer (slides above composer) -->
             <Border Background="#161618" BorderBrush="#2A2A2E" BorderThickness="1,1,1,0"
@@ -73,7 +95,8 @@
                     CornerRadius="16" Padding="6" Margin="12,0,12,8"
                     BoxShadow="0 12 36 #80000000">
                 <StackPanel Spacing="2">
-                    <TextBlock Text="Select Model" FontSize="11" FontWeight="SemiBold" Foreground="#71717A" Margin="10,6,10,4"/>
+                    <TextBlock Text="Select AI Model" FontSize="11" FontWeight="SemiBold" Foreground="#71717A" Margin="10,6,10,4"/>
+
                     <Button Command="{Binding SelectModelCommand}" CommandParameter="GPT 5.5"
                             Background="Transparent" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
                             Padding="10,7" CornerRadius="8" Cursor="Hand">
@@ -84,6 +107,7 @@
                                        IsVisible="{Binding SelectedModel, Converter={x:Static ObjectConverters.Equal}, ConverterParameter='GPT 5.5'}"/>
                         </Grid>
                     </Button>
+
                     <Button Command="{Binding SelectModelCommand}" CommandParameter="Opus 4.8"
                             Background="Transparent" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
                             Padding="10,7" CornerRadius="8" Cursor="Hand">
@@ -94,6 +118,7 @@
                                        IsVisible="{Binding SelectedModel, Converter={x:Static ObjectConverters.Equal}, ConverterParameter='Opus 4.8'}"/>
                         </Grid>
                     </Button>
+
                     <Button Command="{Binding SelectModelCommand}" CommandParameter="Gemini 3.5 Flash"
                             Background="Transparent" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
                             Padding="10,7" CornerRadius="8" Cursor="Hand">
@@ -104,6 +129,7 @@
                                        IsVisible="{Binding SelectedModel, Converter={x:Static ObjectConverters.Equal}, ConverterParameter='Gemini 3.5 Flash'}"/>
                         </Grid>
                     </Button>
+
                     <Button Command="{Binding SelectModelCommand}" CommandParameter="Composer 2.5"
                             Background="Transparent" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
                             Padding="10,7" CornerRadius="8" Cursor="Hand">
@@ -114,6 +140,7 @@
                                        IsVisible="{Binding SelectedModel, Converter={x:Static ObjectConverters.Equal}, ConverterParameter='Composer 2.5'}"/>
                         </Grid>
                     </Button>
+
                     <Button Command="{Binding SelectModelCommand}" CommandParameter="GLM 5.2"
                             Background="Transparent" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
                             Padding="10,7" CornerRadius="8" Cursor="Hand">
@@ -127,82 +154,87 @@
                 </StackPanel>
             </Border>
 
-            <!-- Main composer card — always expanded, single state -->
+            <!-- Main composer card with smooth expansion transition -->
             <Border Name="ComposerBorder"
-                    Background="#161618"
-                    BorderBrush="#2A2A2E"
-                    BorderThickness="1"
-                    CornerRadius="20"
-                    MinHeight="100"
-                    MaxWidth="600"
-                    HorizontalAlignment="Stretch"
-                    BoxShadow="0 4 20 #50000000">
+                    Classes="composer-box"
+                    Classes.expanded="{Binding IsInputExpanded}"
+                    PointerPressed="OnComposerPointerPressed">
+                <Border.Transitions>
+                    <Transitions>
+                        <DoubleTransition Property="Width" Duration="0:0:0.28" Easing="CubicEaseOut"/>
+                        <DoubleTransition Property="MinHeight" Duration="0:0:0.28" Easing="CubicEaseOut"/>
+                    </Transitions>
+                </Border.Transitions>
 
-                <Grid RowDefinitions="*,Auto">
+                <Grid RowDefinitions="Auto,Auto">
 
                     <!-- Text input row -->
                     <Grid Grid.Row="0">
                         <TextBox Name="PromptTextBox"
                                  Classes="chat-input"
                                  Text="{Binding PromptText, Mode=TwoWay}"
-                                 Watermark="Ask anything, @ to mention, / for actions"
+                                 Watermark="Ask anything..."
                                  FontSize="13.5"
                                  TextWrapping="Wrap"
                                  AcceptsReturn="False"
-                                 MinHeight="68"
+                                 MinHeight="{Binding IsInputExpanded, Converter={x:Static ObjectConverters.Equal}, ConverterParameter=True, FallbackValue=38}"
                                  MaxHeight="160"
-                                 Padding="18,12,18,8"
+                                 Padding="16,11,46,11"
+                                 GotFocus="OnTextBoxGotFocus"
                                  LostFocus="OnTextBoxLostFocus"
                                  KeyDown="OnTextBoxKeyDown"/>
+
+                        <!-- Collapsed Action Button (Right-aligned in collapsed mode) -->
+                        <Button Command="{Binding ToggleVoiceRecordingCommand}"
+                                Width="32" Height="32" CornerRadius="16"
+                                Background="#E4E4E7" Foreground="#18181B"
+                                Padding="0" Margin="0,0,7,0"
+                                HorizontalAlignment="Right" VerticalAlignment="Center"
+                                Cursor="Hand"
+                                IsVisible="{Binding !IsInputExpanded}"
+                                ToolTip.Tip="Voice prompt">
+                            <TextBlock Text="🎙️" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Button>
                     </Grid>
 
-                    <!-- Bottom toolbar — always visible -->
+                    <!-- Bottom toolbar — ONLY visible when expanded -->
                     <Grid Grid.Row="1"
                           ColumnDefinitions="Auto,Auto,*,Auto,Auto"
-                          Margin="12,2,10,10">
+                          Margin="12,2,10,10"
+                          IsVisible="{Binding IsInputExpanded}">
 
                         <!-- "+" attach button (left) -->
                         <Button Grid.Column="0" Click="OnAddAttachmentClick"
                                 Width="30" Height="30" CornerRadius="8"
                                 Background="Transparent" BorderThickness="0"
-                                Padding="0" Margin="0,0,4,0" Cursor="Hand" ToolTip.Tip="Attach files (max 6)">
+                                Padding="0" Margin="0,0,4,0" Cursor="Hand" ToolTip.Tip="Attach files or images (max 6)">
                             <Button.Styles>
                                 <Style Selector="Button:pointerover /template/ ContentPresenter">
-                                    <Setter Property="Background" Value="#26262B"/>
+                                     <Setter Property="Background" Value="#26262B"/>
                                 </Style>
                             </Button.Styles>
                             <TextBlock Text="+" FontSize="18" Foreground="#71717A"
                                        HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Button>
 
-                        <!-- Model selector -->
+                        <!-- Model icon button (OpenAI flower logo) -->
                         <Button Grid.Column="1" Command="{Binding ToggleModelPickerCommand}"
                                 Background="Transparent" BorderThickness="0" CornerRadius="8"
-                                Padding="6,4" Cursor="Hand"
+                                Width="30" Height="30" Padding="0" Cursor="Hand"
                                 ToolTip.Tip="{Binding SelectedModel}">
                             <Button.Styles>
                                 <Style Selector="Button:pointerover /template/ ContentPresenter">
                                     <Setter Property="Background" Value="#26262B"/>
                                 </Style>
                             </Button.Styles>
-                            <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
-                                <TextBlock Text="⚡" FontSize="11" VerticalAlignment="Center"/>
-                                <TextBlock Text="{Binding SelectedModel}" FontSize="11" Foreground="#A1A1AA" VerticalAlignment="Center"/>
-                            </StackPanel>
+                            <PathIcon Width="14" Height="14" Foreground="#71717A"
+                                      Data="M22.28 9.37a5.998 5.998 0 0 0-.52-4.94 6.07 6.07 0 0 0-6.47-2.92A6.05 6.05 0 0 0 10.74.01a6.07 6.07 0 0 0-5.78 4.22 6.02 6.02 0 0 0-3.9 2.84 6.07 6.07 0 0 0 .74 7.08 5.998 5.998 0 0 0 .52 4.94 6.07 6.07 0 0 0 6.47 2.92 6.05 6.05 0 0 0 4.55 1.5 6.07 6.07 0 0 0 5.78-4.22 6.02 6.02 0 0 0 3.9-2.84 6.07 6.07 0 0 0-.74-7.08zM12 21.05a4.57 4.57 0 0 1-2.92-1.04l.15-.08 4.85-2.8a.74.74 0 0 0 .38-.64v-6.84l2.06 1.19a.08.08 0 0 1 .04.06v5.62A4.55 4.55 0 0 1 12 21.05zM3.88 17.5a4.53 4.53 0 0 1-.55-3.05l.15.09 4.85 2.8a.74.74 0 0 0 .75 0l5.92-3.42v2.38a.08.08 0 0 1-.03.07l-4.87 2.81a4.55 4.55 0 0 1-6.22-1.68zM2.6 8.52a4.54 4.54 0 0 1 2.37-2.02v5.74a.74.74 0 0 0 .37.64l5.92 3.42-2.06 1.19a.08.08 0 0 1-.08 0l-4.87-2.81A4.55 4.55 0 0 1 2.6 8.52zM18.12 12l-5.92-3.42 2.06-1.19a.08.08 0 0 1 .08 0l4.87 2.81a4.55 4.55 0 0 1-1.09 7.42V12.64a.74.74 0 0 0-.37-.64h.37zm3.28-3.02a4.54 4.54 0 0 1-.55 3.05l-.15-.09-4.85-2.8a.74.74 0 0 0-.75 0L9.23 12.56V10.18a.08.08 0 0 1 .03-.07l4.87-2.81a4.55 4.55 0 0 1 7.27 1.68zM9.9 14.5l-2.06-1.19a.08.08 0 0 1-.04-.06V7.63a4.55 4.55 0 0 1 7.47-3.47l-.15.08-4.85 2.8a.74.74 0 0 0-.38.64v6.82h.01z"/>
                         </Button>
 
-                        <!-- Waveform during recording -->
-                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="3"
-                                    HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0"
-                                    IsVisible="{Binding IsRecording}">
-                            <Border Width="3" Height="10" Background="#A1A1AA" CornerRadius="1.5"/>
-                            <Border Width="3" Height="18" Background="#A1A1AA" CornerRadius="1.5"/>
-                            <Border Width="3" Height="8" Background="#A1A1AA" CornerRadius="1.5"/>
-                            <Border Width="3" Height="15" Background="#A1A1AA" CornerRadius="1.5"/>
-                            <Border Width="3" Height="6" Background="#A1A1AA" CornerRadius="1.5"/>
-                        </StackPanel>
+                        <!-- Middle Spacer / Waveform -->
+                        <Panel Grid.Column="2"/>
 
-                        <!-- Effort button -->
+                        <!-- Effort Button -->
                         <Button Grid.Column="3" Command="{Binding CycleEffortCommand}"
                                 Background="Transparent" BorderThickness="0" CornerRadius="8"
                                 Width="30" Height="30" Padding="0" Margin="0,0,6,0" Cursor="Hand"
@@ -225,7 +257,7 @@
                             </StackPanel>
                         </Button>
 
-                        <!-- Send/Stop/Mic circular button -->
+                        <!-- Send/Stop/Mic circular button (Airplane SVG) -->
                         <Panel Grid.Column="4" VerticalAlignment="Center">
                             <Button Command="{Binding StopCommand}"
                                     Width="32" Height="32" CornerRadius="16"
@@ -237,14 +269,14 @@
                             <Button Command="{Binding SendCommand}"
                                     Width="32" Height="32" CornerRadius="16"
                                     Background="#E4E4E7" Foreground="#18181B" Padding="0" Cursor="Hand"
-                                    IsVisible="{Binding HasTextToSend}" ToolTip.Tip="Send (Enter)">
+                                    IsVisible="{Binding HasTextToSend}" ToolTip.Tip="Send prompt (Enter)">
                                 <PathIcon Width="13" Height="13" Foreground="#18181B"
                                           Data="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
                             </Button>
                             <Button Command="{Binding ToggleVoiceRecordingCommand}"
                                     Width="32" Height="32" CornerRadius="16"
                                     Background="#E4E4E7" Foreground="#18181B" Padding="0" Cursor="Hand"
-                                    IsVisible="{Binding ShowMicButton}" ToolTip.Tip="Voice">
+                                    IsVisible="{Binding ShowMicButton}" ToolTip.Tip="Voice prompt">
                                 <TextBlock Text="🎙️" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Button>
                         </Panel>

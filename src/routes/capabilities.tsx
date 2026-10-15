@@ -1,17 +1,28 @@
-import { createFileRoute } from "@tanstack/react-router";
-import Feature from "@/components/ui/feature-24";
+import { marketingHead } from "@/lib/marketing-seo";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { motion, useReducedMotion } from "framer-motion";
+import { ArrowUpRight, FolderOpen, Terminal, Repeat2, FileDiff, Layers, Cpu } from "lucide-react";
+import { MarketingHeader, MarketingFooter, DOWNLOAD_URL } from "@/components/MarketingLayout";
 
-export const Route = createFileRoute("/capabilities")({
-  head: () => ({
-    meta: [{ title: "Capabilities — Calvras" }],
-  }),
-  component: CapabilitiesPage,
-});
+export const Route = createFileRoute("/capabilities")({ head: () => marketingHead("/capabilities", "Capabilities — Calvras", "Explore Calvras project editing, local command execution, agent workflows, and visible change review."), component: CapabilitiesPage });
 
+const capabilities = [
+  { icon: FolderOpen, title: "Work with real project files.", summary: "Read the context. Make the change.", text: "The desktop agent can read files, list directories, create new files, write content, and edit selected line ranges within a project.", details: ["Inspect existing code before changing it", "Create and update files across a project", "Keep work connected to a selected folder"] },
+  { icon: Terminal, title: "Run the commands that matter.", summary: "Use your project’s own tools.", text: "The desktop runner executes shell commands in the project directory and returns their output, exit code, and duration to the agent.", details: ["Run builds, tests, and development scripts", "Use tools installed in your environment", "Inspect errors through actual command output"] },
+  { icon: Repeat2, title: "Keep working through a task.", summary: "Act. Read the result. Continue.", text: "The agent loop receives tool results, decides what to do next, and continues until it completes, stops, reaches its step limit, or encounters a blocker.", details: ["Work through multiple file and command steps", "Use failed tool output to guide corrections", "Stop an active task when you need to"] },
+  { icon: FileDiff, title: "See what changed.", summary: "Make progress inspectable.", text: "File actions produce change information, and command actions expose their output. The activity view separates successful and failed steps so you can review the result.", details: ["Inspect additions and deletions in file changes", "Read command output and exit status", "Validate the result before deployment"] },
+  { icon: Layers, title: "Keep projects in context.", summary: "A workspace for the work ahead.", text: "Select a project, follow recent work, and describe a task with its relevant files and constraints. Context and model quality determine how well the agent can respond.", details: ["Choose the folder relevant to your task", "Return to projects and recent activity", "Give focused instructions and follow-up corrections"] },
+  { icon: Cpu, title: "Connect to external intelligence.", summary: "Local actions. Provider-powered models.", text: "Calvras integrates AI requests with services including Gemini, OpenRouter, and Hugging Face. Availability depends on configured credentials, providers, and usage limits.", details: ["Generate responses with configured model providers", "Use project context to guide requested changes", "Understand that prompts may leave your device"] },
+];
 function CapabilitiesPage() {
-  return (
-    <div className="min-h-screen bg-background text-foreground antialiased">
-      <Feature />
-    </div>
-  );
+  const reducedMotion = useReducedMotion();
+  return <div className="calvras-landing capabilities-page"><MarketingHeader /><main className="capabilities-main">
+    <motion.div className="capabilities-intro" initial={{opacity:0,y:reducedMotion ? 0 : 16}} animate={{opacity:1,y:0}} transition={{duration:reducedMotion ? 0 : .6}}>
+      <span className="landing-eyebrow">CAPABILITIES / CALVRAS</span><h1>From a clear task<br /><span>to a real change.</span></h1><p>A desktop coding agent that works with files, commands, and project context. Built to keep the process visible from the first instruction to the final check.</p>
+    </motion.div>
+    <section className="capabilities-grid" aria-label="Core capabilities">{capabilities.map((feature,i)=><motion.article key={feature.title} initial={{opacity:0,y:reducedMotion ? 0 : 18}} whileInView={{opacity:1,y:0}} viewport={{once:true,amount:.12}} transition={{duration:reducedMotion ? 0 : .5,delay:reducedMotion ? 0 : i % 2 * .08}}><div className="capability-card-top"><feature.icon size={20}/><span>0{i+1}</span></div><span className="capability-summary">{feature.summary}</span><h2>{feature.title}</h2><p>{feature.text}</p><ul>{feature.details.map(detail=><li key={detail}>{detail}</li>)}</ul></motion.article>)}</section>
+    <section className="capabilities-workflow"><div><span className="landing-eyebrow">A WORKFLOW YOU CAN FOLLOW</span><h2>Direction.<br /><span>Action. Review.</span></h2><Link to="/docs" className="landing-text-link">Read the getting-started guide <ArrowUpRight size={15}/></Link></div><ol><li><span>01</span><div><h3>Describe the outcome.</h3><p>Name the result, relevant files, and constraints. A focused task gives the agent a useful starting point.</p></div></li><li><span>02</span><div><h3>Follow the work.</h3><p>Inspect the plan, tool activity, changes, and command output. A failed step should inform the next action.</p></div></li><li><span>03</span><div><h3>Verify before you ship.</h3><p>Run the checks your project needs and review the result. Generated code still needs your judgment.</p></div></li></ol></section>
+    <section className="capabilities-context"><span className="landing-eyebrow">WHAT TO EXPECT</span><h2>The right tool, in the right environment.</h2><div><p><strong>Desktop access.</strong> Native filesystem and command execution require the desktop runtime or an appropriate local connection. Visiting the public website does not grant access to your computer.</p><p><strong>Network access.</strong> AI requests use external providers and may include prompts and selected project context. Local files do not imply that all AI processing happens locally.</p><p><strong>Feature availability.</strong> Models, limits, and capabilities vary by configuration and runtime. The pricing page describes plan tiers; paid checkout is not yet connected.</p></div><div className="capabilities-context-links"><Link to="/privacy">Read the Privacy Policy <ArrowUpRight size={14}/></Link><Link to="/pricing">Compare plans <ArrowUpRight size={14}/></Link></div></section>
+    <div className="capabilities-cta"><span>Make the next idea tangible.</span><a href={DOWNLOAD_URL} className="landing-download">Download Calvras <ArrowUpRight size={16}/></a></div>
+  </main><MarketingFooter /></div>;
 }
