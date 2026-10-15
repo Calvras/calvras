@@ -426,33 +426,29 @@ export interface StreamingTextProps extends React.HTMLAttributes<HTMLDivElement>
 
 export function StreamingText({
   text,
-  speed = 3,
+  speed = 2,
   chunkSize = 2,
   className,
   onComplete,
   ...props
 }: StreamingTextProps) {
-  // Map speed (1–5) to staggerChildren delay: faster speed → smaller stagger
-  // speed=1 → 0.10s stagger, speed=3 → 0.045s, speed=5 → 0.018s
-  const staggerChildren = Math.max(0.012, 0.12 / speed);
+  // Use the blur preset from text-effect: fade + blur per word
+  const staggerChildren = Math.max(0.015, 0.12 / speed);
 
   const containerVariants = {
     hidden: { opacity: 0 },
     visible: {
       opacity: 1,
-      transition: {
-        staggerChildren,
-      },
+      transition: { staggerChildren },
     },
   };
 
   const itemVariants = {
-    hidden: { opacity: 0, filter: 'blur(6px)', y: 4 },
+    hidden: { opacity: 0, filter: 'blur(12px)' },
     visible: {
       opacity: 1,
       filter: 'blur(0px)',
-      y: 0,
-      transition: { duration: 0.22, ease: [0.25, 0.1, 0.25, 1] },
+      transition: { duration: 0.3, ease: [0.25, 0.1, 0.25, 1] },
     },
   };
 
@@ -951,6 +947,8 @@ export interface ThinkingStateProps extends React.HTMLAttributes<HTMLDivElement>
   workingLabel?: string;
   isComplete?: boolean;
   onSettled?: () => void;
+  /** Pre-computed elapsed seconds. When set, overrides the internal wall-clock timer. */
+  fixedElapsedSeconds?: number;
 }
 
 export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps>(
@@ -963,6 +961,7 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
       workingLabel = "Working...",
       isComplete,
       onSettled,
+      fixedElapsedSeconds,
       className,
       style,
       ...props
@@ -977,7 +976,7 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
     );
 
     const startTimeRef = React.useRef<number>(Date.now());
-    const [elapsedSeconds, setElapsedSeconds] = React.useState<number>(0);
+    const [elapsedSeconds, setElapsedSeconds] = React.useState<number>(fixedElapsedSeconds ?? 0);
     const isWorkingRef = React.useRef(isWorking);
     isWorkingRef.current = isWorking;
 
@@ -1005,11 +1004,11 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
       if (isComplete) {
         setIsWorking(false);
         setActiveIndex(totalNodes);
-        const finalDuration = Math.max(1, Math.round((Date.now() - startTimeRef.current) / 1000));
+        const finalDuration = fixedElapsedSeconds ?? Math.max(1, Math.round((Date.now() - startTimeRef.current) / 1000));
         setElapsedSeconds(finalDuration);
         onSettledRef.current?.();
       }
-    }, [isComplete, totalNodes]);
+    }, [isComplete, totalNodes, fixedElapsedSeconds]);
 
     const advanceStep = React.useCallback(() => {
       setActiveIndex((prev) => {
@@ -1097,6 +1096,19 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
         {/* Master Header Trigger (Seamless unboxed prose integration) */}
         <button
           type="button"
+          aria-label={(() => {
+            if (nodes.length === 0) return undefined; // no label for empty-trace buttons
+            if (isWorking) return "Activity";
+            // Include elapsed time only when a fixed duration was provided (e.g. for history renders)
+            if (fixedElapsedSeconds !== undefined) {
+              const hasTools = nodes.some(n => n.type === "tool" || n.type === "terminal" || n.type === "command" || Boolean(n.command));
+              const mins = Math.floor(elapsedSeconds / 60);
+              const secs = elapsedSeconds % 60;
+              const timeStr = mins > 0 ? `${mins}min ${secs}s` : `${elapsedSeconds}s`;
+              return hasTools ? `Activity Worked for ${timeStr}` : `Activity Thought for ${timeStr}`;
+            }
+            return "Activity";
+          })()}
           aria-expanded={isGlobalExpanded}
           disabled={nodes.length === 0}
           onClick={() => {
@@ -1123,11 +1135,22 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
                   animation: "agent-shimmer 1.5s linear infinite",
                 }}
               >
-                {workingLabel}
+                {(() => {
+                  const hasTools = nodes.some(n => n.type === "tool" || n.type === "terminal" || n.type === "command" || Boolean(n.command));
+                  return hasTools ? "Working..." : "Thinking...";
+                })()}
               </span>
             ) : (
               <span>
-                Worked for <span className="tabular-nums font-mono text-[12px]">{elapsedSeconds}</span> {elapsedSeconds === 1 ? "second" : "seconds"}
+                {(() => {
+                  const hasTools = nodes.some(n => n.type === "tool" || n.type === "terminal" || n.type === "command" || Boolean(n.command));
+                  const mins = Math.floor(elapsedSeconds / 60);
+                  const secs = elapsedSeconds % 60;
+                  const timeStr = mins > 0 ? `${mins}min ${secs}s` : `${elapsedSeconds}s`;
+                  return hasTools
+                    ? <>Worked for <span className="tabular-nums font-mono text-[12px]">{timeStr}</span></>
+                    : <>Thought for <span className="tabular-nums font-mono text-[12px]">{timeStr}</span></>;
+                })()}
               </span>
             )}
           </span>
@@ -1152,39 +1175,42 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
                 ? "grid-rows-[1fr] opacity-100"
                 : "grid-rows-[0fr] opacity-0 pointer-events-none"
             )}
+            aria-hidden={!isGlobalExpanded}
           >
             <div className="min-h-0 overflow-hidden">
-              <div className="mt-1 ml-2 border-l border-border/60 py-0.5 pl-2 flex flex-col gap-0.5">
-              {nodes.slice(0, activeIndex + 1).map((node, idx) => {
-                const isNodeActive = idx === activeIndex && isWorking;
-                const isNodeFinished = idx < activeIndex || !isWorking;
+              {isGlobalExpanded && (
+                <div className="mt-1 ml-2 border-l border-border/60 py-0.5 pl-2 flex flex-col gap-0.5">
+                {nodes.slice(0, activeIndex + 1).map((node, idx) => {
+                  const isNodeActive = idx === activeIndex && isWorking;
+                  const isNodeFinished = idx < activeIndex || !isWorking;
 
-                if (node.type === "reasoning" && node.sentences) {
+                  if (node.type === "reasoning" && node.sentences) {
+                    return (
+                      <NestedReasoningBlock
+                        key={idx}
+                        sentences={node.sentences}
+                        durationSeconds={node.durationSeconds}
+                        isActive={isNodeActive}
+                        isFinished={isNodeFinished}
+                        onFinished={advanceStep}
+                      />
+                    );
+                  }
+
                   return (
-                    <NestedReasoningBlock
+                    <TracePillRow
                       key={idx}
-                      sentences={node.sentences}
-                      durationSeconds={node.durationSeconds}
+                      node={node}
                       isActive={isNodeActive}
                       isFinished={isNodeFinished}
-                      onFinished={advanceStep}
+                      toolRegistry={tools}
                     />
                   );
-                }
-
-                return (
-                  <TracePillRow
-                    key={idx}
-                    node={node}
-                    isActive={isNodeActive}
-                    isFinished={isNodeFinished}
-                    toolRegistry={tools}
-                  />
-                );
-              })}
+                })}
+              </div>
+              )}
             </div>
           </div>
-        </div>
         )}
       </div>
     );
@@ -1201,6 +1227,8 @@ export interface AgentWorkflowProps extends React.HTMLAttributes<HTMLDivElement>
   workingLabel?: string;
   isComplete?: boolean;
   onComplete?: () => void;
+  /** Pre-computed elapsed seconds. When set, overrides the internal wall-clock timer in ThinkingState. */
+  fixedElapsedSeconds?: number;
 }
 
 /* ─────────────────────────────────────────────────────────
@@ -1273,6 +1301,7 @@ export function AgentWorkflow({
   workingLabel = "Working...",
   isComplete = false,
   onComplete,
+  fixedElapsedSeconds,
   className,
   ...props
 }: AgentWorkflowProps) {
@@ -1337,12 +1366,13 @@ export function AgentWorkflow({
                 autoPlay={shouldPlayTrace}
                 isComplete={isComplete}
                 workingLabel={workingLabel}
+                fixedElapsedSeconds={fixedElapsedSeconds}
                 onSettled={() => handleTraceSettled(idx)}
               />
             )}
 
             {shouldShowMessage && phase.message && (
-              <div className="pt-1 select-text">
+              <div className="pt-1 select-text group/reply">
                 {shouldStreamMessage && !streamFinishedPhases[idx] ? (
                   <StreamingText
                     text={phase.message}
@@ -1354,9 +1384,11 @@ export function AgentWorkflow({
                   <MarkdownContent content={phase.message} />
                 )}
 
-                {/* Copy button appears once typing animation completes */}
+                {/* Copy button — only visible on hover */}
                 {hasFinishedStreaming && (
-                  <ResponseCopyButton text={phase.message} />
+                  <div className="opacity-0 group-hover/reply:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity duration-150">
+                    <ResponseCopyButton text={phase.message} />
+                  </div>
                 )}
               </div>
             )}

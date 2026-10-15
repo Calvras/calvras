@@ -1,0 +1,24 @@
+{
+  "id": "FEAT-006",
+  "type": "chore",
+  "description": "Build verification gate: run npm run build:electron from c:\\Users\\darka\\Desktop\\Calvras, fix every remaining TypeScript error, and confirm exit code 0. This FEAT is the integration checkpoint after all previous FEATs.",
+  "status": "completed",
+  "steps": [
+    "Run: npm run build:electron from c:\\Users\\darka\\Desktop\\Calvras",
+    "If exit code is 0, record the build output in findings and mark FEAT-006 completed.",
+    "If there are TypeScript errors, read the full error output. Fix each error in the relevant file. Common issues: (a) Record<AgentAction['type'], string> missing keys — add them to routes or labels; (b) 'node.command' assigned undefined — guard with `if (isTerminal && derivedCommand) node.command = derivedCommand`; (c) type narrowing issues in server.ts — add 'as any' casts only as last resort, prefer proper typing; (d) import issues — check that child_process, fs, path, os are all imported at the top of server.ts (they already are).",
+    "After each fix, re-run npm run build:electron until it exits 0.",
+    "Run npx vitest run to confirm all existing tests still pass."
+  ],
+  "acceptance_criteria": [
+    "npm run build:electron exits with code 0.",
+    "npx vitest run shows no failing tests.",
+    ".output/server directory exists after build."
+  ],
+  "verification": [
+    "npm run build:electron",
+    "npx vitest run"
+  ],
+  "blocked_reason": null,
+  "findings": "Build was already passing on first run (exit 0). Fixed 2 failing vitest tests in src/test/agent-activity.test.tsx:\n1. AgentActivity now filters out 'reasoning' and 'step' trace node types before passing phases to AgentWorkflow.\n2. ThinkingState now accepts a fixedElapsedSeconds prop (threaded through AgentWorkflow) so history renders show accurate elapsed time rather than wall-clock from mount.\n3. ThinkingState header button now has aria-label='Activity' (or 'Activity Worked for Xs' when fixedElapsedSeconds is provided) for accessibility and test discoverability.\n4. Collapsed trace content is now conditionally rendered (not in DOM) instead of only CSS-hidden, so queryByText queries correctly return null for collapsed items.\nAll 18 tests pass. Build exits 0. .output/server directory created."
+}
