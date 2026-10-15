@@ -32,7 +32,7 @@ public class AppUpdateService : IAppUpdateService
             {
                 return $"{asmVer.Major}.{asmVer.Minor}.{asmVer.Build}";
             }
-            return "1.0.9";
+            return "9.0.0";
         }
     }
 

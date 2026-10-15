@@ -1,6 +1,5 @@
-; Calvras Desktop Inno Setup Script
 #define MyAppName "Calvras"
-#define MyAppVersion "1.0.9"
+#define MyAppVersion "9.0.0"
 #define MyAppPublisher "Calvras"
 #define MyAppURL "https://calvras.com"
 #define MyAppExeName "Calvras.App.exe"

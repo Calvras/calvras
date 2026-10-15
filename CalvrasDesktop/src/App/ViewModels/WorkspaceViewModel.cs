@@ -103,12 +103,15 @@ public partial class WorkspaceViewModel : ViewModelBase
         };
     }
 
-    public async Task InitializeProjectAsync(ProjectModel project)
+    public async Task InitializeProjectAsync(ProjectModel project, bool clearMessages = true)
     {
         ActiveProject = project;
-        Messages.Clear();
-        ActivePlan = null;
-        IsPlanOpen = false;
+        if (clearMessages)
+        {
+            Messages.Clear();
+            ActivePlan = null;
+            IsPlanOpen = false;
+        }
 
         await _db.UpsertProjectAsync(project.Id, project.Name, project.Path, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), project.FileCount);
     }
@@ -194,7 +197,7 @@ public partial class WorkspaceViewModel : ViewModelBase
             if (ActiveProject == null)
             {
                 var proj = await _fs.CreateProjectAsync("project");
-                await InitializeProjectAsync(proj);
+                await InitializeProjectAsync(proj, clearMessages: false);
             }
 
             var outcome = await _agentRunner.RunAsync(

@@ -8,16 +8,11 @@
              Background="#121212">
 
     <Grid ColumnDefinitions="*,Auto">
-        <!-- Main Workspace Area -->
-        <DockPanel Grid.Column="0" LastChildFill="True">
-            <!-- Input docked to bottom with strict 25px top separation from timeline -->
-            <Border DockPanel.Dock="Bottom" Background="#121212" Margin="0,25,0,0" Padding="20,0,20,18">
-                <c:PromptInput DataContext="{Binding}" HorizontalAlignment="Center"/>
-            </Border>
-
+        <!-- Main Workspace Area with strict 25px vertical clearance between messages and input -->
+        <Grid Grid.Column="0" RowDefinitions="*,Auto">
             <!-- Scrollable Timeline fills space above, guaranteed 25px above the input -->
-            <ScrollViewer Name="TimelineScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" Padding="20,20,20,0">
-                <StackPanel MaxWidth="680" HorizontalAlignment="Stretch">
+            <ScrollViewer Grid.Row="0" Name="TimelineScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" Padding="20,20,20,0" Margin="0,0,0,25">
+                <StackPanel MaxWidth="680" HorizontalAlignment="Stretch" Margin="0,0,0,10">
                     <!-- Welcome state (calvras.com: logo + text centered, no starter pills) -->
                     <StackPanel IsVisible="{Binding !Messages.Count}" Margin="0,180,0,0" HorizontalAlignment="Center">
                         <Image Source="/Assets/calvras-logo.png" Width="56" Height="56"
@@ -54,18 +49,9 @@
 
                                     <!-- Assistant Message (ONLY visible when IsAssistant, left-aligned) -->
                                     <StackPanel IsVisible="{Binding IsAssistant}" HorizontalAlignment="Left" MaxWidth="680" Margin="0,4,0,8" Spacing="8">
-                                        <!-- Thinking state while waiting / running -->
-                                        <Border IsVisible="{Binding !Done}" Background="Transparent" Margin="0,2,0,4">
-                                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                                <c:PixelDotsLoaderControl VerticalAlignment="Center"/>
-                                                <TextBlock Text="Thinking…" Foreground="#A1A1AA" FontSize="13.5" FontWeight="Medium" VerticalAlignment="Center"/>
-                                            </StackPanel>
-                                        </Border>
-
-                                        <!-- Tool executions and trace view -->
+                                        <!-- Unified Work Trace with Master Header (ported from ai-agent-response.tsx) -->
                                         <c:AgentActivityControl
                                             Phases="{Binding Phases}"
-                                            IsVisible="{Binding Phases.Count}"
                                             IsWorking="{Binding !Done}"
                                             ElapsedSeconds="{Binding ElapsedSeconds}"/>
 
@@ -129,7 +115,12 @@
                     </ItemsControl>
                 </StackPanel>
             </ScrollViewer>
-        </DockPanel>
+
+            <!-- Input seated in bottom row, strictly separated from messages by 25px -->
+            <Border Grid.Row="1" Background="#121212" Padding="20,0,20,18" HorizontalAlignment="Stretch">
+                <c:PromptInput DataContext="{Binding}" HorizontalAlignment="Center"/>
+            </Border>
+        </Grid>
 
         <!-- Implementation Plan Side Drawer (Only opens on explicit toggle) -->
         <Border Grid.Column="1" Width="360" Background="#141416" BorderBrush="#1E1E22" BorderThickness="1,0,0,0" IsVisible="{Binding IsPlanOpen}">

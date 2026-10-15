@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using Avalonia;
 using Avalonia.Controls;
@@ -51,22 +52,40 @@ public partial class AgentActivityControl : UserControl
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
+
         if (change.Property == PhasesProperty)
         {
             PhasesList.ItemsSource = change.GetNewValue<IEnumerable?>();
+            UpdateVisibility();
         }
         else if (change.Property == IsWorkingProperty)
         {
             var working = change.GetNewValue<bool>();
             if (!_userToggled)
             {
-                // Auto-expand while working, collapse when done
+                // Auto-expand while working, auto-collapse when finished
                 SetCollapsed(!working);
+            }
+            UpdateVisibility();
+        }
+        else if (change.Property == ElapsedSecondsProperty)
+        {
+            var sec = change.GetNewValue<double>();
+            if (ElapsedText != null)
+            {
+                ElapsedText.Text = sec < 1.0 ? $"{sec:F1}s" : $"{(int)Math.Round(sec)}s";
             }
         }
     }
 
-    private void OnCollapseToggle(object? sender, RoutedEventArgs e)
+    private void UpdateVisibility()
+    {
+        // Visible if actively working OR if we have phases to inspect
+        bool hasPhases = PhasesList.ItemsSource is ICollection col && col.Count > 0;
+        this.IsVisible = IsWorking || hasPhases;
+    }
+
+    private void OnMasterHeaderPressed(object? sender, PointerPressedEventArgs e)
     {
         _userToggled = true;
         SetCollapsed(!_collapsed);
@@ -76,23 +95,19 @@ public partial class AgentActivityControl : UserControl
     {
         _collapsed = collapsed;
         if (TraceBody != null) TraceBody.IsVisible = !collapsed;
-        if (ChevronText != null) ChevronText.Text = collapsed ? "▶" : "▼";
+        if (MasterChevron != null) MasterChevron.Text = collapsed ? "▸" : "▾";
     }
 
     private void OnPillPressed(object? sender, PointerPressedEventArgs e)
     {
-        if (sender is Border pillBorder)
+        if (sender is Border pillBorder && pillBorder.Parent is StackPanel parent)
         {
-            var parent = pillBorder.Parent as StackPanel;
-            if (parent != null)
+            foreach (var child in parent.Children)
             {
-                foreach (var child in parent.Children)
+                if (child is Border detail && detail.Name == "DetailPanel")
                 {
-                    if (child is Border detail && detail.Name == "DetailPanel")
-                    {
-                        detail.IsVisible = !detail.IsVisible;
-                        break;
-                    }
+                    detail.IsVisible = !detail.IsVisible;
+                    break;
                 }
             }
         }

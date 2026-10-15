@@ -33,7 +33,7 @@
                     <Menu Background="Transparent" VerticalAlignment="Center">
                         <!-- Calvras Menu -->
                         <MenuItem Header="Calvras" Foreground="#D4D4D8" FontSize="12">
-                            <MenuItem Header="Version 1.0.4" IsEnabled="False"/>
+                            <MenuItem Header="Version 9.0.0" IsEnabled="False"/>
                             <Separator/>
                             <MenuItem Header="Check for Updates..." Command="{Binding ApplyUpdateCommand}"/>
                             <MenuItem Header="Documentation &amp; Community" Click="OnOpenWebsiteClick"/>
@@ -334,7 +334,7 @@
                                         <TextBlock Text="About &amp; Updates" FontSize="13" FontWeight="SemiBold" Foreground="#E4E4E7"/>
                                         <Grid ColumnDefinitions="*,Auto">
                                             <StackPanel Grid.Column="0">
-                                                <TextBlock Text="Calvras Desktop v1.0.9" FontSize="12" Foreground="#D4D4D8"/>
+                                                <TextBlock Text="Calvras Desktop v9.0.0" FontSize="12" Foreground="#D4D4D8"/>
                                                 <TextBlock Text="Connected to Calvras Cloud AI" FontSize="10.5" Foreground="#71717A"/>
                                             </StackPanel>
                                             <Button Grid.Column="1" Command="{Binding ApplyUpdateCommand}"

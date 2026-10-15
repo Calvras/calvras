@@ -1,37 +1,57 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:m="using:Calvras.Core.Models"
-             x:Class="Calvras.App.Controls.FileDiffControl">
-    <Border Background="#0D1117" BorderBrush="#30363D" BorderThickness="1" CornerRadius="6" Margin="0,4,0,4">
+             x:Class="Calvras.App.Controls.FileDiffControl"
+             x:DataType="m:TraceNodeModel">
+
+    <Border Background="#0C0C0E" BorderBrush="#222226" BorderThickness="1" CornerRadius="8" Margin="0,3,0,3" ClipToBounds="True">
         <Grid RowDefinitions="Auto,Auto">
-            <!-- Diff Header -->
-            <Border Grid.Row="0" Background="#161B22" BorderBrush="#30363D" BorderThickness="0,0,0,1" Padding="8,5" CornerRadius="6,6,0,0">
-                <Grid ColumnDefinitions="Auto,*,Auto">
-                    <TextBlock Grid.Column="0" Text="&lt;/&gt;" Foreground="#F59E0B" FontWeight="Bold" Margin="0,0,6,0" VerticalAlignment="Center"/>
-                    <TextBlock Grid.Column="1" Text="{Binding DiffFile}" Foreground="#F0F6FC" FontFamily="Consolas, Menlo, Monospace" FontSize="11" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
-                    
-                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                        <TextBlock Text="{Binding Add, StringFormat='+{0}'}" Foreground="#3FB950" FontSize="11" FontWeight="Bold" IsVisible="{Binding Add, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-                        <TextBlock Text="{Binding Del, StringFormat='−{0}'}" Foreground="#F85149" FontSize="11" FontWeight="Bold" IsVisible="{Binding Del, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+            <!-- Diff Header Bar -->
+            <Border Grid.Row="0" Background="#141417" BorderBrush="#222226" BorderThickness="0,0,0,1" Padding="10,6">
+                <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                    <!-- Code File Icon -->
+                    <PathIcon Grid.Column="0" Width="13" Height="13" Foreground="#F59E0B"
+                              Data="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm4 18H6V4h7v5h5v11z"
+                              VerticalAlignment="Center" Margin="0,0,8,0"/>
+
+                    <!-- File Path -->
+                    <TextBlock Grid.Column="1" Text="{Binding DiffFile}" Foreground="#F4F4F5"
+                               FontFamily="Consolas, Monaco, Monospace" FontSize="11" FontWeight="Medium"
+                               TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+
+                    <!-- +Add / -Del counters -->
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Margin="10,0,8,0">
+                        <TextBlock Text="{Binding Add, StringFormat='+{0}'}" Foreground="#10B981"
+                                   FontFamily="Consolas, Monaco, Monospace" FontSize="11" FontWeight="SemiBold"
+                                   IsVisible="{Binding Add, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                        <TextBlock Text="{Binding Del, StringFormat='−{0}'}" Foreground="#F43F5E"
+                                   FontFamily="Consolas, Monaco, Monospace" FontSize="11" FontWeight="SemiBold"
+                                   IsVisible="{Binding Del, Converter={x:Static ObjectConverters.IsNotNull}}"/>
                     </StackPanel>
+
+                    <!-- Copy button -->
+                    <Button Grid.Column="3" Name="CopyDiffButton" Click="OnCopyDiffClick"
+                            Background="Transparent" BorderThickness="0" Padding="4,2" CornerRadius="4" Cursor="Hand"
+                            ToolTip.Tip="Copy diff to clipboard">
+                        <Button.Styles>
+                            <Style Selector="Button:pointerover /template/ ContentPresenter">
+                                <Setter Property="Background" Value="#222226"/>
+                            </Style>
+                        </Button.Styles>
+                        <Panel>
+                            <PathIcon Name="CopyDiffIcon" Width="12" Height="12" Foreground="#71717A"
+                                      Data="M4,2 C2.8954305,2 2,2.8954305 2,4 L2,14 C2,15.1045695 2.8954305,16 4,16 L12,16 C13.1045695,16 14,15.1045695 14,14 L14,4 C14,2.8954305 13.1045695,2 12,2 L4,2 Z M4,3 L12,3 C12.5522847,3 13,3.44771525 13,4 L13,14 C13,14.5522847 12.5522847,15 12,15 L4,15 C3.44771525,15 3,14.5522847 3,14 L3,4 C3,3.44771525 3.44771525,3 4,3 Z"/>
+                            <TextBlock Name="CopiedDiffIcon" Text="✓" FontSize="11" FontWeight="Bold" Foreground="#10B981" IsVisible="False"/>
+                        </Panel>
+                    </Button>
                 </Grid>
             </Border>
 
-            <!-- Diff Content Lines -->
-            <Border Grid.Row="1" Padding="0,4" MaxHeight="220" IsVisible="{Binding DiffRows, Converter={x:Static ObjectConverters.IsNotNull}}">
+            <!-- Code Gutter & Diff Lines -->
+            <Border Grid.Row="1" Padding="0,4" MaxHeight="260"
+                    IsVisible="{Binding DiffRows, Converter={x:Static ObjectConverters.IsNotNull}}">
                 <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
-                    <ItemsControl ItemsSource="{Binding DiffRows}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate x:DataType="m:DiffRowModel">
-                                <Grid ColumnDefinitions="32,32,20,*" Margin="0,1">
-                                    <TextBlock Grid.Column="0" Text="{Binding Old}" Foreground="#6E7681" FontSize="10" TextAlignment="Right" Margin="0,0,6,0"/>
-                                    <TextBlock Grid.Column="1" Text="{Binding Cur}" Foreground="#6E7681" FontSize="10" TextAlignment="Right" Margin="0,0,6,0"/>
-                                    <TextBlock Grid.Column="2" Text="{Binding Type}" Foreground="#8B949E" FontSize="10" FontWeight="Bold" TextAlignment="Center"/>
-                                    <SelectableTextBlock Grid.Column="3" Text="{Binding Text}" FontFamily="Consolas, Menlo, Monospace" FontSize="11" LineHeight="16" Foreground="#C9D1D9"/>
-                                </Grid>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                    <StackPanel Name="DiffRowsPanel" Spacing="0"/>
                 </ScrollViewer>
             </Border>
         </Grid>
