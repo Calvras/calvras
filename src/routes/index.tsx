@@ -724,6 +724,9 @@ IMPORTANT RULES:
             addProject({ name: data.name, path: data.projectPath });
           }
           const feedback: ToolFeedback[] = [];
+          const workingPhase: AgentPhase = { trace: [] };
+          phases.push(workingPhase);
+          publish();
           const routes: Record<AgentAction["type"], string> = {
             // File system — served under /api/fs/...
             create_file: "fs/create", write_file: "fs/write-file", read_file: "fs/read-file", list_dir: "fs/list-dir", run_command: "fs/command",
@@ -753,8 +756,7 @@ IMPORTANT RULES:
             controller.signal.throwIfAborted();
             const isTerminal = action.type === "run_command" || action.type.startsWith("git_") || action.type.startsWith("run_") || action.type === "install_deps";
             const node: TraceNode = { id: crypto.randomUUID(), type: isTerminal ? "terminal" : "tool", primary: labels[action.type], secondary: action.command || action.path || action.from || action.url || ".", status: "running", ...(isTerminal ? { command: action.command ?? action.message ?? action.branch ?? action.url ?? action.type } : {}) };
-            const phase: AgentPhase = { trace: [node] };
-            phases.push(phase);
+            workingPhase.trace.push(node);
             publish();
             const started = Date.now();
             try {

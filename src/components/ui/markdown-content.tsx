@@ -271,7 +271,8 @@ function renderInline(text: string): React.ReactNode {
   // 2. *italic* or _italic_
   // 3. `inline code`
   // 4. [label](url)
-  const pattern = /(\*\*[^*]+\*\*|__[^_]+__|`[^`]+`|\[[^\]]+\]\([^)]+\)|\*[^*]+\*|_[^_]+_)/;
+  // 5. bare URLs (http/https)
+  const pattern = /(\*\*[^*]+\*\*|__[^_]+__|`[^`]+`|\[[^\]]+\]\([^)]+\)|https?:\/\/[^\s)>\]"']+|localhost:\d+[^\s)>\]"']*|\*[^*]+\*|_[^_]+_)/;
 
   while (remaining) {
     const match = remaining.match(pattern);
@@ -304,24 +305,41 @@ function renderInline(text: string): React.ReactNode {
         </code>
       );
     }
-    // Link ([label](url))
+    // Link ([label](url)) or bare URL
     else if (matchedStr.startsWith("[") && matchedStr.includes("](") && matchedStr.endsWith(")")) {
       const linkMatch = matchedStr.match(/^\[(.*?)\]\((.*?)\)$/);
       if (linkMatch) {
+        const label = linkMatch[1];
+        const url = linkMatch[2];
         tokens.push(
           <a
             key={keyIdx++}
-            href={linkMatch[2]}
+            href={url}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-primary hover:underline font-medium underline-offset-3 inline-flex items-center gap-0.5"
+            className="text-muted-foreground/80 underline underline-offset-3 decoration-muted-foreground/40 hover:text-foreground hover:decoration-foreground/60 transition-colors break-all font-normal"
           >
-            {linkMatch[1]}
+            {label}
           </a>
         );
       } else {
         tokens.push(matchedStr);
       }
+    }
+    // Bare URL (http/https or bare localhost:PORT)
+    else if (matchedStr.startsWith("http://") || matchedStr.startsWith("https://") || matchedStr.startsWith("localhost:")) {
+      const href = matchedStr.startsWith("localhost:") ? `http://${matchedStr}` : matchedStr;
+      tokens.push(
+        <a
+          key={keyIdx++}
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-muted-foreground/80 underline underline-offset-3 decoration-muted-foreground/40 hover:text-foreground hover:decoration-foreground/60 transition-colors break-all font-normal"
+        >
+          {matchedStr}
+        </a>
+      );
     }
     // Italic (*...* or _..._)
     else if ((matchedStr.startsWith("*") && matchedStr.endsWith("*")) || (matchedStr.startsWith("_") && matchedStr.endsWith("_"))) {
