@@ -96,12 +96,22 @@ public class AgentRunner : IAgentRunner
                 if (reply.Status == "blocked")
                     return new AgentRunOutcome("blocked", reply.Message, null, activePlan);
 
-                var sb = new System.Text.StringBuilder();
-                await _apiClient.StreamAgentInferenceAsync(
-                    fullPrompt, projectSnapshot,
-                    chunk => { sb.Append(chunk); onToken(chunk); },
-                    cancellationToken);
-                return new AgentRunOutcome("finished", sb.ToString(), null, activePlan);
+                // Stream reply.Message token by token — no second API call needed.
+                // The model already returned the conversational reply in the message field.
+                var message = reply.Message ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(message))
+                {
+                    // Simulate natural streaming: emit in small chunks so the UI types it in
+                    int chunkSize = 4;
+                    for (int i = 0; i < message.Length; i += chunkSize)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        var chunk = message.Substring(i, Math.Min(chunkSize, message.Length - i));
+                        onToken(chunk);
+                        await Task.Delay(12, cancellationToken);
+                    }
+                }
+                return new AgentRunOutcome("finished", message, null, activePlan);
             }
 
             // Create phase with initial running trace nodes
