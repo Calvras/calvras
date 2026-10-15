@@ -1,18 +1,16 @@
 'use strict';
 
 // Electron Main Process — Calvras Desktop
-// Spawns the Nitro node-server, opens a frameless BrowserWindow.
+// Uses utilityProcess to spawn the Nitro server (works in packaged app).
 
 const {
   app, BrowserWindow, shell, dialog, ipcMain, Tray, Menu,
-  globalShortcut, nativeImage, screen, safeStorage,
+  globalShortcut, nativeImage, screen, safeStorage, utilityProcess,
 } = require('electron');
-const { spawn, execSync } = require('child_process');
 const path = require('path');
 const http = require('http');
 const net  = require('net');
 const fs   = require('fs');
-const os   = require('os');
 
 // ─── Single-instance lock ─────────────────────────────────────────────────────
 if (!app.requestSingleInstanceLock()) {
@@ -28,18 +26,15 @@ const ROOT   = IS_DEV
 const SERVER_ENTRY = IS_DEV
   ? path.join(ROOT, '.output', 'server', 'index.mjs')
   : path.join(ROOT, 'server', 'index.mjs');
-const PUBLIC_DIR = IS_DEV
-  ? path.join(ROOT, '.output', 'public')
-  : path.join(ROOT, 'public');
 
 const BOUNDS_FILE = path.join(app.getPath('userData'), 'window-bounds.json');
 const KEY_FILE    = path.join(app.getPath('userData'), 'secure.bin');
 
 // ─── State ───────────────────────────────────────────────────────────────────
-let mainWindow   = null;
-let tray         = null;
+let mainWindow    = null;
+let tray          = null;
 let serverProcess = null;
-let serverPort   = 3344;
+let serverPort    = 3344;
 
 // ─── Free-port finder ────────────────────────────────────────────────────────
 function findFreePort(preferred = 3344) {
@@ -61,11 +56,10 @@ function findFreePort(preferred = 3344) {
 }
 
 // ─── Server health poll ───────────────────────────────────────────────────────
-function waitForServer(port, retries = 60, delayMs = 500) {
+function waitForServer(port, retries = 80, delayMs = 500) {
   return new Promise((resolve, reject) => {
     const attempt = (remaining) => {
       const req = http.get(`http://127.0.0.1:${port}`, (res) => {
-        // Any non-5xx response means the server is alive
         if (res.statusCode < 500) {
           resolve();
         } else {
@@ -84,32 +78,31 @@ function waitForServer(port, retries = 60, delayMs = 500) {
   });
 }
 
-// ─── Start Nitro server ───────────────────────────────────────────────────────
+// ─── Start Nitro server via utilityProcess ────────────────────────────────────
+// utilityProcess runs the Electron Node.js runtime — works correctly in packaged
+// apps where process.execPath is the app .exe, not a standalone node binary.
 function startServer(port) {
   if (!fs.existsSync(SERVER_ENTRY)) {
-    throw new Error(`Server entry not found: ${SERVER_ENTRY}\nRun "npm run build:electron" first.`);
+    throw new Error(`Server entry not found: ${SERVER_ENTRY}`);
   }
 
-  serverProcess = spawn(process.execPath, [SERVER_ENTRY], {
+  serverProcess = utilityProcess.fork(SERVER_ENTRY, [], {
     env: {
       ...process.env,
-      PORT: String(port),
-      HOST: '127.0.0.1',
-      NODE_ENV: 'production',
-      NITRO_PRESET: 'node-server',
+      PORT:          String(port),
+      HOST:          '127.0.0.1',
+      NODE_ENV:      'production',
+      NITRO_PRESET:  'node-server',
     },
     stdio: 'pipe',
-    windowsHide: true,
   });
 
   serverProcess.stdout?.on('data', (d) => console.log('[nitro]', d.toString().trim()));
   serverProcess.stderr?.on('data', (d) => console.error('[nitro]', d.toString().trim()));
 
-  serverProcess.on('exit', (code, signal) => {
-    console.error(`[nitro] Server exited (code=${code}, signal=${signal})`);
-    if (mainWindow && !app.isQuitting) {
-      restartServer();
-    }
+  serverProcess.on('exit', (code) => {
+    console.error(`[nitro] exited (code=${code})`);
+    if (mainWindow && !app.isQuitting) restartServer();
   });
 }
 
@@ -124,7 +117,8 @@ async function restartServer() {
     if (mainWindow) {
       mainWindow.loadURL('about:blank');
       mainWindow.webContents.executeJavaScript(
-        `document.body.style.cssText="background:#0d0d0d;color:#e0e0e0;font:15px/1.6 system-ui,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0";document.body.innerHTML='<div style="text-align:center"><h1>Server error</h1><p>${String(e.message).replace(/'/g, "\\'")} </p><button onclick="location.reload()" style="margin-top:12px;padding:8px 20px;border-radius:8px;border:0;background:#e0e0e0;cursor:pointer">Retry</button></div>'`
+        `document.body.style.cssText="background:#0d0d0d;color:#e0e0e0;font:15px/1.6 system-ui,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0";` +
+        `document.body.innerHTML='<div style="text-align:center"><h2>Server error</h2><p>${String(e.message).replace(/'/g, "\\'")} </p><button onclick="location.reload()" style="margin-top:12px;padding:8px 20px;border-radius:8px;border:0;background:#e0e0e0;cursor:pointer">Retry</button></div>'`
       ).catch(() => {});
     }
   }
@@ -158,24 +152,24 @@ function saveBounds(win) {
 function createMainWindow(port) {
   const savedBounds = loadBounds();
   const windowOptions = {
-    width: Math.max(savedBounds?.width ?? 1280, 980),
-    height: Math.max(savedBounds?.height ?? 820, 620),
+    width:    Math.max(savedBounds?.width  ?? 1280, 980),
+    height:   Math.max(savedBounds?.height ?? 820,  620),
     x: savedBounds?.x,
     y: savedBounds?.y,
-    minWidth: 980,
+    minWidth:  980,
     minHeight: 620,
-    frame: false,           // frameless — custom title bar drag region in renderer
+    frame:         false,
     titleBarStyle: 'hidden',
     backgroundColor: '#0d0d0d',
     show: false,
     icon: path.join(ROOT, 'public', 'calvras-logo.png'),
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload:         path.join(__dirname, 'preload.js'),
       contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      devTools: IS_DEV,
-      webSecurity: true,
+      nodeIntegration:  false,
+      sandbox:          true,
+      devTools:         IS_DEV,
+      webSecurity:      true,
       allowRunningInsecureContent: false,
     },
   };
@@ -183,22 +177,18 @@ function createMainWindow(port) {
   mainWindow = new BrowserWindow(windowOptions);
   mainWindow.loadURL(`http://127.0.0.1:${port}/app`);
 
-  // ── Show when ready ───────────────────────────────────────────────────────
   mainWindow.once('ready-to-show', () => {
-    
     if (savedBounds?.maximized) mainWindow.maximize();
     mainWindow.show();
     mainWindow.focus();
   });
 
-  // ── Persist bounds ────────────────────────────────────────────────────────
   mainWindow.on('close', () => {
-    const b = mainWindow.getBounds();
-    saveBounds({ ...{ ...b }, maximized: mainWindow.isMaximized() });
+    saveBounds({ ...mainWindow.getBounds(), maximized: mainWindow.isMaximized() });
   });
   mainWindow.on('closed', () => { mainWindow = null; });
 
-  // ── Block external navigation — open in OS browser ───────────────────────
+  // Internal links stay in-app; external ones open in browser
   mainWindow.webContents.on('will-navigate', (event, url) => {
     if (!url.startsWith(`http://127.0.0.1:${port}`)) {
       event.preventDefault();
@@ -211,7 +201,7 @@ function createMainWindow(port) {
     return { action: 'deny' };
   });
 
-  // ── Content Security Policy ───────────────────────────────────────────────
+  // Content Security Policy
   mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {
@@ -222,7 +212,7 @@ function createMainWindow(port) {
           `style-src 'self' 'unsafe-inline';` +
           `img-src 'self' data: blob: https: http://127.0.0.1:${port};` +
           `connect-src 'self' http://127.0.0.1:${port} https:;` +
-          `font-src 'self' data:;`
+          `font-src 'self' data:;`,
         ],
       },
     });
@@ -249,13 +239,7 @@ function createTray() {
       },
     },
     { type: 'separator' },
-    {
-      label: 'Quit',
-      click: () => {
-        app.isQuitting = true;
-        app.quit();
-      },
-    },
+    { label: 'Quit', click: () => { app.isQuitting = true; app.quit(); } },
   ]));
 
   tray.on('double-click', () => {
@@ -263,22 +247,15 @@ function createTray() {
   });
 }
 
-// ─── Application menu ─────────────────────────────────────────────────────────
-function buildAppMenu() {
-  // Remove the native menu bar entirely — the app is frameless with custom chrome
-  Menu.setApplicationMenu(null);
-}
-
-// ─── IPC: Window controls (title bar buttons in renderer) ─────────────────────
+// ─── IPC: Window controls ─────────────────────────────────────────────────────
 ipcMain.on('window-minimize', () => mainWindow?.minimize());
 ipcMain.on('window-maximize', () => {
   if (!mainWindow) return;
-  if (mainWindow.isMaximized()) mainWindow.unmaximize();
-  else mainWindow.maximize();
+  mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize();
 });
 ipcMain.on('window-close', () => mainWindow?.close());
 
-// ─── IPC: Secure storage (API keys via OS credential store) ──────────────────
+// ─── IPC: Secure storage ──────────────────────────────────────────────────────
 ipcMain.handle('safe-get', async (_e, key) => {
   try {
     if (!fs.existsSync(KEY_FILE)) return null;
@@ -304,7 +281,7 @@ ipcMain.handle('safe-set', async (_e, key, value) => {
   } catch { return false; }
 });
 
-// ─── IPC: Open project folder dialog ─────────────────────────────────────────
+// ─── IPC: Native folder picker ────────────────────────────────────────────────
 ipcMain.handle('pick-folder', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openDirectory'],
@@ -313,27 +290,23 @@ ipcMain.handle('pick-folder', async () => {
   return result.canceled ? null : result.filePaths[0];
 });
 
-// ─── IPC: Get server URL ──────────────────────────────────────────────────────
+// ─── IPC: Misc ────────────────────────────────────────────────────────────────
 ipcMain.handle('get-server-url', () => `http://127.0.0.1:${serverPort}`);
-
-// ─── IPC: Is maximized ────────────────────────────────────────────────────────
-ipcMain.handle('is-maximized', () => mainWindow?.isMaximized() ?? false);
+ipcMain.handle('is-maximized',   () => mainWindow?.isMaximized() ?? false);
 
 // ─── App lifecycle ────────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
-  buildAppMenu();
+  // Frameless — no native menu bar
+  Menu.setApplicationMenu(null);
 
-  // Find free port & start server
   try {
     serverPort = await findFreePort(3344);
     startServer(serverPort);
-    await waitForServer(serverPort, 60, 500);
+    await waitForServer(serverPort, 80, 500);
   } catch (err) {
-    
     dialog.showErrorBox(
       'Calvras — Server Error',
-      'The local server failed to start.\n\n' + err.message +
-      '\n\nMake sure you have run "npm run build:electron" first.'
+      'The local server failed to start.\n\n' + err.message
     );
     app.quit();
     return;
@@ -342,17 +315,11 @@ app.whenReady().then(async () => {
   createTray();
   createMainWindow(serverPort);
 
-  // ── Global shortcuts ───────────────────────────────────────────────────────
+  // Global shortcuts
   globalShortcut.register('CommandOrControl+N', () => {
-    if (mainWindow) {
-      mainWindow.webContents.executeJavaScript(
-        `window.__calvrasNewChat && window.__calvrasNewChat()`
-      ).catch(() => {});
-    }
-  });
-
-  globalShortcut.register('CommandOrControl+O', () => {
-    ipcMain.emit('pick-folder-shortcut');
+    mainWindow?.webContents.executeJavaScript(
+      `window.__calvrasNewChat && window.__calvrasNewChat()`
+    ).catch(() => {});
   });
 
   app.on('activate', () => {
@@ -361,7 +328,6 @@ app.whenReady().then(async () => {
   });
 });
 
-// ── Second instance: focus existing window ────────────────────────────────────
 app.on('second-instance', () => {
   if (mainWindow) { mainWindow.show(); mainWindow.focus(); }
   else createMainWindow(serverPort);
@@ -378,14 +344,14 @@ app.on('before-quit', () => {
   app.isQuitting = true;
   globalShortcut.unregisterAll();
   if (serverProcess) {
-    try { serverProcess.kill('SIGTERM'); } catch {}
+    try { serverProcess.kill(); } catch {}
     serverProcess = null;
   }
 });
 
 app.on('will-quit', () => {
   if (serverProcess) {
-    try { serverProcess.kill('SIGTERM'); } catch {}
+    try { serverProcess.kill(); } catch {}
     serverProcess = null;
   }
 });
