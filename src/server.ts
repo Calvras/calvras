@@ -757,6 +757,619 @@ async function handleApi(request: Request): Promise<Response | null> {
     }
   }
 
+  // ── NEW FS ROUTES ─────────────────────────────────────────────────────────
+
+  // 12. POST /api/fs/rename
+  if (url.pathname === "/api/fs/rename" && request.method === "POST") {
+    try {
+      const { projectPath, from, to } = (await request.json().catch(() => ({}))) as {
+        projectPath: string;
+        from: string;
+        to: string;
+      };
+      const absFrom = safeProjectPath(projectPath, from);
+      const absTo = safeProjectPath(projectPath, to);
+      if (!fs.existsSync(absFrom)) throw new Error("Source path not found: " + from);
+      fs.mkdirSync(path.dirname(absTo), { recursive: true });
+      fs.renameSync(absFrom, absTo);
+      return new Response(JSON.stringify({ ok: true, from: absFrom, to: absTo }), {
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    } catch (e: any) {
+      return new Response(JSON.stringify({ ok: false, error: e.message }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    }
+  }
+
+  // 13. POST /api/fs/delete
+  if (url.pathname === "/api/fs/delete" && request.method === "POST") {
+    try {
+      const { projectPath, path: relPath } = (await request.json().catch(() => ({}))) as {
+        projectPath: string;
+        path: string;
+      };
+      const abs = safeProjectPath(projectPath, relPath);
+      if (!fs.existsSync(abs)) throw new Error("Path not found: " + relPath);
+      fs.rmSync(abs, { recursive: true, force: true });
+      return new Response(JSON.stringify({ ok: true, path: abs }), {
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    } catch (e: any) {
+      return new Response(JSON.stringify({ ok: false, error: e.message }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    }
+  }
+
+  // 14. POST /api/fs/copy
+  if (url.pathname === "/api/fs/copy" && request.method === "POST") {
+    try {
+      const { projectPath, from, to } = (await request.json().catch(() => ({}))) as {
+        projectPath: string;
+        from: string;
+        to: string;
+      };
+      const absFrom = safeProjectPath(projectPath, from);
+      const absTo = safeProjectPath(projectPath, to);
+      if (!fs.existsSync(absFrom)) throw new Error("Source path not found: " + from);
+      fs.mkdirSync(path.dirname(absTo), { recursive: true });
+      fs.copyFileSync(absFrom, absTo);
+      return new Response(JSON.stringify({ ok: true, from: absFrom, to: absTo }), {
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    } catch (e: any) {
+      return new Response(JSON.stringify({ ok: false, error: e.message }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    }
+  }
+
+  // 15. POST /api/fs/stat
+  if (url.pathname === "/api/fs/stat" && request.method === "POST") {
+    try {
+      const { projectPath, path: relPath } = (await request.json().catch(() => ({}))) as {
+        projectPath: string;
+        path: string;
+      };
+      const abs = safeProjectPath(projectPath, relPath);
+      if (!fs.existsSync(abs)) throw new Error("Path not found: " + relPath);
+      const stat = fs.statSync(abs);
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          path: abs,
+          size: stat.size,
+          mtime: stat.mtime.toISOString(),
+          isDir: stat.isDirectory(),
+          isFile: stat.isFile(),
+        }),
+        { headers: { "Content-Type": "application/json", ...cors } }
+      );
+    } catch (e: any) {
+      return new Response(JSON.stringify({ ok: false, error: e.message }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    }
+  }
+
+  // 16. POST /api/fs/search (search file contents via regex, max 200 results)
+  if (url.pathname === "/api/fs/search" && request.method === "POST") {
+    try {
+      const { projectPath, pattern, flags } = (await request.json().catch(() => ({}))) as {
+        projectPath: string;
+        pattern: string;
+        flags?: string;
+      };
+      if (!pattern) throw new Error("pattern is required");
+      const regex = new RegExp(pattern, flags ?? "i");
+      const SKIP = new Set(["node_modules", ".git", ".output", "dist"]);
+      const results: { file: string; line: number; text: string }[] = [];
+
+      function searchWalk(dir: string, relDir: string) {
+        if (results.length >= 200) return;
+        for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+          if (results.length >= 200) return;
+          if (SKIP.has(ent.name)) continue;
+          const full = path.join(dir, ent.name);
+          const rel = relDir ? `${relDir}/${ent.name}` : ent.name;
+          if (ent.isDirectory()) {
+            searchWalk(full, rel);
+          } else if (ent.isFile()) {
+            try {
+              const lines = fs.readFileSync(full, "utf8").split("\n");
+              lines.forEach((text, idx) => {
+                if (results.length < 200 && regex.test(text)) {
+                  results.push({ file: rel, line: idx + 1, text: text.trimEnd() });
+                }
+              });
+            } catch { /* skip binary/unreadable */ }
+          }
+        }
+      }
+
+      searchWalk(path.resolve(projectPath), "");
+      return new Response(JSON.stringify({ ok: true, results, count: results.length }), {
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    } catch (e: any) {
+      return new Response(JSON.stringify({ ok: false, error: e.message }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    }
+  }
+
+  // 17. POST /api/fs/find-files (find files by filename substring, max 100)
+  if (url.pathname === "/api/fs/find-files" && request.method === "POST") {
+    try {
+      const { projectPath, query } = (await request.json().catch(() => ({}))) as {
+        projectPath: string;
+        query: string;
+      };
+      if (!query) throw new Error("query is required");
+      const needle = query.toLowerCase();
+      const SKIP = new Set(["node_modules", ".git", ".output", "dist"]);
+      const files: string[] = [];
+
+      function findWalk(dir: string, relDir: string) {
+        if (files.length >= 100) return;
+        for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+          if (files.length >= 100) return;
+          if (SKIP.has(ent.name)) continue;
+          const full = path.join(dir, ent.name);
+          const rel = relDir ? `${relDir}/${ent.name}` : ent.name;
+          if (ent.isDirectory()) {
+            findWalk(full, rel);
+          } else if (ent.isFile() && ent.name.toLowerCase().includes(needle)) {
+            files.push(rel);
+          }
+        }
+      }
+
+      findWalk(path.resolve(projectPath), "");
+      return new Response(JSON.stringify({ ok: true, files, count: files.length }), {
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    } catch (e: any) {
+      return new Response(JSON.stringify({ ok: false, error: e.message }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    }
+  }
+
+  // 18. POST /api/fs/search-replace
+  if (url.pathname === "/api/fs/search-replace" && request.method === "POST") {
+    try {
+      const { projectPath, path: relPath, search, replace, isRegex } = (await request.json().catch(
+        () => ({})
+      )) as {
+        projectPath: string;
+        path: string;
+        search: string;
+        replace: string;
+        isRegex?: boolean;
+      };
+      const abs = safeProjectPath(projectPath, relPath);
+      if (!fs.existsSync(abs)) throw new Error("File not found: " + relPath);
+      const original = fs.readFileSync(abs, "utf8");
+      let replacements = 0;
+      let updated: string;
+      if (isRegex) {
+        const regex = new RegExp(search, "g");
+        updated = original.replace(regex, () => { replacements++; return replace; });
+      } else {
+        const parts = original.split(search);
+        replacements = parts.length - 1;
+        updated = parts.join(replace);
+      }
+      fs.writeFileSync(abs, updated, "utf8");
+      return new Response(JSON.stringify({ ok: true, replacements, path: abs }), {
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    } catch (e: any) {
+      return new Response(JSON.stringify({ ok: false, error: e.message }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    }
+  }
+
+  // ── GIT ROUTES ────────────────────────────────────────────────────────────
+
+  // 19. POST /api/git/status
+  if (url.pathname === "/api/git/status" && request.method === "POST") {
+    try {
+      const { projectPath } = (await request.json().catch(() => ({}))) as { projectPath: string };
+      const output = child_process.execSync("git status --short", {
+        cwd: path.resolve(projectPath),
+        encoding: "utf8",
+        timeout: 15000,
+        maxBuffer: 1024 * 1024 * 4,
+      });
+      return new Response(JSON.stringify({ ok: true, output }), {
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    } catch (e: any) {
+      const out = [e.stdout, e.stderr, e.message].filter(Boolean).join("\n");
+      return new Response(JSON.stringify({ ok: false, error: out || e.message }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    }
+  }
+
+  // 20. POST /api/git/diff
+  if (url.pathname === "/api/git/diff" && request.method === "POST") {
+    try {
+      const { projectPath, staged } = (await request.json().catch(() => ({}))) as {
+        projectPath: string;
+        staged?: boolean;
+      };
+      const cmd = staged ? "git diff --cached" : "git diff";
+      const output = child_process.execSync(cmd, {
+        cwd: path.resolve(projectPath),
+        encoding: "utf8",
+        timeout: 15000,
+        maxBuffer: 1024 * 1024 * 4,
+      });
+      return new Response(JSON.stringify({ ok: true, output }), {
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    } catch (e: any) {
+      const out = [e.stdout, e.stderr, e.message].filter(Boolean).join("\n");
+      return new Response(JSON.stringify({ ok: false, error: out || e.message }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    }
+  }
+
+  // 21. POST /api/git/log
+  if (url.pathname === "/api/git/log" && request.method === "POST") {
+    try {
+      const { projectPath, limit } = (await request.json().catch(() => ({}))) as {
+        projectPath: string;
+        limit?: number;
+      };
+      const n = Math.min(Math.max(1, limit ?? 20), 100);
+      const output = child_process.execSync(`git log --oneline -${n}`, {
+        cwd: path.resolve(projectPath),
+        encoding: "utf8",
+        timeout: 15000,
+        maxBuffer: 1024 * 1024 * 4,
+      });
+      return new Response(JSON.stringify({ ok: true, output }), {
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    } catch (e: any) {
+      const out = [e.stdout, e.stderr, e.message].filter(Boolean).join("\n");
+      return new Response(JSON.stringify({ ok: false, error: out || e.message }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    }
+  }
+
+  // 22. POST /api/git/add
+  if (url.pathname === "/api/git/add" && request.method === "POST") {
+    try {
+      const { projectPath, path: relPath } = (await request.json().catch(() => ({}))) as {
+        projectPath: string;
+        path?: string;
+      };
+      const target = relPath ? `"${relPath.replace(/"/g, '\\"')}"` : ".";
+      const output = child_process.execSync(`git add ${target}`, {
+        cwd: path.resolve(projectPath),
+        encoding: "utf8",
+        timeout: 15000,
+        maxBuffer: 1024 * 1024 * 4,
+      });
+      return new Response(JSON.stringify({ ok: true, output }), {
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    } catch (e: any) {
+      const out = [e.stdout, e.stderr, e.message].filter(Boolean).join("\n");
+      return new Response(JSON.stringify({ ok: false, error: out || e.message }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    }
+  }
+
+  // 23. POST /api/git/commit
+  if (url.pathname === "/api/git/commit" && request.method === "POST") {
+    try {
+      const { projectPath, message } = (await request.json().catch(() => ({}))) as {
+        projectPath: string;
+        message: string;
+      };
+      if (!message) throw new Error("commit message is required");
+      const safe = message.replace(/"/g, '\\"');
+      const output = child_process.execSync(`git commit -m "${safe}"`, {
+        cwd: path.resolve(projectPath),
+        encoding: "utf8",
+        timeout: 15000,
+        maxBuffer: 1024 * 1024 * 4,
+      });
+      return new Response(JSON.stringify({ ok: true, output }), {
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    } catch (e: any) {
+      const out = [e.stdout, e.stderr, e.message].filter(Boolean).join("\n");
+      return new Response(JSON.stringify({ ok: false, error: out || e.message }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    }
+  }
+
+  // 24. POST /api/git/checkout
+  if (url.pathname === "/api/git/checkout" && request.method === "POST") {
+    try {
+      const { projectPath, branch } = (await request.json().catch(() => ({}))) as {
+        projectPath: string;
+        branch: string;
+      };
+      if (!branch) throw new Error("branch is required");
+      const safe = branch.replace(/[^a-zA-Z0-9/_.-]/g, "");
+      const output = child_process.execSync(`git checkout ${safe}`, {
+        cwd: path.resolve(projectPath),
+        encoding: "utf8",
+        timeout: 15000,
+        maxBuffer: 1024 * 1024 * 4,
+      });
+      return new Response(JSON.stringify({ ok: true, output }), {
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    } catch (e: any) {
+      const out = [e.stdout, e.stderr, e.message].filter(Boolean).join("\n");
+      return new Response(JSON.stringify({ ok: false, error: out || e.message }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    }
+  }
+
+  // 25. POST /api/git/branch
+  if (url.pathname === "/api/git/branch" && request.method === "POST") {
+    try {
+      const { projectPath, create } = (await request.json().catch(() => ({}))) as {
+        projectPath: string;
+        create?: string;
+      };
+      const cmd = create
+        ? `git branch "${create.replace(/"/g, '\\"')}"`
+        : "git branch";
+      const output = child_process.execSync(cmd, {
+        cwd: path.resolve(projectPath),
+        encoding: "utf8",
+        timeout: 15000,
+        maxBuffer: 1024 * 1024 * 4,
+      });
+      return new Response(JSON.stringify({ ok: true, output }), {
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    } catch (e: any) {
+      const out = [e.stdout, e.stderr, e.message].filter(Boolean).join("\n");
+      return new Response(JSON.stringify({ ok: false, error: out || e.message }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    }
+  }
+
+  // 26. POST /api/git/restore
+  if (url.pathname === "/api/git/restore" && request.method === "POST") {
+    try {
+      const { projectPath, path: relPath } = (await request.json().catch(() => ({}))) as {
+        projectPath: string;
+        path?: string;
+      };
+      const target = relPath ? `"${relPath.replace(/"/g, '\\"')}"` : ".";
+      const output = child_process.execSync(`git restore ${target}`, {
+        cwd: path.resolve(projectPath),
+        encoding: "utf8",
+        timeout: 15000,
+        maxBuffer: 1024 * 1024 * 4,
+      });
+      return new Response(JSON.stringify({ ok: true, output }), {
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    } catch (e: any) {
+      const out = [e.stdout, e.stderr, e.message].filter(Boolean).join("\n");
+      return new Response(JSON.stringify({ ok: false, error: out || e.message }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    }
+  }
+
+  // 27. POST /api/git/push
+  if (url.pathname === "/api/git/push" && request.method === "POST") {
+    try {
+      const { projectPath, remote, branch } = (await request.json().catch(() => ({}))) as {
+        projectPath: string;
+        remote?: string;
+        branch?: string;
+      };
+      const safeRemote = remote ? remote.replace(/[^a-zA-Z0-9_.-]/g, "") : "";
+      const safeBranch = branch ? branch.replace(/[^a-zA-Z0-9/_.-]/g, "") : "";
+      const cmd = ["git push", safeRemote, safeBranch].filter(Boolean).join(" ");
+      const output = child_process.execSync(cmd, {
+        cwd: path.resolve(projectPath),
+        encoding: "utf8",
+        timeout: 15000,
+        maxBuffer: 1024 * 1024 * 4,
+      });
+      return new Response(JSON.stringify({ ok: true, output }), {
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    } catch (e: any) {
+      const out = [e.stdout, e.stderr, e.message].filter(Boolean).join("\n");
+      return new Response(JSON.stringify({ ok: false, error: out || e.message }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    }
+  }
+
+  // 28. POST /api/git/clone
+  if (url.pathname === "/api/git/clone" && request.method === "POST") {
+    try {
+      const { repoUrl, dest } = (await request.json().catch(() => ({}))) as {
+        repoUrl: string;
+        dest: string;
+      };
+      if (!repoUrl) throw new Error("repoUrl is required");
+      if (!dest) throw new Error("dest is required");
+      // Security: dest must be under user's Desktop
+      const desktop = path.resolve(path.join(os.homedir(), "Desktop"));
+      const absDest = path.resolve(dest);
+      if (!absDest.startsWith(desktop + path.sep) && absDest !== desktop) {
+        throw new Error("Clone destination must be inside the Desktop folder");
+      }
+      const safeUrl = repoUrl.replace(/[`$\\|;&<>(){}[\]!]/g, "");
+      const output = child_process.execSync(`git clone "${safeUrl}" "${absDest}"`, {
+        cwd: desktop,
+        encoding: "utf8",
+        timeout: 60000,
+        maxBuffer: 1024 * 1024 * 4,
+      });
+      return new Response(JSON.stringify({ ok: true, output, dest: absDest }), {
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    } catch (e: any) {
+      const out = [e.stdout, e.stderr, e.message].filter(Boolean).join("\n");
+      return new Response(JSON.stringify({ ok: false, error: out || e.message }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    }
+  }
+
+  // ── RUN ROUTES ────────────────────────────────────────────────────────────
+
+  // 29. POST /api/run/build
+  if (url.pathname === "/api/run/build" && request.method === "POST") {
+    try {
+      const { projectPath } = (await request.json().catch(() => ({}))) as { projectPath: string };
+      const root = path.resolve(projectPath || path.join(os.homedir(), "Desktop"));
+      const output = child_process.execSync("npm run build", {
+        cwd: root,
+        encoding: "utf8",
+        timeout: 60000,
+        maxBuffer: 1024 * 1024 * 8,
+      });
+      return new Response(JSON.stringify({ ok: true, output }), {
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    } catch (e: any) {
+      const out = [e.stdout, e.stderr, e.message].filter(Boolean).join("\n");
+      return new Response(JSON.stringify({ ok: false, output: out || "Build failed.", error: out }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    }
+  }
+
+  // 30. POST /api/run/test
+  if (url.pathname === "/api/run/test" && request.method === "POST") {
+    try {
+      const { projectPath } = (await request.json().catch(() => ({}))) as { projectPath: string };
+      const root = path.resolve(projectPath || path.join(os.homedir(), "Desktop"));
+      const output = child_process.execSync("npm test -- --run", {
+        cwd: root,
+        encoding: "utf8",
+        timeout: 60000,
+        maxBuffer: 1024 * 1024 * 8,
+      });
+      return new Response(JSON.stringify({ ok: true, output }), {
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    } catch (e: any) {
+      const out = [e.stdout, e.stderr, e.message].filter(Boolean).join("\n");
+      return new Response(JSON.stringify({ ok: false, output: out || "Tests failed.", error: out }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    }
+  }
+
+  // 31. POST /api/run/lint
+  if (url.pathname === "/api/run/lint" && request.method === "POST") {
+    try {
+      const { projectPath } = (await request.json().catch(() => ({}))) as { projectPath: string };
+      const root = path.resolve(projectPath || path.join(os.homedir(), "Desktop"));
+      const output = child_process.execSync("npm run lint", {
+        cwd: root,
+        encoding: "utf8",
+        timeout: 60000,
+        maxBuffer: 1024 * 1024 * 8,
+      });
+      return new Response(JSON.stringify({ ok: true, output }), {
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    } catch (e: any) {
+      const out = [e.stdout, e.stderr, e.message].filter(Boolean).join("\n");
+      return new Response(JSON.stringify({ ok: false, output: out || "Lint failed.", error: out }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    }
+  }
+
+  // 32. POST /api/run/typecheck
+  if (url.pathname === "/api/run/typecheck" && request.method === "POST") {
+    try {
+      const { projectPath } = (await request.json().catch(() => ({}))) as { projectPath: string };
+      const root = path.resolve(projectPath || path.join(os.homedir(), "Desktop"));
+      const output = child_process.execSync("npx tsc --noEmit", {
+        cwd: root,
+        encoding: "utf8",
+        timeout: 60000,
+        maxBuffer: 1024 * 1024 * 8,
+      });
+      return new Response(JSON.stringify({ ok: true, output }), {
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    } catch (e: any) {
+      const out = [e.stdout, e.stderr, e.message].filter(Boolean).join("\n");
+      return new Response(JSON.stringify({ ok: false, output: out || "Type check failed.", error: out }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    }
+  }
+
+  // 33. POST /api/run/install
+  if (url.pathname === "/api/run/install" && request.method === "POST") {
+    try {
+      const { projectPath } = (await request.json().catch(() => ({}))) as { projectPath: string };
+      const root = path.resolve(projectPath || path.join(os.homedir(), "Desktop"));
+      const output = child_process.execSync("npm install", {
+        cwd: root,
+        encoding: "utf8",
+        timeout: 60000,
+        maxBuffer: 1024 * 1024 * 8,
+      });
+      return new Response(JSON.stringify({ ok: true, output }), {
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    } catch (e: any) {
+      const out = [e.stdout, e.stderr, e.message].filter(Boolean).join("\n");
+      return new Response(JSON.stringify({ ok: false, output: out || "Install failed.", error: out }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    }
+  }
+
   return null;
 }
 
@@ -769,7 +1382,7 @@ function handleCommand(body: { projectPath: string; command: string }) {
     const output = child_process.execSync(body.command, {
       cwd: root,
       encoding: "utf8",
-      timeout: 60000,
+      timeout: 15000,
       maxBuffer: 1024 * 1024 * 4,
     });
     return { ok: true, output: output || "Command executed successfully.", exitCode: 0 };
