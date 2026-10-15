@@ -190,11 +190,11 @@ async function callInferenceCascade(
       }
 
       const GEMINI_MODELS = [
-        "gemini-3.5-flash",
-        "gemini-3.1-flash-lite",
-        "gemini-flash-latest",
-        "gemini-3-flash-preview",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
         "gemini-2.5-flash",
+        "gemini-2.0-flash-lite",
+        "gemini-1.5-pro",
       ];
 
       for (const gModel of GEMINI_MODELS) {
@@ -285,7 +285,7 @@ async function callInferenceCascade(
       const promptText = typeof lastUser?.content === "string" ? lastUser.content : JSON.stringify(lastUser?.content || "");
 
       const emergencyRes = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
