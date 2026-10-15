@@ -69,11 +69,12 @@
 
                 <!-- Right: Update Button (Only when update is available) & Open project badge -->
                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <!-- Update Button (Permanently visible in top right, grey background, no purple dot) -->
+                    <!-- Update Button (Only visible when an update / new version is available) -->
                     <Button Command="{Binding ApplyUpdateCommand}"
                             Background="#2A2A2A" BorderBrush="#3A3A3A" BorderThickness="1"
                             CornerRadius="8" Padding="12,5" Cursor="Hand"
-                            ToolTip.Tip="Check or install updates">
+                            IsVisible="{Binding HasUpdateAvailable}"
+                            ToolTip.Tip="A new update is available. Click to install.">
                         <Button.Styles>
                             <Style Selector="Button:pointerover /template/ ContentPresenter">
                                 <Setter Property="Background" Value="#333333"/>
