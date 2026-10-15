@@ -68,6 +68,7 @@ export function setOpenRouterKey(key: string) {
 }
 
 export { CALVRAS_SYSTEM_PROMPT } from "./system-prompt";
+import { CALVRAS_SYSTEM_PROMPT } from "./system-prompt";
 
 // ─── Direct Fallback Engines (Client-Side Resiliency) ─────────────────────────
 
@@ -77,6 +78,8 @@ const GEMINI_MODELS = [
   "gemini-flash-latest",
   "gemini-3-flash-preview",
   "gemini-2.5-flash",
+  "gemini-2.0-flash",
+  "gemini-1.5-flash",
 ];
 
 async function callDirectGeminiEngine(
@@ -84,7 +87,8 @@ async function callDirectGeminiEngine(
   systemInstruction?: string,
   mediaAttachments?: MediaAttachment[],
   projectContext?: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  timeoutMs: number = 12_000
 ): Promise<string> {
   signal?.throwIfAborted();
   const apiKey = getGeminiKey();
@@ -134,7 +138,7 @@ async function callDirectGeminiEngine(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
-        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(12_000)]) : AbortSignal.timeout(12_000),
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
       });
 
       if (!response.ok) continue;
@@ -285,42 +289,35 @@ export async function callAI(
     throw new Error("Could not process the attachment. Please try again.");
   }
 
-  // 1. Primary: POST to backend /api/v1/chat/completions (30s timeout)
+  // 1. Direct Gemini (8s per model — fastest path)
+  try {
+    const geminiResult = await callDirectGeminiEngine(prompt, systemInstruction, mediaAttachments, projectContext, signal, 8_000);
+    if (geminiResult && geminiResult.trim()) return geminiResult.trim();
+  } catch (err) {
+    signal?.throwIfAborted();
+    console.warn("[Calvras] Direct Gemini (fast) failed, falling back to backend:", err);
+  }
+
+  // 2. Backend /api/v1/chat/completions (20s)
   try {
     const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost:8080";
     const res = await fetch(`${origin}/api/v1/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(20_000)]) : AbortSignal.timeout(20_000),
-      body: JSON.stringify({
-        messages,
-        temperature: 0.2,
-        max_tokens: 16384,
-      }),
+      body: JSON.stringify({ messages, temperature: 0.2, max_tokens: 16384 }),
     });
-
     if (res.ok) {
       const data = await res.json();
       const content = data?.choices?.[0]?.message?.content;
-      if (content && typeof content === "string" && content.trim()) {
-        return content.trim();
-      }
+      if (content && typeof content === "string" && content.trim()) return content.trim();
     }
   } catch (err) {
     signal?.throwIfAborted();
-    console.warn("[Calvras] Backend API offline/timeout, falling back to direct browser engines:", err);
+    console.warn("[Calvras] Backend API offline/timeout, falling back to OpenRouter:", err);
   }
 
-  // 2. Client-Side Fallback: Direct Gemini API
-  try {
-    const geminiResult = await callDirectGeminiEngine(prompt, systemInstruction, mediaAttachments, projectContext, signal);
-    if (geminiResult && geminiResult.trim()) return geminiResult.trim();
-  } catch (err) {
-    signal?.throwIfAborted();
-    console.warn("[Calvras] Direct client Gemini failed, trying client OpenRouter:", err);
-  }
-
-  // 3. Client-Side Fallback: Direct OpenRouter Free Pool
+  // 3. Direct OpenRouter (10s per model)
   try {
     const openRouterResult = await callDirectOpenRouterEngine(prompt, systemInstruction, mediaAttachments, projectContext, signal);
     if (openRouterResult && openRouterResult.trim()) return openRouterResult.trim();
@@ -329,5 +326,13 @@ export async function callAI(
     console.warn("[Calvras] Direct client OpenRouter failed:", err);
   }
 
-  throw new Error("Could not connect to AI services. Please try again.");
+  // 4. Last resort: Gemini retry with 12s timeout
+  try {
+    const geminiResult = await callDirectGeminiEngine(prompt, systemInstruction, mediaAttachments, projectContext, signal, 12_000);
+    if (geminiResult && geminiResult.trim()) return geminiResult.trim();
+  } catch (err) {
+    signal?.throwIfAborted();
+  }
+
+  throw new Error("AI is temporarily unavailable — all inference engines timed out. Check your internet connection and try again.");
 }

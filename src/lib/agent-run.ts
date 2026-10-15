@@ -65,8 +65,19 @@ const actionTypes = new Set([
   "run_build", "run_tests", "run_lint", "run_typecheck", "install_deps",
 ]);
 
+function extractJson(raw: string): string {
+  const start = raw.indexOf('{');
+  if (start === -1) throw new Error('No JSON object found in response');
+  let depth = 0;
+  for (let i = start; i < raw.length; i++) {
+    if (raw[i] === '{') depth++;
+    else if (raw[i] === '}') { depth--; if (depth === 0) return raw.slice(start, i + 1); }
+  }
+  throw new Error('Unterminated JSON object in response');
+}
+
 export function parseAgentReply(raw: string): AgentReply {
-  const json = raw.trim().replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "");
+  const json = extractJson(raw.trim());
   const value = JSON.parse(json);
   if (!value || typeof value !== "object" || !Array.isArray(value.actions) || typeof value.message !== "string") throw new Error("The agent returned an invalid response.");
   const actions = value.actions.map((action: Record<string, unknown>) => {
@@ -129,6 +140,7 @@ export async function runAgent(options: {
   try {
     for (let step = 0; step < (options.maxSteps ?? 16); step++) {
       options.signal.throwIfAborted();
+      if (step > 0) options.onFeedback('');
       const raw = await options.infer(`${options.prompt}\n\n${history.join("\n\n")}`);
       options.signal.throwIfAborted();
       let reply: AgentReply;

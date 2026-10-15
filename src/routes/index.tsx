@@ -675,6 +675,7 @@ export function Index() {
       let fullPrompt = text || "(The user sent an attachment, please analyze it)";
       if (conversationHistory.length > 0) {
         const historyStr = conversationHistory
+          .slice(-8)
           .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
           .join("\n");
         fullPrompt = `[CONVERSATION HISTORY]\n${historyStr}\n\n[CURRENT USER MESSAGE]\n${text || "(attachment)"}`;
@@ -711,6 +712,10 @@ IMPORTANT RULES:
         infer: (prompt) => callAI(prompt, undefined, mediaList, projectSnapshot, controller.signal),
         onFeedback: (message) => { phases.push({ trace: [], message }); publish(); },
         execute: async (actions) => {
+          // Publish immediately so the UI shows a running spinner at once
+          const workingPhase: AgentPhase = { trace: [] };
+          phases.push(workingPhase);
+          publish();
           if (!activePath) {
             const canCreate = actions.some((action) => action.type === "create_file" || action.type === "write_file") && !actions.some((action) => action.type === "read_file" || action.type === "list_dir");
             if (!canCreate) throw new Error("Select a project folder first so Calvras can inspect the actual files.");
@@ -724,9 +729,6 @@ IMPORTANT RULES:
             addProject({ name: data.name, path: data.projectPath });
           }
           const feedback: ToolFeedback[] = [];
-          const workingPhase: AgentPhase = { trace: [] };
-          phases.push(workingPhase);
-          publish();
           const routes: Record<AgentAction["type"], string> = {
             // File system — served under /api/fs/...
             create_file: "fs/create", write_file: "fs/write-file", read_file: "fs/read-file", list_dir: "fs/list-dir", run_command: "fs/command",

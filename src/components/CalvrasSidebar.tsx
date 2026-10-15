@@ -1,6 +1,6 @@
 import { PluginsPanel } from "./PluginsPanel";
 import { useEffect, useRef, useState } from "react";
-import { PenSquare, FolderOpen, ChevronDown, ChevronRight, Bell, Search, PanelLeft, Sparkles, User, ArrowUpRight, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { PenSquare, FolderOpen, ChevronDown, ChevronRight, PanelLeft, Sparkles, User, ArrowUpRight, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -265,7 +265,7 @@ export function CalvrasSidebar({
       <button
         onClick={() => setOpen((o) => !o)}
         className={cn(
-          "fixed top-3 left-3 z-50 flex h-8 w-8 items-center justify-center rounded-md",
+          "fixed top-[32px] left-3 z-50 flex h-8 w-8 items-center justify-center rounded-md",
           "text-[oklch(0.985_0_0)] hover:bg-[oklch(0.285_0_0)] transition-colors",
           "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         )}
@@ -295,34 +295,7 @@ export function CalvrasSidebar({
         )}
       >
         {/* ── Header ─────────────────────────────────────────────── */}
-        <div className="flex items-center justify-between px-3 pt-3 pb-2 border-b border-[oklch(1_0_0/6%)]">
-          {/* Calvras logo / team */}
-          <button className="flex items-center gap-2 rounded-md px-1.5 py-1 text-sm font-semibold hover:bg-[oklch(0.285_0_0)] transition-colors">
-            <img
-              src="/calvras-logo.png"
-              alt="Calvras"
-              className="h-5 w-5 rounded object-contain"
-            />
-            <span>Calvras</span>
-            <ChevronDown className="h-3 w-3 opacity-60" />
-          </button>
-
-          {/* Top-right icons: search + notifications */}
-          <div className="flex items-center gap-0.5">
-            <button
-              aria-label="Search"
-              className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-[oklch(0.285_0_0)] text-[oklch(0.7_0_0)] hover:text-[oklch(0.985_0_0)] transition-colors"
-            >
-              <Search className="h-3.5 w-3.5" />
-            </button>
-            <button
-              aria-label="Notifications"
-              className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-[oklch(0.285_0_0)] text-[oklch(0.7_0_0)] hover:text-[oklch(0.985_0_0)] transition-colors"
-            >
-              <Bell className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        </div>
+        <div className="flex items-center px-3 pt-3 pb-2 border-b border-[oklch(1_0_0/6%)]" />
 
         {/* ── New chat ───────────────────────────────────────────── */}
         <div className="px-3 pt-2 pb-1">
