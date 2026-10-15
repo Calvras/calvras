@@ -54,7 +54,7 @@ public partial class MainViewModel : ViewModelBase
     private bool _hasUpdateAvailable;
 
     [ObservableProperty]
-    private string _updateButtonText = "Check for Updates";
+    private string _updateButtonText = "Update";
 
     [ObservableProperty]
     private string? _newVersion;
@@ -246,8 +246,8 @@ public partial class MainViewModel : ViewModelBase
         else
         {
             HasUpdateAvailable = false;
-            UpdateButtonText = "Check for Updates";
-            ShowToast(msg);
+            UpdateButtonText = "Update";
+            ShowToast("You are on the latest version of Calvras.");
         }
     }
 
