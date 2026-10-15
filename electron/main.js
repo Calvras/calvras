@@ -265,54 +265,8 @@ function createTray() {
 
 // ─── Application menu ─────────────────────────────────────────────────────────
 function buildAppMenu() {
-  const template = [
-    {
-      label: 'Calvras',
-      submenu: [
-        { role: 'about' },
-        { type: 'separator' },
-        { role: 'services' },
-        { type: 'separator' },
-        { role: 'hide' },
-        { role: 'hideOthers' },
-        { role: 'unhide' },
-        { type: 'separator' },
-        { role: 'quit' },
-      ],
-    },
-    {
-      label: 'Edit',
-      submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
-        { type: 'separator' },
-        { role: 'cut' },
-        { role: 'copy' },
-        { role: 'paste' },
-        { role: 'selectAll' },
-      ],
-    },
-    {
-      label: 'View',
-      submenu: [
-        { role: 'reload' },
-        { role: 'forceReload' },
-        ...(IS_DEV ? [{ role: 'toggleDevTools' }] : []),
-        { type: 'separator' },
-        { role: 'togglefullscreen' },
-      ],
-    },
-    {
-      label: 'Window',
-      submenu: [
-        { role: 'minimize' },
-        { role: 'zoom' },
-        { role: 'close' },
-      ],
-    },
-  ];
-
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+  // Remove the native menu bar entirely — the app is frameless with custom chrome
+  Menu.setApplicationMenu(null);
 }
 
 // ─── IPC: Window controls (title bar buttons in renderer) ─────────────────────
