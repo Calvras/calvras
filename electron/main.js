@@ -1,7 +1,7 @@
 'use strict';
 
 // Electron Main Process — Calvras Desktop
-// Spawns the Nitro node-server, shows a splash, opens a frameless BrowserWindow.
+// Spawns the Nitro node-server, opens a frameless BrowserWindow.
 
 const {
   app, BrowserWindow, shell, dialog, ipcMain, Tray, Menu,
@@ -37,7 +37,6 @@ const KEY_FILE    = path.join(app.getPath('userData'), 'secure.bin');
 
 // ─── State ───────────────────────────────────────────────────────────────────
 let mainWindow   = null;
-let splashWindow = null;
 let tray         = null;
 let serverProcess = null;
 let serverPort   = 3344;
@@ -155,44 +154,6 @@ function saveBounds(win) {
   } catch {}
 }
 
-// ─── Splash screen ────────────────────────────────────────────────────────────
-function createSplash() {
-  splashWindow = new BrowserWindow({
-    width: 420,
-    height: 220,
-    frame: false,
-    transparent: true,
-    alwaysOnTop: true,
-    resizable: false,
-    skipTaskbar: true,
-    backgroundColor: '#00000000',
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
-  });
-
-  const html = `<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><style>
-*{margin:0;box-sizing:border-box}
-body{background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:system-ui,-apple-system,sans-serif;color:#e8e8e8}
-.card{background:#151515;border:1px solid #2a2a2a;border-radius:20px;padding:32px 48px;display:flex;flex-direction:column;align-items:center;gap:16px;box-shadow:0 24px 60px rgba(0,0,0,.55)}
-img{width:52px;height:52px;border-radius:12px;object-fit:contain}
-h1{font-size:20px;font-weight:600;letter-spacing:-.5px;color:#f0f0f0}
-.sub{font-size:12.5px;color:#6b6b6b}
-.dots{display:flex;gap:5px;margin-top:4px}
-.dot{width:5px;height:5px;border-radius:50%;background:#444;animation:pulse 1.2s ease-in-out infinite}
-.dot:nth-child(2){animation-delay:.2s}.dot:nth-child(3){animation-delay:.4s}
-@keyframes pulse{0%,80%,100%{opacity:.2}40%{opacity:1}}
-</style></head>
-<body><div class="card">
-<img src="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23111'/><text y='.9em' font-size='72' x='14'>⚡</text></svg>" alt="Calvras">
-<h1>Calvras</h1>
-<p class="sub">Starting up…</p>
-<div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
-</div></body></html>`;
-
-  splashWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
-}
-
 // ─── Main window ──────────────────────────────────────────────────────────────
 function createMainWindow(port) {
   const savedBounds = loadBounds();
@@ -224,10 +185,7 @@ function createMainWindow(port) {
 
   // ── Show when ready ───────────────────────────────────────────────────────
   mainWindow.once('ready-to-show', () => {
-    if (splashWindow) {
-      splashWindow.close();
-      splashWindow = null;
-    }
+    
     if (savedBounds?.maximized) mainWindow.maximize();
     mainWindow.show();
     mainWindow.focus();
@@ -410,7 +368,6 @@ ipcMain.handle('is-maximized', () => mainWindow?.isMaximized() ?? false);
 // ─── App lifecycle ────────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
   buildAppMenu();
-  createSplash();
 
   // Find free port & start server
   try {
@@ -418,7 +375,7 @@ app.whenReady().then(async () => {
     startServer(serverPort);
     await waitForServer(serverPort, 60, 500);
   } catch (err) {
-    if (splashWindow) { splashWindow.close(); splashWindow = null; }
+    
     dialog.showErrorBox(
       'Calvras — Server Error',
       'The local server failed to start.\n\n' + err.message +

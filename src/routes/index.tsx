@@ -15,6 +15,8 @@ import { callAI, type MediaAttachment } from "@/lib/gemini";
 import { cn } from "@/lib/utils";
 import { ChapterScrubber, type Chapter } from "@/components/ui/chapter-scrubber";
 import { Copy, CheckCheck, X } from "lucide-react";
+import { DOWNLOAD } from "@/lib/download";
+import { isNewerSemver } from "@/lib/version";
 
 export const Route = createFileRoute("/")({
   head: () => marketingHead("/", "Calvras — Native AI Coding Agent", "Build real projects with Calvras, a Windows x64 desktop AI coding agent for local files, commands, and visible change review."),
@@ -49,6 +51,11 @@ interface ImplementationPlan {
   title: string;
   content: string;
   messageId: number;
+}
+
+interface UpdateInfo {
+  version: string;
+  url: string;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -392,6 +399,43 @@ export function Index() {
     update();
     const id = setInterval(update, 1000);
     return () => clearInterval(id);
+  }, []);
+
+  // Update check: button ONLY appears when a newer version is released
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    async function checkForUpdates() {
+      try {
+        const res = await fetch("https://api.github.com/repos/SHIKARI-hey/Calvras/releases/latest", {
+          headers: { Accept: "application/vnd.github.v3+json" },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        const latestTag = (data.tag_name || "").replace(/^v/i, "").trim();
+        const currentVersion = DOWNLOAD.version;
+        if (latestTag && isNewerSemver(latestTag, currentVersion)) {
+          if (mounted) {
+            setUpdateInfo({
+              version: latestTag,
+              url: data.html_url || "https://calvras.com",
+            });
+          }
+        } else {
+          if (mounted) setUpdateInfo(null);
+        }
+      } catch {
+        // Offline or fetch failure: do not show update button
+      }
+    }
+
+    checkForUpdates();
+    const interval = setInterval(checkForUpdates, 30 * 60 * 1000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
   }, []);
 
   // Project dropdown
@@ -809,8 +853,19 @@ IMPORTANT RULES:
       {/* ── Top-right project badge & switcher ─────────────────────────── */}
       <div
         data-project-badge-wrapper=""
-        className="fixed top-3 right-4 z-20"
+        className="fixed top-3 right-4 z-20 flex items-center gap-2"
       >
+        {updateInfo && (
+          <a
+            href={updateInfo.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={`A new update is available: Calvras v${updateInfo.version}. Click to download.`}
+            className="flex items-center rounded-lg border border-border/80 bg-[#2A2A2A] hover:bg-[#333333] px-3 py-1.5 text-xs font-semibold text-white backdrop-blur-md transition-all shadow-xs cursor-pointer select-none"
+          >
+            Update
+          </a>
+        )}
         <button
           ref={projectBadgeRef}
           type="button"

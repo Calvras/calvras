@@ -1,5 +1,5 @@
 #define MyAppName "Calvras"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "10.0.0"
 #define MyAppPublisher "Calvras"
 #define MyAppURL "https://calvras.com"
 #define MyAppExeName "Calvras.exe"
