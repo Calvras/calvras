@@ -110,6 +110,27 @@ public record TraceNodeModel
 
     [JsonPropertyName("localhostUrl")]
     public string? LocalhostUrl { get; init; }
+
+    public bool IsFailed => Status == "failed" || (ExitCode.HasValue && ExitCode.Value != 0);
+    public bool IsRunning => Status == "running";
+    public bool IsSuccess => !IsFailed && !IsRunning;
+
+    public string DisplayText
+    {
+        get
+        {
+            if (Type == "terminal" || ToolName == "run_command" || ToolName == "run_terminal")
+            {
+                var cmd = Command ?? Secondary ?? "command";
+                return $"Ran {cmd}";
+            }
+            if (!string.IsNullOrWhiteSpace(Secondary))
+            {
+                return $"{Primary ?? "Used"} {Secondary}";
+            }
+            return Primary ?? "Ran action";
+        }
+    }
 }
 
 public record AgentPhaseModel
@@ -119,6 +140,48 @@ public record AgentPhaseModel
 
     [JsonPropertyName("message")]
     public string? Message { get; init; }
+
+    public bool HasMessage => !string.IsNullOrWhiteSpace(Message);
+    public bool HasTrace => Trace != null && Trace.Count > 0;
+
+    public string SummaryText => ComputeSummary(Trace);
+    public string SummaryIcon => ComputeIcon(Trace);
+
+    private static string ComputeSummary(List<TraceNodeModel>? trace)
+    {
+        if (trace == null || trace.Count == 0) return "Ran actions";
+
+        bool hasCommands = trace.Any(t => t.Type == "terminal" || t.ToolName == "run_command" || t.ToolName == "run_terminal");
+        bool hasEdits = trace.Any(t => t.ToolName?.Contains("edit") == true || t.ToolName?.Contains("write") == true || t.ToolName?.Contains("replace") == true || t.DiffRows != null);
+        bool hasBrowser = trace.Any(t => t.ToolName?.Contains("browser") == true || t.ToolName?.Contains("screenshot") == true);
+        bool hasSearch = trace.Any(t => t.ToolName?.Contains("search") == true || t.ToolName?.Contains("grep") == true || t.ToolName?.Contains("find") == true);
+        bool hasTools = trace.Any(t => !hasEdits && !hasCommands && !hasBrowser && !hasSearch);
+
+        var parts = new List<string>();
+        if (hasTools) parts.Add("Loaded a tool");
+        if (hasEdits) parts.Add(trace.Count(t => t.DiffRows != null) == 1 ? "Edited a file" : "Edited files");
+        if (hasCommands) parts.Add("ran commands");
+        if (hasSearch) parts.Add("searched the codebase");
+        if (hasBrowser) parts.Add("Used the browser");
+
+        if (parts.Count == 0)
+        {
+            return trace.Count == 1 ? (trace[0].Primary ?? "Executed tool") : "Ran commands";
+        }
+
+        var joined = string.Join(", ", parts);
+        return char.ToUpper(joined[0]) + joined.Substring(1);
+    }
+
+    private static string ComputeIcon(List<TraceNodeModel>? trace)
+    {
+        if (trace == null || trace.Count == 0) return "🔲";
+        if (trace.Any(t => t.ToolName?.Contains("browser") == true)) return "🌐";
+        if (trace.Any(t => t.DiffRows != null || t.ToolName?.Contains("edit") == true || t.ToolName?.Contains("write") == true)) return "✏️";
+        if (trace.Any(t => !t.ToolName?.Contains("edit") == true && t.Type == "tool" && t.ToolName != "run_command")) return "🔧";
+        if (trace.Any(t => t.ToolName?.Contains("search") == true)) return "🔍";
+        return "🔲";
+    }
 }
 
 public record ChatMessageModel

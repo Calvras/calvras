@@ -67,6 +67,8 @@ public class AgentToolService : IAgentToolService
 
             var sb = new StringBuilder();
             sb.AppendLine("=== WORKSPACE OVERVIEW ===");
+            sb.AppendLine($"Project Root Directory: {projectPath}");
+            sb.AppendLine("Working directory is the root directory above. Do NOT assume or invent subdirectories (e.g. portfolio/) that are not listed below.");
 
             // Top-level files and folders
             var topEntries = Directory.GetFileSystemEntries(projectPath)
@@ -835,14 +837,33 @@ public class AgentToolService : IAgentToolService
 
     private async Task<ToolExecutionResult> RunCommandAsync(string projectPath, AgentActionModel action, CancellationToken cancellationToken)
     {
-        var cmd = action.Command;
+        var cmd = action.Command?.Trim();
         if (string.IsNullOrWhiteSpace(cmd)) return new ToolExecutionResult(false, "Command is required for run_command");
+
+        if (IsDevServerCommand(cmd))
+        {
+            return await StartDevServerAsync(projectPath, action, cancellationToken);
+        }
 
         var workingDir = !string.IsNullOrWhiteSpace(action.Path) ? ResolveSafePath(projectPath, action.Path) : projectPath;
         var result = await _processRunner.ExecuteCommandAsync(cmd, workingDir, cancellationToken);
 
         var localhostUrl = ExtractLocalhostUrl(result.Output);
         return new ToolExecutionResult(result.ExitCode == 0, result.Output, LocalhostUrl: localhostUrl, ExitCode: result.ExitCode);
+    }
+
+    private static bool IsDevServerCommand(string cmd)
+    {
+        var lower = cmd.ToLowerInvariant().Trim();
+        return lower.StartsWith("npm run dev") || lower == "npm start" || lower.StartsWith("npm run start") ||
+               lower.StartsWith("yarn dev") || lower.StartsWith("yarn start") ||
+               lower.StartsWith("pnpm dev") || lower.StartsWith("pnpm start") ||
+               lower.StartsWith("bun dev") || lower.StartsWith("bun run dev") ||
+               lower.StartsWith("npx vite") || lower.StartsWith("vite") ||
+               lower.StartsWith("next dev") || lower.StartsWith("npx next dev") ||
+               lower == "dotnet run" || lower.StartsWith("dotnet watch") ||
+               lower.StartsWith("python -m http.server") || lower.StartsWith("python3 -m http.server") ||
+               lower.StartsWith("live-server") || lower.StartsWith("http-server");
     }
 
     private async Task<ToolExecutionResult> RunCodeAsync(string projectPath, AgentActionModel action, CancellationToken cancellationToken)

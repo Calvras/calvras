@@ -73,7 +73,16 @@ public partial class AgentActivityControl : UserControl
             var sec = change.GetNewValue<double>();
             if (ElapsedText != null)
             {
-                ElapsedText.Text = sec < 1.0 ? $"{sec:F1}s" : $"{(int)Math.Round(sec)}s";
+                if (sec < 60)
+                {
+                    ElapsedText.Text = sec < 1.0 ? $"{sec:F1}s" : $"{(int)Math.Round(sec)}s";
+                }
+                else
+                {
+                    int m = (int)(sec / 60);
+                    int s = (int)(sec % 60);
+                    ElapsedText.Text = $"{m}m {s}s";
+                }
             }
         }
     }
@@ -96,6 +105,26 @@ public partial class AgentActivityControl : UserControl
         _collapsed = collapsed;
         if (TraceBody != null) TraceBody.IsVisible = !collapsed;
         if (MasterChevron != null) MasterChevron.Text = collapsed ? "▸" : "▾";
+    }
+
+    private void OnPhaseSummaryPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (sender is Border summaryBorder && summaryBorder.Parent is StackPanel parent)
+        {
+            foreach (var child in parent.Children)
+            {
+                if (child is Border container && container.Name == "PhaseItemsContainer")
+                {
+                    container.IsVisible = !container.IsVisible;
+                    var chevron = summaryBorder.FindControl<TextBlock>("PhaseChevron");
+                    if (chevron != null)
+                    {
+                        chevron.Text = container.IsVisible ? "▾" : "▸";
+                    }
+                    break;
+                }
+            }
+        }
     }
 
     private void OnPillPressed(object? sender, PointerPressedEventArgs e)

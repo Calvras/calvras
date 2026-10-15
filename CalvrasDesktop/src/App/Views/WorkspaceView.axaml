@@ -33,18 +33,18 @@
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="m:ChatMessageModel">
                                     <StackPanel Margin="0,8">
-                                        <!-- User Message: Rounded Blue Pill Bubble (matching screenshots) -->
+                                        <!-- User Message: Rounded Charcoal Grey Pill Bubble -->
                                         <Border IsVisible="{Binding IsUser}"
-                                                HorizontalAlignment="Right" Background="#1D4ED8" CornerRadius="18"
+                                                HorizontalAlignment="Right" Background="#27272A" BorderBrush="#38383D" BorderThickness="1" CornerRadius="18"
                                                 Padding="16,9" MaxWidth="540" Margin="0,4">
                                             <StackPanel Spacing="4">
-                                                <SelectableTextBlock Text="{Binding Text}" Foreground="#FFFFFF"
+                                                <SelectableTextBlock Text="{Binding Text}" Foreground="#F4F4F5"
                                                                      FontSize="13.5" TextWrapping="Wrap" LineHeight="20"/>
                                                 <ItemsControl ItemsSource="{Binding AttachedFiles}" IsVisible="{Binding HasAttachedFiles}">
                                                     <ItemsControl.ItemTemplate>
                                                         <DataTemplate>
-                                                            <Border Background="#1E40AF" CornerRadius="4" Padding="6,2" Margin="0,2">
-                                                                <TextBlock Text="{Binding}" Foreground="#E0E7FF" FontSize="10" TextTrimming="CharacterEllipsis"/>
+                                                            <Border Background="#323238" CornerRadius="4" Padding="6,2" Margin="0,2">
+                                                                <TextBlock Text="{Binding}" Foreground="#D4D4D8" FontSize="10" TextTrimming="CharacterEllipsis"/>
                                                             </Border>
                                                         </DataTemplate>
                                                     </ItemsControl.ItemTemplate>

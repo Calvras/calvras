@@ -46,118 +46,101 @@
             <ItemsControl Name="PhasesList">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="m:AgentPhaseModel">
-                        <StackPanel Spacing="4" Margin="0,2,0,6">
-                            <!-- Phase Narration Message (if any) -->
-                            <SelectableTextBlock Text="{Binding Message}" Foreground="#D1D5DB" FontSize="12.5"
-                                                 TextWrapping="Wrap" LineHeight="18" Margin="0,0,0,2"
-                                                 IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                        <StackPanel Spacing="3" Margin="0,2,0,8">
+                            <!-- Phase Narration Message (Conversational plain text matching screenshots) -->
+                            <SelectableTextBlock Text="{Binding Message}" Foreground="#E4E4E7" FontSize="13.5"
+                                                 TextWrapping="Wrap" LineHeight="20" Margin="0,2,0,4"
+                                                 IsVisible="{Binding HasMessage}"/>
 
-                            <!-- Trace Nodes in this Phase -->
-                            <ItemsControl ItemsSource="{Binding Trace}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate x:DataType="m:TraceNodeModel">
-                                        <StackPanel Spacing="2" Margin="0,2">
-                                            <!-- REASONING NODE TYPE -->
-                                            <Border IsVisible="{Binding Sentences, Converter={x:Static ObjectConverters.IsNotNull}}"
-                                                    Background="Transparent" Padding="2,2">
-                                                <StackPanel Spacing="4">
-                                                    <StackPanel Orientation="Horizontal" Spacing="6">
-                                                        <TextBlock Text="🧠" FontSize="12" VerticalAlignment="Center"/>
-                                                        <TextBlock Text="{Binding Primary, FallbackValue='Thinking…'}"
-                                                                   Foreground="#A1A1AA" FontSize="12" FontWeight="Medium" VerticalAlignment="Center"/>
-                                                    </StackPanel>
-                                                    <Border BorderBrush="#2A2A2E" BorderThickness="1,0,0,0" Padding="8,2,0,2" Margin="4,0,0,0">
-                                                        <ItemsControl ItemsSource="{Binding Sentences}">
-                                                            <ItemsControl.ItemTemplate>
-                                                                <DataTemplate>
-                                                                    <TextBlock Text="{Binding}" Foreground="#8E8E93" FontSize="12" LineHeight="17" TextWrapping="Wrap" Margin="0,1"/>
-                                                                </DataTemplate>
-                                                            </ItemsControl.ItemTemplate>
-                                                        </ItemsControl>
-                                                    </Border>
-                                                </StackPanel>
-                                            </Border>
+                            <!-- Phase Summary Header (e.g. 🔧 Loaded a tool, ran commands ⌄ or ✏️ Edited files, ran commands ⌄) -->
+                            <Border Background="Transparent" Cursor="Hand" PointerPressed="OnPhaseSummaryPressed"
+                                    Padding="0,3" Margin="0,1,0,3" HorizontalAlignment="Left"
+                                    IsVisible="{Binding HasTrace}">
+                                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding SummaryIcon}" FontSize="12" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{Binding SummaryText}" Foreground="#A1A1AA" FontSize="12.5" FontWeight="Normal" VerticalAlignment="Center"/>
+                                    <TextBlock Name="PhaseChevron" Text="▾" Foreground="#71717A" FontSize="10" VerticalAlignment="Center" Margin="2,0,0,0"/>
+                                </StackPanel>
+                            </Border>
 
-                                            <!-- PILL ROW NODE (Tool, Terminal, Diff, Search) -->
-                                            <Border IsVisible="{Binding Sentences, Converter={x:Static ObjectConverters.IsNull}}"
-                                                    Height="28" CornerRadius="5" Padding="6,0"
-                                                    Background="Transparent" Cursor="Hand"
-                                                    PointerPressed="OnPillPressed">
-                                                <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto">
-                                                    <!-- Dynamic Status / Tool Icon -->
-                                                    <Panel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,6,0">
-                                                        <!-- Failed Icon -->
-                                                        <TextBlock Text="⚠️" FontSize="11" Foreground="#F43F5E"
-                                                                   IsVisible="{Binding ExitCode, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-                                                        <!-- Normal Tool Icon -->
-                                                        <TextBlock Text="{Binding Icon, FallbackValue='⚡'}" FontSize="11" Foreground="#8B5CF6"
-                                                                   IsVisible="{Binding ExitCode, Converter={x:Static ObjectConverters.IsNull}}"/>
-                                                    </Panel>
+                            <!-- Indented Detailed Actions (Visible by default, collapsible via summary header) -->
+                            <Border Name="PhaseItemsContainer" IsVisible="True" Margin="14,2,0,6">
+                                <ItemsControl ItemsSource="{Binding Trace}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="m:TraceNodeModel">
+                                            <StackPanel Spacing="2" Margin="0,2">
+                                                <!-- Action Row (e.g. 🔲 Ran npm install) -->
+                                                <Border Height="26" CornerRadius="4" Padding="4,2"
+                                                        Background="Transparent" Cursor="Hand"
+                                                        PointerPressed="OnPillPressed">
+                                                    <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                                                        <!-- Icon -->
+                                                        <Panel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,0">
+                                                            <!-- Failed Icon (only when genuinely failed and exit code != 0) -->
+                                                            <TextBlock Text="⚠️" FontSize="11" Foreground="#F43F5E"
+                                                                       IsVisible="{Binding IsFailed}"/>
+                                                            <!-- Running Icon -->
+                                                            <TextBlock Text="⚡" FontSize="11" Foreground="#8B5CF6"
+                                                                       IsVisible="{Binding IsRunning}"/>
+                                                            <!-- Success Icon -->
+                                                            <TextBlock Text="{Binding Icon, FallbackValue='🔲'}" FontSize="11" Foreground="#9CA3AF"
+                                                                       IsVisible="{Binding IsSuccess}"/>
+                                                        </Panel>
 
-                                                    <!-- Bold 12px Label -->
-                                                    <TextBlock Grid.Column="1" Text="{Binding Primary, FallbackValue='Run'}"
-                                                               FontWeight="SemiBold" FontSize="12" Foreground="#F0F6FC"
-                                                               VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                                        <!-- Action Text e.g. Ran npm install / Read package.json / Edited vite.config.ts -->
+                                                        <TextBlock Grid.Column="1" Text="{Binding DisplayText}" FontSize="12" Foreground="#D4D4D8"
+                                                                   FontFamily="Consolas, Monaco, Monospace" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
 
-                                                    <!-- Mono Target Chip -->
-                                                    <Border Grid.Column="2" Background="#1C1C1F" BorderBrush="#2A2A2E" BorderThickness="1"
-                                                            CornerRadius="4" Padding="6,2" Height="22" VerticalAlignment="Center" HorizontalAlignment="Left"
-                                                            MaxWidth="420"
-                                                            IsVisible="{Binding Secondary, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                                                        <TextBlock Text="{Binding Secondary}"
-                                                                   FontFamily="Consolas, Monaco, Monospace" FontSize="11" Foreground="#A1A1AA"
-                                                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
-                                                    </Border>
-
-                                                    <!-- Right side +Add / -Del counters -->
-                                                    <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="8,0,4,0"
-                                                                IsVisible="{Binding Add, Converter={x:Static ObjectConverters.IsNotNull}}">
-                                                        <TextBlock Text="{Binding Add, StringFormat='+{0}'}" Foreground="#10B981"
-                                                                   FontFamily="Consolas, Monaco, Monospace" FontSize="10.5" FontWeight="SemiBold"/>
-                                                        <TextBlock Text="{Binding Del, StringFormat='−{0}'}" Foreground="#F43F5E"
-                                                                   FontFamily="Consolas, Monaco, Monospace" FontSize="10.5" FontWeight="SemiBold"
-                                                                   IsVisible="{Binding Del, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-                                                    </StackPanel>
-
-                                                    <!-- Pill expand chevron -->
-                                                    <TextBlock Grid.Column="4" Text="▾" Foreground="#71717A" FontSize="10" VerticalAlignment="Center" Margin="4,0,0,0"/>
-                                                </Grid>
-                                            </Border>
-
-                                            <!-- Expandable Detail Panel -->
-                                            <Border Name="DetailPanel" IsVisible="False" Margin="6,2,0,4">
-                                                <StackPanel Spacing="4">
-                                                    <!-- Terminal Command Execution -->
-                                                    <c:TerminalViewerControl DataContext="{Binding}"
-                                                                             IsVisible="{Binding Command, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
-
-                                                    <!-- File Diff Viewer -->
-                                                    <c:FileDiffControl DataContext="{Binding}"
-                                                                       IsVisible="{Binding DiffRows, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-
-                                                    <!-- Localhost URL Link Banner -->
-                                                    <Border Background="#06281E" BorderBrush="#10B981" BorderThickness="1" CornerRadius="6" Padding="10,6"
-                                                            IsVisible="{Binding LocalhostUrl, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                                                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                                            <TextBlock Text="🌐" FontSize="12" VerticalAlignment="Center"/>
-                                                            <TextBlock Text="Dev server running at: " Foreground="#A1A1AA" FontSize="11.5" VerticalAlignment="Center"/>
-                                                            <TextBlock Text="{Binding LocalhostUrl}" Foreground="#10B981" FontWeight="Bold" FontSize="11.5"
-                                                                       FontFamily="Consolas, Monaco, Monospace" VerticalAlignment="Center"/>
+                                                        <!-- Right side +Add / -Del counters -->
+                                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="8,0,4,0"
+                                                                    IsVisible="{Binding Add, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                                            <TextBlock Text="{Binding Add, StringFormat='+{0}'}" Foreground="#10B981"
+                                                                       FontFamily="Consolas, Monaco, Monospace" FontSize="10.5" FontWeight="SemiBold"/>
+                                                            <TextBlock Text="{Binding Del, StringFormat='−{0}'}" Foreground="#F43F5E"
+                                                                       FontFamily="Consolas, Monaco, Monospace" FontSize="10.5" FontWeight="SemiBold"
+                                                                       IsVisible="{Binding Del, Converter={x:Static ObjectConverters.IsNotNull}}"/>
                                                         </StackPanel>
-                                                    </Border>
 
-                                                    <!-- Generic Output (if neither command nor diff) -->
-                                                    <Border Background="#141416" BorderBrush="#222226" BorderThickness="1" CornerRadius="6" Padding="10,8"
-                                                            IsVisible="{Binding Output, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                                                        <SelectableTextBlock Text="{Binding Output}" Foreground="#A1A1AA"
-                                                                            FontFamily="Consolas, Monaco, Monospace" FontSize="11" LineHeight="17" TextWrapping="Wrap"/>
-                                                    </Border>
-                                                </StackPanel>
-                                            </Border>
-                                        </StackPanel>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
+                                                        <!-- Chevron to expand details -->
+                                                        <TextBlock Grid.Column="3" Text="▾" Foreground="#71717A" FontSize="10" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                                                    </Grid>
+                                                </Border>
+
+                                                <!-- Expandable Shell Detail Panel -->
+                                                <Border Name="DetailPanel" IsVisible="False" Margin="4,2,0,4">
+                                                    <StackPanel Spacing="4">
+                                                        <!-- Terminal Command Execution -->
+                                                        <c:TerminalViewerControl DataContext="{Binding}"
+                                                                                 IsVisible="{Binding Command, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+
+                                                        <!-- File Diff Viewer -->
+                                                        <c:FileDiffControl DataContext="{Binding}"
+                                                                           IsVisible="{Binding DiffRows, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+
+                                                        <!-- Localhost URL Link Banner -->
+                                                        <Border Background="#06281E" BorderBrush="#10B981" BorderThickness="1" CornerRadius="6" Padding="10,6"
+                                                                IsVisible="{Binding LocalhostUrl, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                                                <TextBlock Text="🌐" FontSize="12" VerticalAlignment="Center"/>
+                                                                <TextBlock Text="Dev server running at: " Foreground="#A1A1AA" FontSize="11.5" VerticalAlignment="Center"/>
+                                                                <TextBlock Text="{Binding LocalhostUrl}" Foreground="#10B981" FontWeight="Bold" FontSize="11.5"
+                                                                           FontFamily="Consolas, Monaco, Monospace" VerticalAlignment="Center"/>
+                                                            </StackPanel>
+                                                        </Border>
+
+                                                        <!-- Generic Output (if neither command nor diff) -->
+                                                        <Border Background="#141416" BorderBrush="#222226" BorderThickness="1" CornerRadius="6" Padding="10,8"
+                                                                IsVisible="{Binding Output, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                                            <SelectableTextBlock Text="{Binding Output}" Foreground="#A1A1AA"
+                                                                                FontFamily="Consolas, Monaco, Monospace" FontSize="11" LineHeight="17" TextWrapping="Wrap"/>
+                                                        </Border>
+                                                    </StackPanel>
+                                                </Border>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </Border>
                         </StackPanel>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
