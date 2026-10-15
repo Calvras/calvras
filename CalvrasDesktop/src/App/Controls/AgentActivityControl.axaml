@@ -29,7 +29,12 @@
             <ItemsControl Name="PhasesList">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="m:AgentPhaseModel">
-                        <StackPanel Spacing="4" Margin="0,2,0,6">
+                        <StackPanel Spacing="4" Margin="0,6,0,2">
+                            <!-- Phase narration first -->
+                            <SelectableTextBlock Text="{Binding Message}" Foreground="#D1D5DB" FontSize="12.5"
+                                                 TextWrapping="Wrap" LineHeight="18" Margin="0,0,0,4"
+                                                 IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                            <!-- Then the trace tool actions -->
                             <ItemsControl ItemsSource="{Binding Trace}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="m:TraceNodeModel">
@@ -65,15 +70,5 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
         </Border>
-
-        <!-- Phase messages always visible (outside the collapsible border) -->
-        <ItemsControl Name="PhaseMessagesList">
-            <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="m:AgentPhaseModel">
-                    <SelectableTextBlock Text="{Binding Message}" Foreground="#F0F6FC" FontSize="13" TextWrapping="Wrap" LineHeight="20"
-                                         Margin="4,2,4,2" IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
-                </DataTemplate>
-            </ItemsControl.ItemTemplate>
-        </ItemsControl>
     </StackPanel>
 </UserControl>

@@ -54,7 +54,6 @@ public partial class AgentActivityControl : UserControl
         if (change.Property == PhasesProperty)
         {
             PhasesList.ItemsSource = change.GetNewValue<IEnumerable?>();
-            PhaseMessagesList.ItemsSource = change.GetNewValue<IEnumerable?>();
         }
         else if (change.Property == IsWorkingProperty)
         {
