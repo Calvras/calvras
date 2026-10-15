@@ -36,6 +36,9 @@
             </StackPanel>
         </Border>
 
+        <!-- Hairline divider under master header matching screenshot template -->
+        <Border BorderBrush="#222226" BorderThickness="0,0,0,1" Margin="0,3,0,6"/>
+
         <!-- Master Collapsible Timeline Channel (Thin vertical left border line) -->
         <Border Name="TraceBody" IsVisible="False"
                 BorderBrush="#2A2A2E" BorderThickness="1,0,0,0"
@@ -87,7 +90,7 @@
                                                         <TextBlock Text="⚠️" FontSize="11" Foreground="#F43F5E"
                                                                    IsVisible="{Binding ExitCode, Converter={x:Static ObjectConverters.IsNotNull}}"/>
                                                         <!-- Normal Tool Icon -->
-                                                        <TextBlock Text="⚡" FontSize="11" Foreground="#8B5CF6"
+                                                        <TextBlock Text="{Binding Icon, FallbackValue='⚡'}" FontSize="11" Foreground="#8B5CF6"
                                                                    IsVisible="{Binding ExitCode, Converter={x:Static ObjectConverters.IsNull}}"/>
                                                     </Panel>
 

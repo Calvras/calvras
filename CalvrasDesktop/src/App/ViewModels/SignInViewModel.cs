@@ -18,7 +18,7 @@ public partial class SignInViewModel : ViewModelBase
     private string _password = string.Empty;
 
     [ObservableProperty]
-    private bool _isSignUp = false;
+    private bool _isSignUp = true; // default to Sign Up page after fresh install
 
     [ObservableProperty]
     private string? _errorMessage;
@@ -40,6 +40,56 @@ public partial class SignInViewModel : ViewModelBase
     }
 
     [RelayCommand]
+    private async Task GoogleSignInAsync()
+    {
+        IsLoading = true;
+        ErrorMessage = null;
+        try
+        {
+            await Task.Delay(200);
+            var email = "user@gmail.com";
+            var simulatedToken = $"calvras_goog_{Guid.NewGuid():N}";
+            await _credentialService.SetSecretAsync("auth_token", simulatedToken);
+            await _credentialService.SetSecretAsync("user_email", email);
+
+            _onSignedIn(email);
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Google sign in failed: {ex.Message}";
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task GitHubSignInAsync()
+    {
+        IsLoading = true;
+        ErrorMessage = null;
+        try
+        {
+            await Task.Delay(200);
+            var email = "developer@github.com";
+            var simulatedToken = $"calvras_gh_{Guid.NewGuid():N}";
+            await _credentialService.SetSecretAsync("auth_token", simulatedToken);
+            await _credentialService.SetSecretAsync("user_email", email);
+
+            _onSignedIn(email);
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"GitHub sign in failed: {ex.Message}";
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    [RelayCommand]
     private async Task SubmitAsync()
     {
         if (string.IsNullOrWhiteSpace(Email) || string.IsNullOrWhiteSpace(Password))
@@ -53,8 +103,7 @@ public partial class SignInViewModel : ViewModelBase
 
         try
         {
-            // Simulate / authenticate and store token securely in OS vault
-            await Task.Delay(400); // smooth async feel
+            await Task.Delay(300);
             var simulatedToken = $"calvras_tk_{Guid.NewGuid():N}";
             await _credentialService.SetSecretAsync("auth_token", simulatedToken);
             await _credentialService.SetSecretAsync("user_email", Email);

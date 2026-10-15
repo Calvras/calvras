@@ -2,40 +2,89 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Calvras.App.ViewModels"
              x:Class="Calvras.App.Views.SignInView"
-             x:DataType="vm:SignInViewModel">
+             x:DataType="vm:SignInViewModel"
+             Background="#121212">
+
     <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
-        <Border Background="#161B22" BorderBrush="#30363D" BorderThickness="1" CornerRadius="12" Padding="28" Width="380">
+        <Border Background="#18181B" BorderBrush="#27272A" BorderThickness="1" CornerRadius="16" Padding="32,28" Width="400"
+                BoxShadow="0 10 32 #50000000">
             <StackPanel Spacing="16">
-                <!-- Header -->
-                <StackPanel Spacing="4" HorizontalAlignment="Center">
-                    <TextBlock Text="Calvras Account" FontSize="20" FontWeight="Bold" Foreground="#F0F6FC" TextAlignment="Center"/>
-                    <TextBlock Text="Store your credentials securely in your Windows Vault." FontSize="11" Foreground="#8B949E" TextAlignment="Center"/>
+                <!-- Brand Header -->
+                <StackPanel Spacing="6" HorizontalAlignment="Center">
+                    <Image Source="/Assets/calvras-logo.png" Width="40" Height="40" HorizontalAlignment="Center"
+                           RenderOptions.BitmapInterpolationMode="HighQuality"/>
+                    <TextBlock Text="Welcome to Calvras" FontSize="20" FontWeight="Bold" Foreground="#F4F4F5" HorizontalAlignment="Center"/>
+                    <TextBlock Text="Build real projects with autonomous AI" FontSize="12" Foreground="#71717A" HorizontalAlignment="Center"/>
                 </StackPanel>
 
                 <!-- Error Message Banner -->
-                <Border Background="#2B1619" BorderBrush="#F85149" BorderThickness="1" CornerRadius="6" Padding="10,6" IsVisible="{Binding ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                    <TextBlock Text="{Binding ErrorMessage}" Foreground="#F85149" FontSize="11" TextWrapping="Wrap"/>
+                <Border Background="#2B0F15" BorderBrush="#F43F5E" BorderThickness="1" CornerRadius="6" Padding="10,6"
+                        IsVisible="{Binding ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                    <TextBlock Text="{Binding ErrorMessage}" Foreground="#F43F5E" FontSize="11.5" TextWrapping="Wrap"/>
                 </Border>
 
-                <!-- Inputs -->
+                <!-- Social Logins (Google & GitHub) -->
+                <StackPanel Spacing="8">
+                    <!-- Google Button (Auto-logs in on click) -->
+                    <Button Command="{Binding GoogleSignInCommand}"
+                            Background="#F4F4F5" Foreground="#18181B"
+                            BorderThickness="0" CornerRadius="8" Padding="12,9"
+                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Cursor="Hand">
+                        <Grid ColumnDefinitions="Auto,*">
+                            <!-- Google G Symbol -->
+                            <TextBlock Grid.Column="0" Text="G" FontSize="14" FontWeight="Bold" Foreground="#EA4335" Margin="0,0,10,0" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1" Text="Continue with Google" FontSize="12.5" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        </Grid>
+                    </Button>
+
+                    <!-- GitHub Button -->
+                    <Button Command="{Binding GitHubSignInCommand}"
+                            Background="#27272A" Foreground="#F4F4F5"
+                            BorderBrush="#3F3F46" BorderThickness="1" CornerRadius="8" Padding="12,9"
+                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Cursor="Hand">
+                        <Grid ColumnDefinitions="Auto,*">
+                            <!-- GitHub Octocat Symbol -->
+                            <PathIcon Grid.Column="0" Width="14" Height="14" Foreground="#F4F4F5" Margin="0,0,10,0"
+                                      Data="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
+                            <TextBlock Grid.Column="1" Text="Continue with GitHub" FontSize="12.5" FontWeight="Medium" VerticalAlignment="Center"/>
+                        </Grid>
+                    </Button>
+                </StackPanel>
+
+                <!-- Divider -->
+                <Grid ColumnDefinitions="*,Auto,*" Margin="0,4">
+                    <Border Grid.Column="0" Background="#27272A" Height="1" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="1" Text="or continue with email" FontSize="11" Foreground="#71717A" Margin="10,0"/>
+                    <Border Grid.Column="2" Background="#27272A" Height="1" VerticalAlignment="Center"/>
+                </Grid>
+
+                <!-- Email & Password Inputs -->
                 <StackPanel Spacing="10">
                     <StackPanel Spacing="4">
-                        <TextBlock Text="Email address" FontSize="11" Foreground="#8B949E"/>
-                        <TextBox Text="{Binding Email, Mode=TwoWay}" Watermark="you@example.com" Background="#0D1117" BorderBrush="#30363D" Foreground="#F0F6FC" CornerRadius="6" FontSize="12"/>
+                        <TextBlock Text="Email address" FontSize="11" Foreground="#A1A1AA"/>
+                        <TextBox Text="{Binding Email, Mode=TwoWay}" Watermark="you@example.com"
+                                 Background="#0F0F11" BorderBrush="#27272A" Foreground="#F4F4F5"
+                                 CornerRadius="6" FontSize="12.5" Padding="10,8"/>
                     </StackPanel>
 
                     <StackPanel Spacing="4">
-                        <TextBlock Text="Password" FontSize="11" Foreground="#8B949E"/>
-                        <TextBox Text="{Binding Password, Mode=TwoWay}" PasswordChar="●" Watermark="••••••••" Background="#0D1117" BorderBrush="#30363D" Foreground="#F0F6FC" CornerRadius="6" FontSize="12"/>
+                        <TextBlock Text="Password" FontSize="11" Foreground="#A1A1AA"/>
+                        <TextBox Text="{Binding Password, Mode=TwoWay}" PasswordChar="●" Watermark="••••••••"
+                                 Background="#0F0F11" BorderBrush="#27272A" Foreground="#F4F4F5"
+                                 CornerRadius="6" FontSize="12.5" Padding="10,8"/>
                     </StackPanel>
                 </StackPanel>
 
                 <!-- Submit Button -->
-                <Button Content="{Binding IsSignUp, Converter={x:Null}, FallbackValue='Sign In'}" Command="{Binding SubmitCommand}" Background="#8957E5" Foreground="White" CornerRadius="8" Padding="12,10" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" FontWeight="Bold" Cursor="Hand"/>
+                <Button Command="{Binding SubmitCommand}"
+                        Background="#2563EB" Foreground="White" CornerRadius="8" Padding="12,9"
+                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" FontWeight="SemiBold" FontSize="13" Cursor="Hand">
+                    <TextBlock Text="{Binding IsSignUp, Converter={x:Static ObjectConverters.Equal}, ConverterParameter=True, FallbackValue='Create account'}"/>
+                </Button>
 
                 <!-- Mode Switcher -->
-                <Button Command="{Binding ToggleModeCommand}" Background="Transparent" Foreground="#8B949E" FontSize="11" HorizontalAlignment="Center" Cursor="Hand">
-                    <TextBlock Text="{Binding IsSignUp, Converter={x:Null}, FallbackValue='Don\'t have an account? Sign Up'}"/>
+                <Button Command="{Binding ToggleModeCommand}" Background="Transparent" Foreground="#A1A1AA" FontSize="11.5" HorizontalAlignment="Center" Cursor="Hand">
+                    <TextBlock Text="Switch between Sign In and Sign Up"/>
                 </Button>
             </StackPanel>
         </Border>

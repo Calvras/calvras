@@ -26,6 +26,15 @@ public partial class MainViewModel : ViewModelBase
     [ObservableProperty]
     private ProjectModel? _activeProject;
 
+    public string FolderButtonText => ActiveProject != null && !string.IsNullOrWhiteSpace(ActiveProject.Name)
+        ? ActiveProject.Name
+        : "Upload a folder";
+
+    partial void OnActiveProjectChanged(ProjectModel? value)
+    {
+        OnPropertyChanged(nameof(FolderButtonText));
+    }
+
     [ObservableProperty]
     private ObservableCollection<ProjectModel> _recentProjects = new();
 
@@ -115,11 +124,15 @@ public partial class MainViewModel : ViewModelBase
         await _db.InitializeAsync();
         await LoadRecentProjectsAsync();
 
-        // Restore auth credentials
         var savedEmail = await _credentialService.GetSecretAsync("user_email");
         if (!string.IsNullOrWhiteSpace(savedEmail))
         {
             UserEmail = savedEmail;
+        }
+        else
+        {
+            // After installation taken to sign up page
+            CurrentView = SignInVm;
         }
 
         var savedToken = await _credentialService.GetSecretAsync("auth_token");

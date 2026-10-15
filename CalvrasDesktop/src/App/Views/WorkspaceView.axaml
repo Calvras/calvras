@@ -11,110 +11,155 @@
         <!-- Main Workspace Area with strict 25px vertical clearance between messages and input -->
         <Grid Grid.Column="0" RowDefinitions="*,Auto">
             <!-- Scrollable Timeline fills space above, guaranteed 25px above the input -->
-            <ScrollViewer Grid.Row="0" Name="TimelineScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" Padding="20,20,20,0" Margin="0,0,0,25">
-                <StackPanel MaxWidth="680" HorizontalAlignment="Stretch" Margin="0,0,0,10">
-                    <!-- Welcome state (calvras.com: logo + text centered, no starter pills) -->
-                    <StackPanel IsVisible="{Binding !Messages.Count}" Margin="0,180,0,0" HorizontalAlignment="Center">
-                        <Image Source="/Assets/calvras-logo.png" Width="56" Height="56"
-                               HorizontalAlignment="Center" VerticalAlignment="Center"
-                               RenderOptions.BitmapInterpolationMode="HighQuality"
-                               Margin="0,0,0,20"/>
-                        <TextBlock Text="Your next idea starts here." FontSize="24" FontWeight="Normal"
-                                   Foreground="#F4F4F5" HorizontalAlignment="Center"/>
-                    </StackPanel>
+            <Grid Grid.Row="0" Margin="0,0,0,25">
+                <ScrollViewer Name="TimelineScroll"
+                              HorizontalScrollBarVisibility="Disabled"
+                              VerticalScrollBarVisibility="Auto"
+                              Padding="20,20,20,0"
+                              PointerPressed="OnBackgroundPointerPressed">
+                    <StackPanel MaxWidth="680" HorizontalAlignment="Stretch" Margin="0,0,0,10">
+                        <!-- Welcome state (calvras.com: logo + text centered, no starter pills) -->
+                        <StackPanel IsVisible="{Binding !Messages.Count}" Margin="0,180,0,0" HorizontalAlignment="Center">
+                            <Image Source="/Assets/calvras-logo.png" Width="56" Height="56"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   RenderOptions.BitmapInterpolationMode="HighQuality"
+                                   Margin="0,0,0,20"/>
+                            <TextBlock Text="Your next idea starts here." FontSize="24" FontWeight="Normal"
+                                       Foreground="#F4F4F5" HorizontalAlignment="Center"/>
+                        </StackPanel>
 
-                    <!-- Chat Message List -->
-                    <ItemsControl ItemsSource="{Binding Messages}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate x:DataType="m:ChatMessageModel">
-                                <StackPanel Margin="0,8">
-                                    <!-- User Message (ONLY visible when IsUser, right-aligned) -->
-                                    <Border IsVisible="{Binding IsUser}"
-                                            HorizontalAlignment="Right" Background="#242426" CornerRadius="18"
-                                            Padding="16,10" MaxWidth="540" Margin="0,4">
-                                        <StackPanel Spacing="4">
-                                            <SelectableTextBlock Text="{Binding Text}" Foreground="#FFFFFF"
-                                                                 FontSize="13.5" TextWrapping="Wrap" LineHeight="20"/>
-                                            <ItemsControl ItemsSource="{Binding AttachedFiles}" IsVisible="{Binding HasAttachedFiles}">
-                                                <ItemsControl.ItemTemplate>
-                                                    <DataTemplate>
-                                                        <Border Background="#1C1C1F" CornerRadius="4" Padding="6,2" Margin="0,2">
-                                                            <TextBlock Text="{Binding}" Foreground="#8E8E93" FontSize="10" TextTrimming="CharacterEllipsis"/>
-                                                        </Border>
-                                                    </DataTemplate>
-                                                </ItemsControl.ItemTemplate>
-                                            </ItemsControl>
-                                        </StackPanel>
-                                    </Border>
-
-                                    <!-- Assistant Message (ONLY visible when IsAssistant, left-aligned) -->
-                                    <StackPanel IsVisible="{Binding IsAssistant}" HorizontalAlignment="Left" MaxWidth="680" Margin="0,4,0,8" Spacing="8">
-                                        <!-- Unified Work Trace with Master Header (ported from ai-agent-response.tsx) -->
-                                        <c:AgentActivityControl
-                                            Phases="{Binding Phases}"
-                                            IsWorking="{Binding !Done}"
-                                            ElapsedSeconds="{Binding ElapsedSeconds}"/>
-
-                                        <!-- Final streaming / typed Markdown response -->
-                                        <c:MarkdownTextControl Text="{Binding Text}" IsVisible="{Binding HasText}"/>
-
-                                        <!-- Assistant Response Action Bar (Copy, Thumbs Up, Thumbs Down) -->
-                                        <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,4,0,0" IsVisible="{Binding HasText}">
-                                            <!-- Copy SVG Button -->
-                                            <Button Command="{Binding $parent[UserControl].DataContext.CopyMessageCommand}"
-                                                    CommandParameter="{Binding Text}"
-                                                    Background="Transparent" BorderThickness="0" Padding="6,4" CornerRadius="6" Cursor="Hand"
-                                                    ToolTip.Tip="Copy response">
-                                                <Button.Styles>
-                                                    <Style Selector="Button:pointerover /template/ ContentPresenter">
-                                                        <Setter Property="Background" Value="#27272A"/>
-                                                    </Style>
-                                                </Button.Styles>
-                                                <PathIcon Width="13" Height="13" Foreground="#71717A"
-                                                          Data="M4,2 C2.8954305,2 2,2.8954305 2,4 L2,14 C2,15.1045695 2.8954305,16 4,16 L12,16 C13.1045695,16 14,15.1045695 14,14 L14,4 C14,2.8954305 13.1045695,2 12,2 L4,2 Z M4,3 L12,3 C12.5522847,3 13,3.44771525 13,4 L13,14 C13,14.5522847 12.5522847,15 12,15 L4,15 C3.44771525,15 3,14.5522847 3,14 L3,4 C3,3.44771525 3.44771525,3 4,3 Z"/>
-                                            </Button>
-
-                                            <!-- Thumbs Up SVG Button -->
-                                            <Button Command="{Binding $parent[UserControl].DataContext.FeedbackUpCommand}"
-                                                    CommandParameter="{Binding}"
-                                                    Background="Transparent" BorderThickness="0" Padding="6,4" CornerRadius="6" Cursor="Hand"
-                                                    ToolTip.Tip="Good response">
-                                                <Button.Styles>
-                                                    <Style Selector="Button:pointerover /template/ ContentPresenter">
-                                                        <Setter Property="Background" Value="#27272A"/>
-                                                    </Style>
-                                                </Button.Styles>
-                                                <PathIcon Width="13" Height="13" Foreground="#71717A"
-                                                          Data="M2 10h3v10H2zm18-1c0-.55-.45-1-1-1h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L12.17 2 7.58 6.59C7.22 6.95 7 7.45 7 8v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/>
-                                            </Button>
-
-                                            <!-- Thumbs Down SVG Button -->
-                                            <Button Command="{Binding $parent[UserControl].DataContext.FeedbackDownCommand}"
-                                                    CommandParameter="{Binding}"
-                                                    Background="Transparent" BorderThickness="0" Padding="6,4" CornerRadius="6" Cursor="Hand"
-                                                    ToolTip.Tip="Bad response">
-                                                <Button.Styles>
-                                                    <Style Selector="Button:pointerover /template/ ContentPresenter">
-                                                        <Setter Property="Background" Value="#27272A"/>
-                                                    </Style>
-                                                </Button.Styles>
-                                                <PathIcon Width="13" Height="13" Foreground="#71717A"
-                                                          Data="M19 14h3V4h-3zM2 15c0 .55.45 1 1 1h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L9.83 22l4.59-4.59c.36-.36.58-.86.58-1.41V6c0-1.1-.9-2-2-2H4c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2z"/>
-                                            </Button>
-                                        </StackPanel>
-
-                                        <!-- Error banner if failed -->
-                                        <Border Background="#1C1C1F" BorderBrush="#EF4444" BorderThickness="1" CornerRadius="8"
-                                                Padding="10,6" IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                                            <TextBlock Text="{Binding Error}" Foreground="#EF4444" FontSize="12" TextWrapping="Wrap"/>
+                        <!-- Chat Message List -->
+                        <ItemsControl ItemsSource="{Binding Messages}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="m:ChatMessageModel">
+                                    <StackPanel Margin="0,8">
+                                        <!-- User Message: Rounded Blue Pill Bubble (matching screenshots) -->
+                                        <Border IsVisible="{Binding IsUser}"
+                                                HorizontalAlignment="Right" Background="#1D4ED8" CornerRadius="18"
+                                                Padding="16,9" MaxWidth="540" Margin="0,4">
+                                            <StackPanel Spacing="4">
+                                                <SelectableTextBlock Text="{Binding Text}" Foreground="#FFFFFF"
+                                                                     FontSize="13.5" TextWrapping="Wrap" LineHeight="20"/>
+                                                <ItemsControl ItemsSource="{Binding AttachedFiles}" IsVisible="{Binding HasAttachedFiles}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Border Background="#1E40AF" CornerRadius="4" Padding="6,2" Margin="0,2">
+                                                                <TextBlock Text="{Binding}" Foreground="#E0E7FF" FontSize="10" TextTrimming="CharacterEllipsis"/>
+                                                            </Border>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
                                         </Border>
+
+                                        <!-- Assistant Message (Left-aligned unboxed text) -->
+                                        <StackPanel IsVisible="{Binding IsAssistant}" HorizontalAlignment="Left" MaxWidth="680" Margin="0,4,0,8" Spacing="8">
+                                            <!-- Unified Work Trace with Master Header (ported from ai-agent-response.tsx) -->
+                                            <c:AgentActivityControl
+                                                Phases="{Binding Phases}"
+                                                IsWorking="{Binding !Done}"
+                                                ElapsedSeconds="{Binding ElapsedSeconds}"/>
+
+                                            <!-- Final streaming / typed Markdown response -->
+                                            <c:MarkdownTextControl Text="{Binding Text}" IsVisible="{Binding HasText}"/>
+
+                                            <!-- Native Web Preview Card (Matching attached screenshots) -->
+                                            <Border Background="#18181B" BorderBrush="#26262B" BorderThickness="1" CornerRadius="10" Padding="12,10" Margin="0,4,0,2" MaxWidth="560"
+                                                    IsVisible="{Binding LocalhostUrl, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                                <Grid ColumnDefinitions="Auto,*,Auto">
+                                                    <!-- Rounded globe container -->
+                                                    <Border Grid.Column="0" Width="34" Height="34" CornerRadius="8" Background="#0F172A" BorderBrush="#1E293B" BorderThickness="1" Margin="0,0,12,0">
+                                                        <PathIcon Width="16" Height="16" Foreground="#38BDF8"
+                                                                  Data="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm6.93 6h-2.95a15.65 15.65 0 0 0-1.38-3.56A8.03 8.03 0 0 1 18.93 8zM12 4.07a14 14 0 0 1 1.91 3.93h-3.82A14 14 0 0 1 12 4.07zM4.26 14a8.04 8.04 0 0 1 0-4h3.38a16.63 16.63 0 0 0-.14 2 16.63 16.63 0 0 0 .14 2zm.81 2h2.95a15.65 15.65 0 0 0 1.38 3.56A8.03 8.03 0 0 1 5.07 16zm2.95-8H5.07a8.03 8.03 0 0 1 4.33-3.56A15.65 15.65 0 0 0 8.02 8zm3.98 11.93A14 14 0 0 1 10.09 16h3.82a14 14 0 0 1-1.91 3.93zM9.54 14a14.7 14.7 0 0 1-.14-2c0-.68.05-1.35.14-2h4.92c.09.65.14 1.32.14 2 0 .68-.05 1.35-.14 2zm4.87 5.56a15.65 15.65 0 0 0 1.38-3.56h2.95a8.03 8.03 0 0 1-4.33 3.56zM16.36 14a16.63 16.63 0 0 0 .14-2 16.63 16.63 0 0 0-.14-2h3.38a8.04 8.04 0 0 1 0 4z"
+                                                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                    </Border>
+
+                                                    <!-- Title and Subtitle -->
+                                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                                        <TextBlock Text="Web preview" FontSize="12.5" FontWeight="SemiBold" Foreground="#F4F4F5"/>
+                                                        <TextBlock Text="Website" FontSize="11" Foreground="#71717A"/>
+                                                    </StackPanel>
+
+                                                    <!-- "Open in ⌄" button -->
+                                                    <Button Grid.Column="2" Click="OnOpenWebPreviewClick" CommandParameter="{Binding LocalhostUrl}"
+                                                            Background="#242428" BorderBrush="#333338" BorderThickness="1"
+                                                            CornerRadius="6" Padding="12,5" Cursor="Hand" ToolTip.Tip="Open preview in browser">
+                                                        <Button.Styles>
+                                                            <Style Selector="Button:pointerover /template/ ContentPresenter">
+                                                                <Setter Property="Background" Value="#2E2E34"/>
+                                                            </Style>
+                                                        </Button.Styles>
+                                                        <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                                            <TextBlock Text="Open in" FontSize="11.5" Foreground="#F4F4F5" VerticalAlignment="Center"/>
+                                                            <TextBlock Text="⌄" FontSize="10" Foreground="#A1A1AA" VerticalAlignment="Center"/>
+                                                        </StackPanel>
+                                                    </Button>
+                                                </Grid>
+                                            </Border>
+
+                                            <!-- Assistant Action Bar (Copy, Speaker, Thumbs Down, Branch, Timestamp) -->
+                                            <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,4,0,0" IsVisible="{Binding HasText}">
+                                                <!-- Copy Button -->
+                                                <Button Command="{Binding $parent[UserControl].DataContext.CopyMessageCommand}"
+                                                        CommandParameter="{Binding Text}"
+                                                        Background="Transparent" BorderThickness="0" Padding="5,3" CornerRadius="5" Cursor="Hand"
+                                                        ToolTip.Tip="Copy response">
+                                                    <PathIcon Width="12.5" Height="12.5" Foreground="#71717A"
+                                                              Data="M4,2 C2.8954305,2 2,2.8954305 2,4 L2,14 C2,15.1045695 2.8954305,16 4,16 L12,16 C13.1045695,16 14,15.1045695 14,14 L14,4 C14,2.8954305 13.1045695,2 12,2 L4,2 Z M4,3 L12,3 C12.5522847,3 13,3.44771525 13,4 L13,14 C13,14.5522847 12.5522847,15 12,15 L4,15 C3.44771525,15 3,14.5522847 3,14 L3,4 C3,3.44771525 3.44771525,3 4,3 Z"/>
+                                                </Button>
+
+                                                <!-- Speaker (Audio) Button -->
+                                                <Button Background="Transparent" BorderThickness="0" Padding="5,3" CornerRadius="5" Cursor="Hand"
+                                                        ToolTip.Tip="Read aloud">
+                                                    <PathIcon Width="12.5" Height="12.5" Foreground="#71717A"
+                                                              Data="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+                                                </Button>
+
+                                                <!-- Thumbs Down Button -->
+                                                <Button Command="{Binding $parent[UserControl].DataContext.FeedbackDownCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        Background="Transparent" BorderThickness="0" Padding="5,3" CornerRadius="5" Cursor="Hand"
+                                                        ToolTip.Tip="Bad response">
+                                                    <PathIcon Width="12.5" Height="12.5" Foreground="#71717A"
+                                                              Data="M19 14h3V4h-3zM2 15c0 .55.45 1 1 1h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L9.83 22l4.59-4.59c.36-.36.58-.86.58-1.41V6c0-1.1-.9-2-2-2H4c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2z"/>
+                                                </Button>
+
+                                                <!-- Branch / Share Button -->
+                                                <Button Background="Transparent" BorderThickness="0" Padding="5,3" CornerRadius="5" Cursor="Hand"
+                                                        ToolTip.Tip="Branch conversation">
+                                                    <PathIcon Width="12.5" Height="12.5" Foreground="#71717A"
+                                                              Data="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z"/>
+                                                </Button>
+
+                                                <!-- Timestamp (e.g. Yesterday 8:33 PM) -->
+                                                <TextBlock Text="{Binding TimestampFormatted}" Foreground="#71717A" FontSize="11"
+                                                           VerticalAlignment="Center" Margin="6,0,0,0"/>
+                                            </StackPanel>
+
+                                            <!-- Error banner if failed -->
+                                            <Border Background="#1C1C1F" BorderBrush="#EF4444" BorderThickness="1" CornerRadius="8"
+                                                    Padding="10,6" IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                                <TextBlock Text="{Binding Error}" Foreground="#EF4444" FontSize="12" TextWrapping="Wrap"/>
+                                            </Border>
+                                        </StackPanel>
                                     </StackPanel>
-                                </StackPanel>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </StackPanel>
-            </ScrollViewer>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- Floating Scroll to Bottom button (matching screenshots) -->
+                <Button Name="ScrollBottomBtn" Click="OnScrollToBottomClick"
+                        HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                        Width="32" Height="32" CornerRadius="16"
+                        Background="#222226" BorderBrush="#333338" BorderThickness="1"
+                        Margin="0,0,0,12" Padding="0" Cursor="Hand"
+                        IsVisible="False"
+                        ToolTip.Tip="Scroll to bottom">
+                    <TextBlock Text="↓" FontSize="13" Foreground="#E4E4E7" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Button>
+            </Grid>
 
             <!-- Input seated in bottom row, strictly separated from messages by 25px -->
             <Border Grid.Row="1" Background="#121212" Padding="20,0,20,18" HorizontalAlignment="Stretch">

@@ -60,6 +60,9 @@ public record TraceNodeModel
     [JsonPropertyName("primary")]
     public string? Primary { get; init; }
 
+    [JsonPropertyName("icon")]
+    public string? Icon { get; init; }
+
     [JsonPropertyName("secondary")]
     public string? Secondary { get; init; }
 
@@ -138,6 +141,23 @@ public record ChatMessageModel
     public double ElapsedSeconds => EndedAt.HasValue && StartedAt.HasValue
         ? (EndedAt.Value - StartedAt.Value) / 1000.0
         : StartedAt.HasValue ? (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - StartedAt.Value) / 1000.0 : 0;
+
+    public string? LocalhostUrl => System.Linq.Enumerable.FirstOrDefault(
+        System.Linq.Enumerable.SelectMany(Phases, p => p.Trace),
+        t => !string.IsNullOrEmpty(t.LocalhostUrl))?.LocalhostUrl;
+
+    public string TimestampFormatted
+    {
+        get
+        {
+            var dt = StartedAt.HasValue
+                ? DateTimeOffset.FromUnixTimeMilliseconds(StartedAt.Value).ToLocalTime()
+                : DateTimeOffset.Now;
+            return dt.Date == DateTime.Today
+                ? $"Today {dt:h:mm tt}"
+                : $"{dt:dddd h:mm tt}";
+        }
+    }
 }
 
 public record ImplementationPlanModel

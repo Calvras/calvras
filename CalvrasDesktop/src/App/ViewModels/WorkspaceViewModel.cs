@@ -152,6 +152,7 @@ public partial class WorkspaceViewModel : ViewModelBase
         PromptText = string.Empty;
         var attachments = AttachedFiles.ToList();
         AttachedFiles.Clear();
+        CollapseInput();
 
         // 1. User Message (Right-aligned bubble)
         var userMsg = new ChatMessageModel

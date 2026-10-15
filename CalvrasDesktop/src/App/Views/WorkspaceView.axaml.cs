@@ -1,8 +1,10 @@
+using System;
 using System.Collections.Specialized;
+using System.Diagnostics;
 using Avalonia.Controls;
-using Avalonia.Controls.Presenters;
+using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Threading;
-using Avalonia.VisualTree;
 using Calvras.App.ViewModels;
 
 namespace Calvras.App.Views;
@@ -10,13 +12,13 @@ namespace Calvras.App.Views;
 public partial class WorkspaceView : UserControl
 {
     private ScrollViewer? _scroll;
+    private Button? _scrollBottomBtn;
     private bool _userScrolledUp = false;
 
     public WorkspaceView()
     {
         InitializeComponent();
 
-        // Wire up after template is applied
         TemplateApplied += (_, _) => SetupScroll();
         DataContextChanged += OnDataContextChanged;
     }
@@ -24,13 +26,15 @@ public partial class WorkspaceView : UserControl
     private void SetupScroll()
     {
         _scroll = this.FindControl<ScrollViewer>("TimelineScroll");
+        _scrollBottomBtn = this.FindControl<Button>("ScrollBottomBtn");
+
         if (_scroll != null)
         {
             _scroll.ScrollChanged += OnScrollChanged;
         }
     }
 
-    private void OnDataContextChanged(object? sender, System.EventArgs e)
+    private void OnDataContextChanged(object? sender, EventArgs e)
     {
         if (DataContext is WorkspaceViewModel vm)
         {
@@ -49,20 +53,58 @@ public partial class WorkspaceView : UserControl
     {
         if (_scroll == null) return;
 
-        // If the user scrolled up (offset decreased or scroll not at bottom), mark it
         var distanceFromBottom = _scroll.Extent.Height - _scroll.Offset.Y - _scroll.Viewport.Height;
-        _userScrolledUp = distanceFromBottom > 80;
+        _userScrolledUp = distanceFromBottom > 90;
+
+        if (_scrollBottomBtn != null)
+        {
+            _scrollBottomBtn.IsVisible = _userScrolledUp;
+        }
     }
 
     private void OnMessagesChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         if (_userScrolledUp) return;
 
-        // Defer until layout is complete
         Dispatcher.UIThread.Post(() =>
         {
             _scroll ??= this.FindControl<ScrollViewer>("TimelineScroll");
             _scroll?.ScrollToEnd();
         }, DispatcherPriority.Loaded);
+    }
+
+    public void OnBackgroundPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (DataContext is WorkspaceViewModel vm)
+        {
+            // If prompt is empty or whitespace and no files attached, collapse to small size on click outside
+            if (string.IsNullOrWhiteSpace(vm.PromptText) && vm.AttachedFiles.Count == 0)
+            {
+                vm.CollapseInput();
+            }
+        }
+    }
+
+    public void OnScrollToBottomClick(object? sender, RoutedEventArgs e)
+    {
+        _userScrolledUp = false;
+        if (_scrollBottomBtn != null) _scrollBottomBtn.IsVisible = false;
+        _scroll?.ScrollToEnd();
+    }
+
+    public void OnOpenWebPreviewClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Button btn && btn.CommandParameter is string url && !string.IsNullOrWhiteSpace(url))
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = url,
+                    UseShellExecute = true
+                });
+            }
+            catch { }
+        }
     }
 }

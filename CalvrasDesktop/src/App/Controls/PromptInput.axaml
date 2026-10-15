@@ -31,7 +31,7 @@
 
         <!-- Base Composer Border: Collapsed Size (Milky white, reduced height) -->
         <Style Selector="Border.composer-box">
-            <Setter Property="Width" Value="380"/>
+            <Setter Property="Width" Value="340"/>
             <Setter Property="MinHeight" Value="34"/>
             <Setter Property="CornerRadius" Value="17"/>
             <Setter Property="Background" Value="#F7F7F4"/>

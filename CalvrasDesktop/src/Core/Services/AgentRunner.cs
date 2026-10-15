@@ -139,6 +139,7 @@ public class AgentRunner : IAgentRunner
                     Type = action.Type == "run_command" || action.Type == "run_terminal" ? "terminal" : "tool",
                     ToolName = action.Type,
                     Primary = GetActionLabel(action.Type),
+                    Icon = GetActionIcon(action.Type),
                     Secondary = action.Command ?? action.Path ?? action.Query ?? action.Url ?? ".",
                     Status = "running",
                     Command = action.Command
@@ -314,6 +315,30 @@ public class AgentRunner : IAgentRunner
         "rollback_changes" => "Rollback changes",
 
         _ => "Execute tool"
+    };
+
+    private static string GetActionIcon(string type) => type?.ToLowerInvariant() switch
+    {
+        "read_file" or "write_file" or "create_file" or "rename_file" or "move_file" or "copy_file"
+            or "search_replace" or "edit_file" or "multi_replace" or "insert_code" or "delete_lines"
+            or "undo_edit" or "apply_patch" or "format_file" or "format_code" or "organize_imports"
+            or "multi_file_edit" or "refactor_code" or "apply_diff" => "✏️",
+
+        "open_browser" or "navigate_browser" or "take_screenshot" or "click_element"
+            or "fill_input" or "inspect_element" or "check_console_errors" or "test_responsive_layout" => "🌐",
+
+        "grep_search" or "find_files" or "search_symbols" or "find_references"
+            or "get_hover_info" or "list_symbols" => "🔍",
+
+        "git_status" or "git_diff" or "git_log" or "git_add" or "git_commit"
+            or "git_checkout" or "git_branch" or "git_restore" or "git_show_diff" => "🌿",
+
+        "run_tests" or "run_single_test" or "run_linter" or "run_typecheck" or "run_build" => "🧪",
+
+        "run_command" or "run_terminal" or "run_code" or "install_dependencies"
+            or "start_dev_server" or "stop_dev_server" or "get_terminal_output" or "run_background_process" => "⚡",
+
+        _ => "🔧"
     };
 
     private static AgentReplyModel ParseReply(string raw)
