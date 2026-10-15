@@ -1,24 +1,74 @@
-# Centering Chat Companion
+# Calvras
 
-https://github.com/SHIKARI-hey/simple-response-bot.git clone this project here and show me the preview also center the input and it should be in the middle of the screen when i send a message it goes down to the center of the screen
+An autonomous AI coding agent that runs as a desktop application. Open a project folder, describe what you want to build or fix, and Calvras reads your files, writes code, runs commands, and iterates until it's done.
 
-This project was built with [Lovable](https://lovable.dev).
+## What it does
 
-## Build with Lovable
+- Reads, writes, creates, and edits files in your project folder
+- Runs shell commands (npm, git, dotnet, pip, etc.) and returns real output
+- Streams AI responses token by token with tool-call trace pills
+- Supports image and PDF attachments in the chat input
+- Voice input via Web Speech API (Chrome/Edge)
+- Persists conversation across sessions via localStorage
+- Works entirely locally — only AI inference calls go to the cloud
 
-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/d25bb3b5-b30d-45cc-bb91-0f7d05109c38).
+## Tech stack
 
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
+- **Electron** (frameless window, system tray, single-instance, safeStorage)
+- **TanStack Start** (React 19, Vite, file-based routing, SSR)
+- **Nitro** server (node-server preset, all `/api/fs/*` routes)
+- **Tailwind CSS v4** + **Radix UI** + **Framer Motion**
+- **Gemini / OpenRouter / Hugging Face** AI cascade
 
-## Development
+## Dev setup
 
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
+```bash
+git clone https://github.com/SHIKARI-hey/Calvras.git
+cd Calvras
+npm install
 
-```sh
-git clone <this-repository-url>
-cd <repository-name>
-npm i
+# Web-only dev (Vite hot reload, no Electron)
 npm run dev
+
+# Electron dev (builds Nitro node-server, then opens Electron)
+npm run electron:dev
 ```
+
+## Build & package
+
+```bash
+# 1. Build Nitro in node-server mode + Vite frontend
+npm run build:electron
+
+# 2. Package as installer + zip (win-x64)
+npm run electron:dist
+# → electron-dist/Calvras-Setup-1.0.0.exe
+# → electron-dist/Calvras-1.0.0-win.zip
+
+# 3. (Optional) Build Inno Setup installer manually
+# Requires Inno Setup 6 installed
+ISCC installer\CalvrasSetup.iss
+# → dist/installer/Calvras-Setup-win-x64.exe
+```
+
+## Project structure
+
+```
+electron/       Electron main + preload
+src/
+  routes/       Web pages (/, /app, /signin, marketing)
+  lib/          AI cascade, agent loop, system prompt, project context
+  components/   Chat UI, agent trace, Markdown renderer
+  server.ts     Nitro SSR entry + /api/fs/* filesystem API
+installer/      Inno Setup script + wizard images + app icon
+docs/           MIGRATION.md
+archive/        Archived Avalonia/.NET native app (not used)
+```
+
+## Security
+
+- `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`
+- Renderer only calls `http://127.0.0.1:<port>` — all Node runs in main process
+- Path sandboxing: `/api/fs/*` routes resolve paths inside the project folder only
+- API keys stored via Electron `safeStorage` (OS credential store)
+- External links open in OS default browser, never in the BrowserWindow

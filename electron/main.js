@@ -1,90 +1,479 @@
-const { app, BrowserWindow, shell, dialog } = require('electron')
-const { spawn } = require('child_process')
-const path = require('path')
-const http = require('http')
+'use strict';
 
-const PORT = 3000
-let mainWindow = null
-let serverProcess = null
+// Electron Main Process — Calvras Desktop
+// Spawns the Nitro node-server, shows a splash, opens a frameless BrowserWindow.
 
-function waitForServer(url, retries = 30, delay = 500) {
+const {
+  app, BrowserWindow, shell, dialog, ipcMain, Tray, Menu,
+  globalShortcut, nativeImage, screen, safeStorage,
+} = require('electron');
+const { spawn, execSync } = require('child_process');
+const path = require('path');
+const http = require('http');
+const net  = require('net');
+const fs   = require('fs');
+const os   = require('os');
+
+// ─── Single-instance lock ─────────────────────────────────────────────────────
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+  process.exit(0);
+}
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+const IS_DEV = !app.isPackaged;
+const ROOT   = IS_DEV
+  ? path.join(__dirname, '..')
+  : process.resourcesPath;
+const SERVER_ENTRY = IS_DEV
+  ? path.join(ROOT, '.output', 'server', 'index.mjs')
+  : path.join(ROOT, 'server', 'index.mjs');
+const PUBLIC_DIR = IS_DEV
+  ? path.join(ROOT, '.output', 'public')
+  : path.join(ROOT, 'public');
+
+const BOUNDS_FILE = path.join(app.getPath('userData'), 'window-bounds.json');
+const KEY_FILE    = path.join(app.getPath('userData'), 'secure.bin');
+
+// ─── State ───────────────────────────────────────────────────────────────────
+let mainWindow   = null;
+let splashWindow = null;
+let tray         = null;
+let serverProcess = null;
+let serverPort   = 3344;
+
+// ─── Free-port finder ────────────────────────────────────────────────────────
+function findFreePort(preferred = 3344) {
   return new Promise((resolve, reject) => {
-    const attempt = () => {
-      http.get(url, (res) => {
-        if (res.statusCode < 500) resolve()
-        else setTimeout(attempt, delay)
-      }).on('error', () => {
-        if (retries-- > 0) setTimeout(attempt, delay)
-        else reject(new Error('Server did not start in time'))
-      })
-    }
-    attempt()
-  })
+    const srv = net.createServer();
+    srv.listen(preferred, '127.0.0.1', () => {
+      const { port } = srv.address();
+      srv.close(() => resolve(port));
+    });
+    srv.on('error', () => {
+      const srv2 = net.createServer();
+      srv2.listen(0, '127.0.0.1', () => {
+        const { port } = srv2.address();
+        srv2.close(() => resolve(port));
+      });
+      srv2.on('error', reject);
+    });
+  });
 }
 
-function startServer() {
-  const serverPath = path.join(__dirname, '..', '.output', 'server', 'index.mjs')
-  serverProcess = spawn(process.execPath, [serverPath], {
-    env: { ...process.env, PORT: String(PORT), NODE_ENV: 'production' },
+// ─── Server health poll ───────────────────────────────────────────────────────
+function waitForServer(port, retries = 60, delayMs = 500) {
+  return new Promise((resolve, reject) => {
+    const attempt = (remaining) => {
+      const req = http.get(`http://127.0.0.1:${port}`, (res) => {
+        // Any non-5xx response means the server is alive
+        if (res.statusCode < 500) {
+          resolve();
+        } else {
+          res.resume();
+          retry(remaining);
+        }
+      });
+      req.on('error', () => retry(remaining));
+      req.setTimeout(800, () => { req.destroy(); retry(remaining); });
+    };
+    const retry = (remaining) => {
+      if (remaining <= 0) return reject(new Error('Nitro server did not start in time'));
+      setTimeout(() => attempt(remaining - 1), delayMs);
+    };
+    attempt(retries);
+  });
+}
+
+// ─── Start Nitro server ───────────────────────────────────────────────────────
+function startServer(port) {
+  if (!fs.existsSync(SERVER_ENTRY)) {
+    throw new Error(`Server entry not found: ${SERVER_ENTRY}\nRun "npm run build:electron" first.`);
+  }
+
+  serverProcess = spawn(process.execPath, [SERVER_ENTRY], {
+    env: {
+      ...process.env,
+      PORT: String(port),
+      HOST: '127.0.0.1',
+      NODE_ENV: 'production',
+      NITRO_PRESET: 'node-server',
+    },
     stdio: 'pipe',
-  })
-  serverProcess.stdout?.on('data', (d) => console.log('[server]', d.toString()))
-  serverProcess.stderr?.on('data', (d) => console.error('[server]', d.toString()))
+    windowsHide: true,
+  });
+
+  serverProcess.stdout?.on('data', (d) => console.log('[nitro]', d.toString().trim()));
+  serverProcess.stderr?.on('data', (d) => console.error('[nitro]', d.toString().trim()));
+
+  serverProcess.on('exit', (code, signal) => {
+    console.error(`[nitro] Server exited (code=${code}, signal=${signal})`);
+    if (mainWindow && !app.isQuitting) {
+      restartServer();
+    }
+  });
 }
 
-function createWindow() {
-  mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
-    minWidth: 800,
-    minHeight: 600,
+async function restartServer() {
+  serverProcess = null;
+  try {
+    serverPort = await findFreePort(serverPort + 1);
+    startServer(serverPort);
+    await waitForServer(serverPort);
+    if (mainWindow) mainWindow.loadURL(`http://127.0.0.1:${serverPort}`);
+  } catch (e) {
+    if (mainWindow) {
+      mainWindow.loadURL('about:blank');
+      mainWindow.webContents.executeJavaScript(
+        `document.body.style.cssText="background:#0d0d0d;color:#e0e0e0;font:15px/1.6 system-ui,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0";document.body.innerHTML='<div style="text-align:center"><h1>Server error</h1><p>${String(e.message).replace(/'/g, "\\'")} </p><button onclick="location.reload()" style="margin-top:12px;padding:8px 20px;border-radius:8px;border:0;background:#e0e0e0;cursor:pointer">Retry</button></div>'`
+      ).catch(() => {});
+    }
+  }
+}
+
+// ─── Persisted window bounds ──────────────────────────────────────────────────
+function loadBounds() {
+  try {
+    if (fs.existsSync(BOUNDS_FILE)) {
+      const b = JSON.parse(fs.readFileSync(BOUNDS_FILE, 'utf8'));
+      const allBounds = screen.getAllDisplays().map((d) => d.bounds);
+      const onScreen = allBounds.some(
+        (db) =>
+          b.x >= db.x && b.y >= db.y &&
+          b.x + b.width <= db.x + db.width &&
+          b.y + b.height <= db.y + db.height
+      );
+      if (onScreen) return b;
+    }
+  } catch {}
+  return null;
+}
+
+function saveBounds(win) {
+  try {
+    fs.writeFileSync(BOUNDS_FILE, JSON.stringify(win.getBounds()), 'utf8');
+  } catch {}
+}
+
+// ─── Splash screen ────────────────────────────────────────────────────────────
+function createSplash() {
+  splashWindow = new BrowserWindow({
+    width: 420,
+    height: 220,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    resizable: false,
+    skipTaskbar: true,
+    backgroundColor: '#00000000',
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+  });
+
+  const html = `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><style>
+*{margin:0;box-sizing:border-box}
+body{background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:system-ui,-apple-system,sans-serif;color:#e8e8e8}
+.card{background:#151515;border:1px solid #2a2a2a;border-radius:20px;padding:32px 48px;display:flex;flex-direction:column;align-items:center;gap:16px;box-shadow:0 24px 60px rgba(0,0,0,.55)}
+img{width:52px;height:52px;border-radius:12px;object-fit:contain}
+h1{font-size:20px;font-weight:600;letter-spacing:-.5px;color:#f0f0f0}
+.sub{font-size:12.5px;color:#6b6b6b}
+.dots{display:flex;gap:5px;margin-top:4px}
+.dot{width:5px;height:5px;border-radius:50%;background:#444;animation:pulse 1.2s ease-in-out infinite}
+.dot:nth-child(2){animation-delay:.2s}.dot:nth-child(3){animation-delay:.4s}
+@keyframes pulse{0%,80%,100%{opacity:.2}40%{opacity:1}}
+</style></head>
+<body><div class="card">
+<img src="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23111'/><text y='.9em' font-size='72' x='14'>⚡</text></svg>" alt="Calvras">
+<h1>Calvras</h1>
+<p class="sub">Starting up…</p>
+<div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+</div></body></html>`;
+
+  splashWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+}
+
+// ─── Main window ──────────────────────────────────────────────────────────────
+function createMainWindow(port) {
+  const savedBounds = loadBounds();
+  const windowOptions = {
+    width: Math.max(savedBounds?.width ?? 1280, 980),
+    height: Math.max(savedBounds?.height ?? 820, 620),
+    x: savedBounds?.x,
+    y: savedBounds?.y,
+    minWidth: 980,
+    minHeight: 620,
+    frame: false,           // frameless — custom title bar drag region in renderer
+    titleBarStyle: 'hidden',
+    backgroundColor: '#0d0d0d',
+    show: false,
+    icon: path.join(ROOT, 'public', 'calvras-logo.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
+      devTools: IS_DEV,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
     },
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
-    backgroundColor: '#121212',
-    show: false,
-  })
+  };
 
-  mainWindow.loadURL(`http://localhost:${PORT}/app`)
-  mainWindow.once('ready-to-show', () => mainWindow.show())
-  mainWindow.on('closed', () => { mainWindow = null })
+  mainWindow = new BrowserWindow(windowOptions);
+  mainWindow.loadURL(`http://127.0.0.1:${port}`);
+
+  // ── Show when ready ───────────────────────────────────────────────────────
+  mainWindow.once('ready-to-show', () => {
+    if (splashWindow) {
+      splashWindow.close();
+      splashWindow = null;
+    }
+    if (savedBounds?.maximized) mainWindow.maximize();
+    mainWindow.show();
+    mainWindow.focus();
+  });
+
+  // ── Persist bounds ────────────────────────────────────────────────────────
+  mainWindow.on('close', () => {
+    const b = mainWindow.getBounds();
+    saveBounds({ ...{ ...b }, maximized: mainWindow.isMaximized() });
+  });
+  mainWindow.on('closed', () => { mainWindow = null; });
+
+  // ── Block external navigation — open in OS browser ───────────────────────
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (!url.startsWith(`http://127.0.0.1:${port}`)) {
+      event.preventDefault();
+      shell.openExternal(url);
+    }
+  });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
-    return { action: 'deny' }
-  })
+    shell.openExternal(url);
+    return { action: 'deny' };
+  });
+
+  // ── Content Security Policy ───────────────────────────────────────────────
+  mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [
+          `default-src 'self' http://127.0.0.1:${port};` +
+          `script-src 'self' 'unsafe-inline' 'unsafe-eval' http://127.0.0.1:${port};` +
+          `style-src 'self' 'unsafe-inline';` +
+          `img-src 'self' data: blob: https: http://127.0.0.1:${port};` +
+          `connect-src 'self' http://127.0.0.1:${port} https:;` +
+          `font-src 'self' data:;`
+        ],
+      },
+    });
+  });
+
+  return mainWindow;
 }
 
-app.whenReady().then(async () => {
-  startServer()
+// ─── System Tray ─────────────────────────────────────────────────────────────
+function createTray() {
+  const iconPath = path.join(ROOT, 'public', 'calvras-logo.png');
+  const icon = fs.existsSync(iconPath)
+    ? nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 })
+    : nativeImage.createEmpty();
+
+  tray = new Tray(icon);
+  tray.setToolTip('Calvras');
+  tray.setContextMenu(Menu.buildFromTemplate([
+    {
+      label: 'Open Calvras',
+      click: () => {
+        if (mainWindow) { mainWindow.show(); mainWindow.focus(); }
+        else createMainWindow(serverPort);
+      },
+    },
+    { type: 'separator' },
+    {
+      label: 'Quit',
+      click: () => {
+        app.isQuitting = true;
+        app.quit();
+      },
+    },
+  ]));
+
+  tray.on('double-click', () => {
+    if (mainWindow) { mainWindow.show(); mainWindow.focus(); }
+  });
+}
+
+// ─── Application menu ─────────────────────────────────────────────────────────
+function buildAppMenu() {
+  const template = [
+    {
+      label: 'Calvras',
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' },
+      ],
+    },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'forceReload' },
+        ...(IS_DEV ? [{ role: 'toggleDevTools' }] : []),
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
+      ],
+    },
+    {
+      label: 'Window',
+      submenu: [
+        { role: 'minimize' },
+        { role: 'zoom' },
+        { role: 'close' },
+      ],
+    },
+  ];
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+// ─── IPC: Window controls (title bar buttons in renderer) ─────────────────────
+ipcMain.on('window-minimize', () => mainWindow?.minimize());
+ipcMain.on('window-maximize', () => {
+  if (!mainWindow) return;
+  if (mainWindow.isMaximized()) mainWindow.unmaximize();
+  else mainWindow.maximize();
+});
+ipcMain.on('window-close', () => mainWindow?.close());
+
+// ─── IPC: Secure storage (API keys via OS credential store) ──────────────────
+ipcMain.handle('safe-get', async (_e, key) => {
   try {
-    await waitForServer(`http://localhost:${PORT}`)
-  } catch (e) {
-    console.error('Server failed to start:', e)
+    if (!fs.existsSync(KEY_FILE)) return null;
+    const store = JSON.parse(fs.readFileSync(KEY_FILE, 'utf8'));
+    const encrypted = store[key];
+    if (!encrypted) return null;
+    return safeStorage.isEncryptionAvailable()
+      ? safeStorage.decryptString(Buffer.from(encrypted, 'base64'))
+      : encrypted;
+  } catch { return null; }
+});
+
+ipcMain.handle('safe-set', async (_e, key, value) => {
+  try {
+    let store = {};
+    if (fs.existsSync(KEY_FILE)) store = JSON.parse(fs.readFileSync(KEY_FILE, 'utf8'));
+    const encrypted = safeStorage.isEncryptionAvailable()
+      ? safeStorage.encryptString(value).toString('base64')
+      : value;
+    store[key] = encrypted;
+    fs.writeFileSync(KEY_FILE, JSON.stringify(store), 'utf8');
+    return true;
+  } catch { return false; }
+});
+
+// ─── IPC: Open project folder dialog ─────────────────────────────────────────
+ipcMain.handle('pick-folder', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory'],
+    title: 'Open project folder',
+  });
+  return result.canceled ? null : result.filePaths[0];
+});
+
+// ─── IPC: Get server URL ──────────────────────────────────────────────────────
+ipcMain.handle('get-server-url', () => `http://127.0.0.1:${serverPort}`);
+
+// ─── IPC: Is maximized ────────────────────────────────────────────────────────
+ipcMain.handle('is-maximized', () => mainWindow?.isMaximized() ?? false);
+
+// ─── App lifecycle ────────────────────────────────────────────────────────────
+app.whenReady().then(async () => {
+  buildAppMenu();
+  createSplash();
+
+  // Find free port & start server
+  try {
+    serverPort = await findFreePort(3344);
+    startServer(serverPort);
+    await waitForServer(serverPort, 60, 500);
+  } catch (err) {
+    if (splashWindow) { splashWindow.close(); splashWindow = null; }
     dialog.showErrorBox(
       'Calvras — Server Error',
-      'The local server failed to start. Please try relaunching the app.\n\n' + e.message
-    )
-    app.quit()
-    return
+      'The local server failed to start.\n\n' + err.message +
+      '\n\nMake sure you have run "npm run build:electron" first.'
+    );
+    app.quit();
+    return;
   }
-  createWindow()
+
+  createTray();
+  createMainWindow(serverPort);
+
+  // ── Global shortcuts ───────────────────────────────────────────────────────
+  globalShortcut.register('CommandOrControl+N', () => {
+    if (mainWindow) {
+      mainWindow.webContents.executeJavaScript(
+        `window.__calvrasNewChat && window.__calvrasNewChat()`
+      ).catch(() => {});
+    }
+  });
+
+  globalShortcut.register('CommandOrControl+O', () => {
+    ipcMain.emit('pick-folder-shortcut');
+  });
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
-  })
-})
+    if (!mainWindow) createMainWindow(serverPort);
+    else { mainWindow.show(); mainWindow.focus(); }
+  });
+});
+
+// ── Second instance: focus existing window ────────────────────────────────────
+app.on('second-instance', () => {
+  if (mainWindow) { mainWindow.show(); mainWindow.focus(); }
+});
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
-})
-
-app.on('quit', () => {
-  if (serverProcess) {
-    serverProcess.kill()
-    serverProcess = null
+  if (process.platform !== 'darwin') {
+    app.isQuitting = true;
+    app.quit();
   }
-})
+});
+
+app.on('before-quit', () => {
+  app.isQuitting = true;
+  globalShortcut.unregisterAll();
+  if (serverProcess) {
+    try { serverProcess.kill('SIGTERM'); } catch {}
+    serverProcess = null;
+  }
+});
+
+app.on('will-quit', () => {
+  if (serverProcess) {
+    try { serverProcess.kill('SIGTERM'); } catch {}
+    serverProcess = null;
+  }
+});

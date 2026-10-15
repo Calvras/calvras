@@ -16,18 +16,64 @@
     "patch:wrangler": "node -e \"const fs=require('fs');const p='.output/server/wrangler.json';const c=JSON.parse(fs.readFileSync(p,'utf8'));c.name='calvras';c.account_id='6731a2cf3ac3e76d3f399f505a7e5c11';c.workers_dev=true;c.routes=[{pattern:'calvras.com',custom_domain:true}];delete c.custom_domains;fs.writeFileSync(p,JSON.stringify(c,null,2));console.log('Patched wrangler.json');\"",
     "deploy": "npm run build && npm run patch:wrangler && npx wrangler deploy --config .output/server/wrangler.json",
     "electron": "electron .",
-    "electron:dev": "npm run build && electron .",
-    "electron:pack": "electron-builder --dir",
-    "electron:dist": "npm run build && electron-builder"
+    "electron:dev": "npm run build:electron && electron .",
+    "electron:pack": "npm run build:electron && electron-builder --dir",
+    "electron:dist": "npm run build:electron && electron-builder",
+    "build:electron": "cross-env NITRO_PRESET=node-server vite build"
   },
   "build": {
     "appId": "com.calvras.app",
     "productName": "Calvras",
-    "directories": { "output": "electron-dist" },
-    "files": ["electron/**/*", ".output/**/*", "public/**/*"],
-    "win": { "target": "nsis", "icon": "public/calvras-logo.png" },
-    "mac": { "target": "dmg", "icon": "public/calvras-logo.png" },
-    "linux": { "target": "AppImage" }
+    "copyright": "Copyright (c) 2026 Calvras",
+    "directories": {
+      "output": "electron-dist"
+    },
+    "files": [
+      "electron/**/*",
+      ".output/**/*",
+      "public/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": ".output/server",
+        "to": "server"
+      },
+      {
+        "from": ".output/public",
+        "to": "public"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "installer/calvras-logo.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Calvras"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "public/calvras-logo.png"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
   },
   "overrides": {
     "rolldown": "1.2.1"
@@ -96,6 +142,9 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.2.0",
+    "cross-env": "^10.1.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
     "eslint": "^9.32.0",
     "eslint-config-prettier": "^10.1.1",
     "eslint-plugin-prettier": "^5.2.6",
@@ -108,8 +157,9 @@
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.56.1",
     "vite": "8.1.5",
-    "vitest": "^4.1.10",
-    "electron": "^33.0.0",
-    "electron-builder": "^25.0.0"
-  }
+    "vitest": "^4.1.10"
+  },
+  "version": "1.0.0",
+  "description": "Calvras - Autonomous AI Coding Agent",
+  "author": "Calvras <support@calvras.com>"
 }

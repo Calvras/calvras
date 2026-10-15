@@ -700,115 +700,100 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
       setIsSmoothResize(false);
       setExpanded(true);
 
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+      if (!SpeechRecognition) {
+        // Real error: speech API not supported in this context
+        console.error("Voice input is not supported in this browser. Use Chrome or Edge for speech recognition.");
+        handleValueChange("[Voice input is not supported. Please type your message or use Chrome/Edge.]");
+        return;
+      }
+
       let stream: MediaStream | null = null;
       try {
         if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
           stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         }
       } catch (err) {
-        console.warn("Microphone access denied or unavailable. Falling back to simulated voice mode for demo.");
+        console.error("Microphone access denied or unavailable:", err);
+        handleValueChange("[Microphone access denied. Please allow microphone access and try again.]");
+        return;
+      }
+
+      if (!stream) {
+        console.error("No microphone stream available.");
+        handleValueChange("[No microphone found. Please connect a microphone and try again.]");
+        return;
       }
 
       setIsRecording(true);
+      streamRef.current = stream;
 
-      // Simulation function for tight sandbox environments
-      function simulateText() {
-        const fakeText = "Can you build a high fidelity Framer Motion layout animation for a dark mode dashboard?";
-        const words = fakeText.split(" ");
-        let i = 0;
-        let currentBase = valueRef.current;
-        demoTextIntervalRef.current = window.setInterval(() => {
-          if (i < words.length) {
-            currentBase = (currentBase ? currentBase + " " : "") + words[i];
-            handleValueChange(currentBase);
-            i++;
-          } else {
-            stopRecording();
+      // Setup Web Audio API for visualizer
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      const audioCtx = new AudioCtx();
+      audioContextRef.current = audioCtx;
+
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 64;
+      const source = audioCtx.createMediaStreamSource(stream);
+      source.connect(analyser);
+
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+      const updateVisualizer = () => {
+        analyser.getByteFrequencyData(dataArray);
+        const bands = new Array(5).fill(0);
+        const step = Math.floor(dataArray.length / 5);
+        for (let i = 0; i < 5; i++) {
+          let sum = 0;
+          for (let j = 0; j < step; j++) {
+            sum += dataArray[i * step + j] ?? 0;
           }
-        }, 300);
-      }
-
-      if (stream) {
-        streamRef.current = stream;
-        
-        // Setup Web Audio API for visualizer
-        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-        const audioCtx = new AudioCtx();
-        audioContextRef.current = audioCtx;
-
-        const analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 64; 
-        const source = audioCtx.createMediaStreamSource(stream);
-        source.connect(analyser);
-
-        const dataArray = new Uint8Array(analyser.frequencyBinCount);
-
-        const updateVisualizer = () => {
-          analyser.getByteFrequencyData(dataArray);
-          const bands = new Array(5).fill(0);
-          const step = Math.floor(dataArray.length / 5);
-          for (let i = 0; i < 5; i++) {
-            let sum = 0;
-            for (let j = 0; j < step; j++) {
-              sum += dataArray[i * step + j] ?? 0;
-            }
-            bands[i] = sum / step / 255; // normalize to 0-1
-          }
-          setAudioData(bands);
-          rafRef.current = requestAnimationFrame(updateVisualizer);
-        };
-        updateVisualizer();
-
-        // Setup Speech Recognition
-        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-        if (SpeechRecognition) {
-          const recognition = new SpeechRecognition();
-          recognition.continuous = true;
-          recognition.interimResults = true;
-
-          let baseline = valueRef.current;
-
-          recognition.onresult = (event: any) => {
-            let interimTranscript = "";
-            let finalTranscript = "";
-
-            for (let i = event.resultIndex; i < event.results.length; ++i) {
-              if (event.results[i].isFinal) {
-                finalTranscript += event.results[i][0].transcript;
-              } else {
-                interimTranscript += event.results[i][0].transcript;
-              }
-            }
-            
-            if (finalTranscript) {
-               baseline += (baseline ? " " : "") + finalTranscript;
-            }
-            
-            handleValueChange((baseline + (interimTranscript ? " " + interimTranscript : "")).trim());
-          };
-
-          recognition.onerror = (e: any) => {
-            console.error("Speech recognition error", e);
-            stopRecording();
-          };
-
-          recognition.onend = () => {
-             stopRecording();
-          };
-
-          recognitionRef.current = recognition;
-          recognition.start();
-        } else {
-          console.warn("Speech Recognition API not supported in this browser. Using simulated text.");
-          simulateText();
+          bands[i] = sum / step / 255; // normalize to 0-1
         }
-      } else {
-        // Fallback simulated visualizer
-        demoIntervalRef.current = window.setInterval(() => {
-          setAudioData(Array.from({ length: 5 }, () => Math.random() * 0.8 + 0.1));
-        }, 100);
-        simulateText();
-      }
+        setAudioData(bands);
+        rafRef.current = requestAnimationFrame(updateVisualizer);
+      };
+      updateVisualizer();
+
+      // Setup Speech Recognition
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+
+      let baseline = valueRef.current;
+
+      recognition.onresult = (event: any) => {
+        let interimTranscript = "";
+        let finalTranscript = "";
+
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript;
+          } else {
+            interimTranscript += event.results[i][0].transcript;
+          }
+        }
+
+        if (finalTranscript) {
+          baseline += (baseline ? " " : "") + finalTranscript;
+        }
+
+        handleValueChange((baseline + (interimTranscript ? " " + interimTranscript : "")).trim());
+      };
+
+      recognition.onerror = (e: any) => {
+        console.error("Speech recognition error", e);
+        stopRecording();
+      };
+
+      recognition.onend = () => {
+        stopRecording();
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
     }, [handleValueChange, stopRecording]);
 
     // Keep textarea auto-scrolled to bottom while recording

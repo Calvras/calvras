@@ -16,12 +16,16 @@ dist-ssr
 .nitro
 *.local
 
-# .NET / Avalonia
+# .NET / Avalonia (Archived)
 **/bin/
 **/obj/
 *.user
 *.userprefs
 CalvrasDesktop/publish/
+archive/CalvrasDesktop-avalonia/publish/
+archive/CalvrasDesktop-avalonia/dist/
+archive/CalvrasDesktop-avalonia/**/bin/
+archive/CalvrasDesktop-avalonia/**/obj/
 
 # Wrangler / Cloudflare
 .wrangler/

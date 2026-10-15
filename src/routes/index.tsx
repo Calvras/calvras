@@ -350,6 +350,18 @@ function PlanPanelContent({ content }: { content: string }) {
  * ─────────────────────────────────────────────────────────────────────────────
  */
 export function Index() {
+  // Expose global new chat handler for Electron shortcut
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      (window as any).__calvrasNewChat = () => {
+        setMessages([]);
+        setActivePlan(null);
+      };
+    }
+    return () => {
+      if (typeof window !== "undefined") delete (window as any).__calvrasNewChat;
+    };
+  }, []);
   const { activeProject, setActiveProject, addProject, addRecent, deleteProject, renameProject, newChatSignal } = useProjects();
   const [messages, setMessages] = useState<Message[]>([]);
   const [projectPath, setProjectPath] = useState<string | null>(activeProject?.path || null);
@@ -811,7 +823,7 @@ IMPORTANT RULES:
               ? `Active Project: ${projectName || "Workspace"} — start a New chat to switch`
               : projectName
               ? `Active Desktop Project: ${projectName} (${projectPath})`
-              : "Open project folder"
+              : "Upload a folder"
           }
           className={cn(
             "flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium backdrop-blur-md transition-all shadow-xs",
@@ -840,7 +852,7 @@ IMPORTANT RULES:
               {projectName}
             </span>
           ) : (
-            <span>Open project</span>
+            <span>Upload a folder</span>
           )}
         </button>
 
