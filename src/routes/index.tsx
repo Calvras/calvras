@@ -19,7 +19,7 @@ import { DOWNLOAD } from "@/lib/download";
 import { isNewerSemver } from "@/lib/version";
 
 export const Route = createFileRoute("/")({
-  head: () => marketingHead("/", "Calvras — Native AI Coding Agent", "Build real projects with Calvras, a Windows x64 desktop AI coding agent for local files, commands, and visible change review."),
+  head: () => marketingHead("/", "Calvras", "Build real projects with Calvras, a Windows x64 desktop AI coding agent for local files, commands, and visible change review."),
   component: LandingPage,
 });
 
@@ -390,17 +390,6 @@ export function Index() {
   const [planPanelOpen, setPlanPanelOpen] = useState(false);
 
   // Live clock
-  const [clockTime, setClockTime] = useState('');
-  useEffect(() => {
-    const update = () => {
-      const now = new Date();
-      setClockTime(now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }));
-    };
-    update();
-    const id = setInterval(update, 1000);
-    return () => clearInterval(id);
-  }, []);
-
   // Update check: button ONLY appears when a newer version is released
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
 
@@ -735,8 +724,28 @@ IMPORTANT RULES:
             addProject({ name: data.name, path: data.projectPath });
           }
           const feedback: ToolFeedback[] = [];
-          const routes: Record<AgentAction["type"], string> = { create_file: "create", write_file: "write-file", edit_file: "edit", read_file: "read-file", list_dir: "list-dir", run_command: "command" };
-          const labels: Record<AgentAction["type"], string> = { create_file: "Create file", write_file: "Write file", edit_file: "Edit file", read_file: "Read file", list_dir: "List directory", run_command: "Run command" };
+          const routes: Record<AgentAction["type"], string> = {
+            create_file: "create", write_file: "write-file", read_file: "read-file", list_dir: "list-dir", run_command: "command",
+            rename_file: "rename-file", delete_file: "delete-file", copy_file: "copy-file", get_file_info: "file-info",
+            search_files: "search-files", find_files: "find-files",
+            search_replace: "search-replace",
+            git_status: "git/status", git_diff: "git/diff", git_log: "git/log",
+            git_add: "git/add", git_commit: "git/commit", git_checkout: "git/checkout",
+            git_branch: "git/branch", git_restore: "git/restore", git_push: "git/push", git_clone: "git/clone",
+            run_build: "run-build", run_tests: "run-tests", run_lint: "run-lint",
+            run_typecheck: "run-typecheck", install_deps: "install-deps",
+          };
+          const labels: Record<AgentAction["type"], string> = {
+            create_file: "Create file", write_file: "Write file", read_file: "Read file", list_dir: "List directory", run_command: "Run command",
+            rename_file: "Rename file", delete_file: "Delete file", copy_file: "Copy file", get_file_info: "File info",
+            search_files: "Search files", find_files: "Find files",
+            search_replace: "Search & replace",
+            git_status: "Git status", git_diff: "Git diff", git_log: "Git log",
+            git_add: "Git add", git_commit: "Git commit", git_checkout: "Git checkout",
+            git_branch: "Git branch", git_restore: "Git restore", git_push: "Git push", git_clone: "Git clone",
+            run_build: "Run build", run_tests: "Run tests", run_lint: "Run lint",
+            run_typecheck: "Type check", install_deps: "Install dependencies",
+          };
           for (const action of actions) {
             controller.signal.throwIfAborted();
             const node: TraceNode = { id: crypto.randomUUID(), type: action.type === "run_command" ? "terminal" : "tool", primary: labels[action.type], secondary: action.command || action.path || ".", status: "running", ...(action.command ? { command: action.command } : {}) };
@@ -745,7 +754,14 @@ IMPORTANT RULES:
             publish();
             const started = Date.now();
             try {
-              const response = await fetch(`/api/fs/${routes[action.type]}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...action, projectPath: activePath }), signal: controller.signal });
+              const response = await fetch(`/api/fs/${routes[action.type]}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ ...action, projectPath: activePath }),
+                signal: action.type === "run_command"
+                  ? AbortSignal.any([controller.signal, AbortSignal.timeout(15_000)])
+                  : controller.signal,
+              });
               const data = await response.json();
               const ok = response.ok && data.ok === true && (action.type !== "run_command" || data.exitCode === 0);
               node.status = ok ? "completed" : "failed";
@@ -853,7 +869,7 @@ IMPORTANT RULES:
       {/* ── Top-right project badge & switcher ─────────────────────────── */}
       <div
         data-project-badge-wrapper=""
-        className="fixed top-3 right-4 z-20 flex items-center gap-2"
+        className="fixed top-[32px] right-4 z-20 flex items-center gap-2"
       >
         {updateInfo && (
           <a
@@ -938,15 +954,6 @@ IMPORTANT RULES:
           </div>
         )}
       </div>
-
-      {/* ── Live clock at top center ────────────────────────────────────── */}
-      {clockTime && (
-        <div className="fixed top-3 left-1/2 -translate-x-1/2 z-20 pointer-events-none select-none">
-          <span className="text-xs text-muted-foreground/60 tabular-nums font-mono font-bold">
-            {clockTime}
-          </span>
-        </div>
-      )}
 
       {/* ── ChapterScrubber — right side, vertically centered ──────────── */}
       {scrubberChapters.length > 0 && (
@@ -1044,14 +1051,14 @@ IMPORTANT RULES:
           ))}
         </div>
 
-        {/* Spacer for composer — exactly 5px space between AI message and top of input */}
-        <div style={{ height: "calc(1.5rem + 54px + 18px)" }} />
+        {/* Spacer for composer — keeps AI response well away from input */}
+        <div style={{ height: "180px" }} />
       </div>
 
       {/* ── Chat Composer ────────────────────────────────────────────────── */}
       <div className="chat-composer">
         <PromptInput
-          onSubmit={handleSubmit}
+          onSubmit={(value, meta) => handleSubmit(value, meta?.files)}
           isThinking={isLoading}
           onStop={handleStop}
           placeholder="Describe a task or /command..."

@@ -1,0 +1,26 @@
+{
+  "id": "FEAT-003",
+  "type": "feat",
+  "description": "Expand AgentAction type union and actionTypes Set in src/lib/agent-run.ts to include 22 new action types (rename_file, delete_file, copy_file, get_file_info, search_files, find_files, search_replace, git_status, git_diff, git_log, git_add, git_commit, git_checkout, git_branch, git_restore, git_push, git_clone, run_build, run_tests, run_lint, run_typecheck, install_deps). Add new optional fields to the AgentAction object type. Update parseAgentReply validation with checks for new types.",
+  "status": "completed",
+  "steps": [
+    "Read src/lib/agent-run.ts to understand current AgentAction type (5 union members), actionTypes Set, and parseAgentReply validation chain.",
+    "Expand the AgentAction type: add all 22 new type strings to the union. Add new optional fields: from?: string; to?: string; search?: string; replace?: string; regex?: boolean; pattern?: string; glob?: string; staged?: boolean; message?: string; branch?: string; remote?: string; url?: string; dest?: string.",
+    "Add all 22 new type strings to the `actionTypes` Set.",
+    "In parseAgentReply, extend the validation chain after the existing checks: (a) rename_file/copy_file require from and to fields; (b) delete_file/get_file_info/search_replace require path; (c) search_replace also requires search and replace fields; (d) search_files and find_files require pattern; (e) git_add/git_restore require path; (f) git_commit requires message; (g) git_checkout requires branch; (h) git_clone requires url; (i) git_diff/git_status/git_log/git_branch/run_*/install_deps have no extra required field beyond projectPath (which is added server-side).",
+    "Run npm run build:electron. Fix any TypeScript errors. Run npx vitest run src/test/agent-run.test.ts to verify existing tests still pass."
+  ],
+  "acceptance_criteria": [
+    "AgentAction['type'] union contains all 27 action types (5 original + 22 new).",
+    "parseAgentReply throws a descriptive error when required fields are missing for each new action type.",
+    "parseAgentReply succeeds for valid new action objects.",
+    "Existing vitest tests in src/test/agent-run.test.ts still pass.",
+    "npm run build:electron exits with code 0."
+  ],
+  "verification": [
+    "npx vitest run src/test/agent-run.test.ts",
+    "npm run build:electron"
+  ],
+  "blocked_reason": null,
+  "findings": "Expanded AgentAction type union from 5 to 27 members (added 22 new action types). Added 13 optional fields to AgentAction. Extended parseAgentReply with per-type validation. Updated routes and labels Records in index.tsx to satisfy TypeScript exhaustiveness. All 8 vitest tests pass; npm run build:electron exits 0."
+}
