@@ -68,7 +68,7 @@ public partial class WorkspaceViewModel : ViewModelBase
     private bool _isRecording = false;
 
     [ObservableProperty]
-    private bool _isInputExpanded = false;
+    private bool _isInputExpanded = true;
 
     public event Action? ScrollToBottom;
 
@@ -77,10 +77,6 @@ public partial class WorkspaceViewModel : ViewModelBase
 
     partial void OnPromptTextChanged(string value)
     {
-        if (!string.IsNullOrWhiteSpace(value))
-        {
-            IsInputExpanded = true;
-        }
         OnPropertyChanged(nameof(HasTextToSend));
         OnPropertyChanged(nameof(ShowMicButton));
     }
@@ -147,7 +143,6 @@ public partial class WorkspaceViewModel : ViewModelBase
         var text = PromptText.Trim();
         if (string.IsNullOrWhiteSpace(text) || IsBusy) return;
 
-        IsInputExpanded = false;
         IsApprovalPickerOpen = false;
         IsModelPickerOpen = false;
 
@@ -365,10 +360,7 @@ public partial class WorkspaceViewModel : ViewModelBase
     [RelayCommand]
     public void CollapseInput()
     {
-        if (string.IsNullOrWhiteSpace(PromptText) && AttachedFiles.Count == 0 && !IsBusy && !IsRecording)
-        {
-            IsInputExpanded = false;
-        }
+        // Input is always expanded — no-op.
     }
 
     [RelayCommand]

@@ -16,27 +16,9 @@ public partial class PromptInput : UserControl
         InitializeComponent();
     }
 
-    private void OnComposerPointerPressed(object? sender, PointerPressedEventArgs e)
-    {
-        if (DataContext is WorkspaceViewModel vm)
-        {
-            vm.IsInputExpanded = true;
-            PromptTextBox.Focus();
-        }
-    }
-
-    private void OnTextBoxGotFocus(object? sender, GotFocusEventArgs e)
-    {
-        if (DataContext is WorkspaceViewModel vm)
-        {
-            vm.IsInputExpanded = true;
-        }
-    }
-
     private void OnTextBoxLostFocus(object? sender, RoutedEventArgs e)
     {
-        // Don't auto-collapse on empty space or clicking outside.
-        // It stays open until the user sends a message or presses Escape.
+        // No collapse on focus loss — input is always expanded.
     }
 
     private void OnTextBoxKeyDown(object? sender, KeyEventArgs e)
@@ -98,7 +80,6 @@ public partial class PromptInput : UserControl
 
         if (files != null && files.Count > 0 && DataContext is WorkspaceViewModel vm)
         {
-            vm.IsInputExpanded = true;
             foreach (var file in files.Take(6))
             {
                 var localPath = file.Path.LocalPath;

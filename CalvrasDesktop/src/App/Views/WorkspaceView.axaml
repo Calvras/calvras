@@ -9,9 +9,14 @@
 
     <Grid ColumnDefinitions="*,Auto">
         <!-- Main Workspace Area -->
-        <Grid Grid.Column="0">
-            <!-- Scrollable Timeline -->
-            <ScrollViewer Name="TimelineScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" Padding="20,20,20,100">
+        <DockPanel Grid.Column="0" LastChildFill="True">
+            <!-- Input docked to bottom -->
+            <Border DockPanel.Dock="Bottom" Background="#121212" Padding="20,8,20,16">
+                <c:PromptInput DataContext="{Binding}" HorizontalAlignment="Stretch"/>
+            </Border>
+
+            <!-- Scrollable Timeline fills remaining space above -->
+            <ScrollViewer Name="TimelineScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" Padding="20,20,20,8">
                 <StackPanel MaxWidth="680" HorizontalAlignment="Stretch">
                     <!-- Welcome state (calvras.com: logo + text centered, no starter pills) -->
                     <StackPanel IsVisible="{Binding !Messages.Count}" Margin="0,180,0,0" HorizontalAlignment="Center">
@@ -124,12 +129,7 @@
                     </ItemsControl>
                 </StackPanel>
             </ScrollViewer>
-
-            <!-- Native PromptInput Control (Port of ai-chat-input.tsx) -->
-            <c:PromptInput DataContext="{Binding}"
-                           VerticalAlignment="Bottom" HorizontalAlignment="Center"
-                           Margin="24,0,24,20"/>
-        </Grid>
+        </DockPanel>
 
         <!-- Implementation Plan Side Drawer (Only opens on explicit toggle) -->
         <Border Grid.Column="1" Width="360" Background="#141416" BorderBrush="#1E1E22" BorderThickness="1,0,0,0" IsVisible="{Binding IsPlanOpen}">

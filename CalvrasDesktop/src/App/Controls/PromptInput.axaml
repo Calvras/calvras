@@ -28,32 +28,10 @@
             <Setter Property="BorderBrush" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="0"/>
         </Style>
-
-        <!-- Collapsed composer pill -->
-        <Style Selector="Border.composer-box">
-            <Setter Property="Width" Value="320"/>
-            <Setter Property="MinHeight" Value="48"/>
-            <Setter Property="CornerRadius" Value="24"/>
-            <Setter Property="Background" Value="#161618"/>
-            <Setter Property="BorderBrush" Value="#2A2A2E"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="BoxShadow" Value="0 4 20 #50000000"/>
-        </Style>
-
-        <!-- Expanded composer -->
-        <Style Selector="Border.composer-box.expanded">
-            <Setter Property="Width" Value="560"/>
-            <Setter Property="MinHeight" Value="116"/>
-            <Setter Property="CornerRadius" Value="24"/>
-            <Setter Property="Background" Value="#17171A"/>
-            <Setter Property="BorderBrush" Value="#3A3A40"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="BoxShadow" Value="0 12 36 #60000000"/>
-        </Style>
     </UserControl.Styles>
 
-    <Grid HorizontalAlignment="Center">
-        <StackPanel Spacing="0" HorizontalAlignment="Center">
+    <Grid HorizontalAlignment="Stretch">
+        <StackPanel Spacing="0" HorizontalAlignment="Stretch">
 
             <!-- Attachments drawer (slides above composer) -->
             <Border Background="#161618" BorderBrush="#2A2A2E" BorderThickness="1,1,1,0"
@@ -149,57 +127,56 @@
                 </StackPanel>
             </Border>
 
-            <!-- Main composer card -->
+            <!-- Main composer card — always expanded, single state -->
             <Border Name="ComposerBorder"
-                    Classes="composer-box"
-                    Classes.expanded="{Binding IsInputExpanded}"
-                    PointerPressed="OnComposerPointerPressed">
-                <Border.Transitions>
-                    <Transitions>
-                        <DoubleTransition Property="Width" Duration="0:0:0.35" Easing="CubicEaseOut"/>
-                        <DoubleTransition Property="MinHeight" Duration="0:0:0.35" Easing="CubicEaseOut"/>
-                    </Transitions>
-                </Border.Transitions>
+                    Background="#161618"
+                    BorderBrush="#2A2A2E"
+                    BorderThickness="1"
+                    CornerRadius="20"
+                    MinHeight="100"
+                    MaxWidth="600"
+                    HorizontalAlignment="Stretch"
+                    BoxShadow="0 4 20 #50000000">
 
-                <Grid RowDefinitions="Auto,Auto">
+                <Grid RowDefinitions="*,Auto">
 
                     <!-- Text input row -->
                     <Grid Grid.Row="0">
                         <TextBox Name="PromptTextBox"
                                  Classes="chat-input"
                                  Text="{Binding PromptText, Mode=TwoWay}"
-                                 Watermark="Ask anything..."
+                                 Watermark="Ask anything, @ to mention, / for actions"
                                  FontSize="13.5"
                                  TextWrapping="Wrap"
                                  AcceptsReturn="False"
-                                 MinHeight="28"
+                                 MinHeight="68"
                                  MaxHeight="160"
-                                 Padding="18,9,52,9"
-                                 GotFocus="OnTextBoxGotFocus"
+                                 Padding="18,12,18,8"
                                  LostFocus="OnTextBoxLostFocus"
                                  KeyDown="OnTextBoxKeyDown"/>
-
-                        <!-- Collapsed mic button (right side, only in collapsed state) -->
-                        <Button Command="{Binding ToggleVoiceRecordingCommand}"
-                                Width="32" Height="32" CornerRadius="16"
-                                Background="#E4E4E7" Foreground="#18181B"
-                                Padding="0" Margin="0,0,8,0"
-                                HorizontalAlignment="Right" VerticalAlignment="Center"
-                                Cursor="Hand"
-                                IsVisible="{Binding !IsInputExpanded}"
-                                ToolTip.Tip="Voice prompt">
-                            <TextBlock Text="🎙️" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Button>
                     </Grid>
 
-                    <!-- Bottom toolbar row (expanded only) -->
+                    <!-- Bottom toolbar — always visible -->
                     <Grid Grid.Row="1"
                           ColumnDefinitions="Auto,Auto,*,Auto,Auto"
-                          Margin="12,2,10,8"
-                          IsVisible="{Binding IsInputExpanded}">
+                          Margin="12,2,10,10">
+
+                        <!-- "+" attach button (left) -->
+                        <Button Grid.Column="0" Click="OnAddAttachmentClick"
+                                Width="30" Height="30" CornerRadius="8"
+                                Background="Transparent" BorderThickness="0"
+                                Padding="0" Margin="0,0,4,0" Cursor="Hand" ToolTip.Tip="Attach files (max 6)">
+                            <Button.Styles>
+                                <Style Selector="Button:pointerover /template/ ContentPresenter">
+                                    <Setter Property="Background" Value="#26262B"/>
+                                </Style>
+                            </Button.Styles>
+                            <TextBlock Text="+" FontSize="18" Foreground="#71717A"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Button>
 
                         <!-- Model selector -->
-                        <Button Grid.Column="0" Command="{Binding ToggleModelPickerCommand}"
+                        <Button Grid.Column="1" Command="{Binding ToggleModelPickerCommand}"
                                 Background="Transparent" BorderThickness="0" CornerRadius="8"
                                 Padding="6,4" Cursor="Hand"
                                 ToolTip.Tip="{Binding SelectedModel}">
@@ -214,10 +191,21 @@
                             </StackPanel>
                         </Button>
 
+                        <!-- Waveform during recording -->
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="3"
+                                    HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0"
+                                    IsVisible="{Binding IsRecording}">
+                            <Border Width="3" Height="10" Background="#A1A1AA" CornerRadius="1.5"/>
+                            <Border Width="3" Height="18" Background="#A1A1AA" CornerRadius="1.5"/>
+                            <Border Width="3" Height="8" Background="#A1A1AA" CornerRadius="1.5"/>
+                            <Border Width="3" Height="15" Background="#A1A1AA" CornerRadius="1.5"/>
+                            <Border Width="3" Height="6" Background="#A1A1AA" CornerRadius="1.5"/>
+                        </StackPanel>
+
                         <!-- Effort button -->
-                        <Button Grid.Column="1" Command="{Binding CycleEffortCommand}"
+                        <Button Grid.Column="3" Command="{Binding CycleEffortCommand}"
                                 Background="Transparent" BorderThickness="0" CornerRadius="8"
-                                Width="30" Height="30" Padding="0" Margin="4,0,0,0" Cursor="Hand"
+                                Width="30" Height="30" Padding="0" Margin="0,0,6,0" Cursor="Hand"
                                 ToolTip.Tip="{Binding EffortLevel}">
                             <Button.Styles>
                                 <Style Selector="Button:pointerover /template/ ContentPresenter">
@@ -235,31 +223,6 @@
                                 <Border Width="2.5" Height="14" Background="#3F3F46" CornerRadius="1"
                                         IsVisible="{Binding EffortLevel, Converter={x:Static ObjectConverters.NotEqual}, ConverterParameter='Max Effort'}"/>
                             </StackPanel>
-                        </Button>
-
-                        <!-- Waveform during recording -->
-                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="3"
-                                    HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0"
-                                    IsVisible="{Binding IsRecording}">
-                            <Border Width="3" Height="10" Background="#A1A1AA" CornerRadius="1.5"/>
-                            <Border Width="3" Height="18" Background="#A1A1AA" CornerRadius="1.5"/>
-                            <Border Width="3" Height="8" Background="#A1A1AA" CornerRadius="1.5"/>
-                            <Border Width="3" Height="15" Background="#A1A1AA" CornerRadius="1.5"/>
-                            <Border Width="3" Height="6" Background="#A1A1AA" CornerRadius="1.5"/>
-                        </StackPanel>
-
-                        <!-- Attach button -->
-                        <Button Grid.Column="3" Click="OnAddAttachmentClick"
-                                Width="30" Height="30" CornerRadius="8"
-                                Background="Transparent" BorderThickness="0"
-                                Padding="0" Margin="0,0,6,0" Cursor="Hand" ToolTip.Tip="Attach files (max 6)">
-                            <Button.Styles>
-                                <Style Selector="Button:pointerover /template/ ContentPresenter">
-                                    <Setter Property="Background" Value="#26262B"/>
-                                </Style>
-                            </Button.Styles>
-                            <PathIcon Width="14" Height="14" Foreground="#8E8E93"
-                                      Data="M12 4v16m-8-8h16"/>
                         </Button>
 
                         <!-- Send/Stop/Mic circular button -->
