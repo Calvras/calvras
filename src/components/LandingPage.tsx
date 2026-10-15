@@ -1,12 +1,9 @@
-import { DownloadDetails } from "@/components/DownloadDetails";
-import { DOWNLOAD } from "@/lib/download";
+import { DownloadDetails, useLatestRelease } from "@/components/DownloadDetails";
 import { useRef } from "react";
 import { motion, useReducedMotion, useScroll } from "framer-motion";
 import { ArrowUpRight, Download } from "lucide-react";
 import { MarketingHeader, MarketingFooter } from "@/components/MarketingLayout";
 
-
-const DOWNLOAD_URL = DOWNLOAD.installer;
 
 export function LandingPage() {
   const reducedMotion = useReducedMotion();
@@ -18,6 +15,10 @@ export function LandingPage() {
     viewport: { once: true },
     transition: { duration: reducedMotion ? 0 : 0.8 },
   };
+
+  // Always resolves to the latest GitHub release URL at runtime
+  const latestRelease = useLatestRelease();
+  const DOWNLOAD_URL = latestRelease.installer;
 
   return (
     <div className="calvras-landing">
