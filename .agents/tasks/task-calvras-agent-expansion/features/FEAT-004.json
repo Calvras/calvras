@@ -1,0 +1,27 @@
+{
+  "id": "FEAT-004",
+  "type": "feat",
+  "description": "Update routes and labels Records in src/routes/index.tsx to cover all 27 AgentAction types (MUST follow FEAT-003 since Record<AgentAction['type'], string> requires all union members). Also fix the fetch URL to use /api/${routes[...]} instead of /api/fs/${routes[...]} so git and run routes resolve correctly. Expand the isTerminal check and output parsing.",
+  "status": "completed",
+  "steps": [
+    "Read src/routes/index.tsx lines 726-760 to understand current routes Record, labels Record, fetch call, and output parsing code.",
+    "Change the fetch URL from `/api/fs/${routes[action.type]}` to `/api/${routes[action.type]}` (line ~737).",
+    "Update the routes Record to include all 27 types with correct path segments: existing 5 entries change to 'fs/create', 'fs/write-file', 'fs/read-file', 'fs/list-dir', 'fs/command'. Add all 22 new entries: fs/rename, fs/delete, fs/copy, fs/stat, fs/search, fs/find-files, fs/search-replace for file ops; git/status, git/diff, git/log, git/add, git/commit, git/checkout, git/branch, git/restore, git/push, git/clone for git; run/build, run/test, run/lint, run/typecheck, run/install for build/test.",
+    "Update the labels Record to include all 27 types with human-readable display labels.",
+    "Update the isTerminal logic: `const isTerminal = action.type === 'run_command' || action.type.startsWith('git_') || action.type.startsWith('run_') || action.type === 'install_deps';`",
+    "Update the TraceNode creation: use `secondary: action.command || action.path || action.from || action.url || '.'` and derive `command` for terminal nodes: `command: isTerminal ? (action.command ?? deriveCommand(action)) : undefined` where deriveCommand returns a human-readable command string based on action type.",
+    "Update the output parsing after fetch: add branches for Array.isArray(data.results) (search results) and Array.isArray(data.files) (find-files results). Keep existing exitCode/output branch for all isTerminal types.",
+    "Run npm run build:electron and fix all TypeScript errors."
+  ],
+  "acceptance_criteria": [
+    "TypeScript no longer errors about missing keys in the routes or labels Record.",
+    "Fetch calls for git_status use /api/git/status (not /api/fs/git/status).",
+    "Git and run_build tool nodes render as terminal-type with the violet Terminal icon.",
+    "npm run build:electron exits with code 0."
+  ],
+  "verification": [
+    "npm run build:electron"
+  ],
+  "blocked_reason": null,
+  "findings": "Changed fetch URL from /api/fs/${routes[...]} to /api/${routes[...]}. Updated routes Record so fs/* types use 'fs/' prefix and git/run types use their correct sub-paths (git/status, run/build, etc.). Updated isTerminal to cover all git_* and run_* types. Updated TraceNode secondary to use action.from and action.url for rename/copy/clone. Added output parsing branches for data.results (search_files) and data.files (find_files), and unified terminal output (git/run use data.output). Build exits 0 with no TypeScript errors."
+}

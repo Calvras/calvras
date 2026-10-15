@@ -725,15 +725,18 @@ IMPORTANT RULES:
           }
           const feedback: ToolFeedback[] = [];
           const routes: Record<AgentAction["type"], string> = {
-            create_file: "create", write_file: "write-file", read_file: "read-file", list_dir: "list-dir", run_command: "command",
-            rename_file: "rename-file", delete_file: "delete-file", copy_file: "copy-file", get_file_info: "file-info",
-            search_files: "search-files", find_files: "find-files",
-            search_replace: "search-replace",
+            // File system — served under /api/fs/...
+            create_file: "fs/create", write_file: "fs/write-file", read_file: "fs/read-file", list_dir: "fs/list-dir", run_command: "fs/command",
+            rename_file: "fs/rename", delete_file: "fs/delete", copy_file: "fs/copy", get_file_info: "fs/stat",
+            search_files: "fs/search", find_files: "fs/find-files",
+            search_replace: "fs/search-replace",
+            // Git — served under /api/git/...
             git_status: "git/status", git_diff: "git/diff", git_log: "git/log",
             git_add: "git/add", git_commit: "git/commit", git_checkout: "git/checkout",
             git_branch: "git/branch", git_restore: "git/restore", git_push: "git/push", git_clone: "git/clone",
-            run_build: "run-build", run_tests: "run-tests", run_lint: "run-lint",
-            run_typecheck: "run-typecheck", install_deps: "install-deps",
+            // Build & run — served under /api/run/...
+            run_build: "run/build", run_tests: "run/test", run_lint: "run/lint",
+            run_typecheck: "run/typecheck", install_deps: "run/install",
           };
           const labels: Record<AgentAction["type"], string> = {
             create_file: "Create file", write_file: "Write file", read_file: "Read file", list_dir: "List directory", run_command: "Run command",
@@ -748,28 +751,42 @@ IMPORTANT RULES:
           };
           for (const action of actions) {
             controller.signal.throwIfAborted();
-            const node: TraceNode = { id: crypto.randomUUID(), type: action.type === "run_command" ? "terminal" : "tool", primary: labels[action.type], secondary: action.command || action.path || ".", status: "running", ...(action.command ? { command: action.command } : {}) };
+            const isTerminal = action.type === "run_command" || action.type.startsWith("git_") || action.type.startsWith("run_") || action.type === "install_deps";
+            const node: TraceNode = { id: crypto.randomUUID(), type: isTerminal ? "terminal" : "tool", primary: labels[action.type], secondary: action.command || action.path || action.from || action.url || ".", status: "running", ...(isTerminal ? { command: action.command ?? action.message ?? action.branch ?? action.url ?? action.type } : {}) };
             const phase: AgentPhase = { trace: [node] };
             phases.push(phase);
             publish();
             const started = Date.now();
             try {
-              const response = await fetch(`/api/fs/${routes[action.type]}`, {
+              const response = await fetch(`/api/${routes[action.type]}`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ ...action, projectPath: activePath }),
-                signal: action.type === "run_command"
-                  ? AbortSignal.any([controller.signal, AbortSignal.timeout(15_000)])
+                signal: isTerminal
+                  ? AbortSignal.any([controller.signal, AbortSignal.timeout(60_000)])
                   : controller.signal,
               });
               const data = await response.json();
               const ok = response.ok && data.ok === true && (action.type !== "run_command" || data.exitCode === 0);
               node.status = ok ? "completed" : "failed";
               node.durationMs = Date.now() - started;
-              if (action.type === "run_command") { node.exitCode = data.exitCode ?? 1; node.output = data.output || data.error || ""; }
-              else if (data.content !== undefined) node.output = data.content;
-              else if (Array.isArray(data.entries)) node.output = data.entries.map((entry: { name: string; type: string }) => `${entry.type}: ${entry.name}`).join("\n");
-              else node.output = data.error || JSON.stringify(data);
+              if (isTerminal) {
+                // run_command returns exitCode; git/run routes return output string
+                node.exitCode = data.exitCode ?? (data.ok ? 0 : 1);
+                node.output = data.output || data.error || "";
+              } else if (data.content !== undefined) {
+                node.output = data.content;
+              } else if (Array.isArray(data.results)) {
+                // search_files: array of { file, line, text }
+                node.output = data.results.map((r: { file: string; line: number; text: string }) => `${r.file}:${r.line}: ${r.text}`).join("\n");
+              } else if (Array.isArray(data.files)) {
+                // find_files: array of file path strings
+                node.output = data.files.join("\n");
+              } else if (Array.isArray(data.entries)) {
+                node.output = data.entries.map((entry: { name: string; type: string }) => `${entry.type}: ${entry.name}`).join("\n");
+              } else {
+                node.output = data.error || JSON.stringify(data);
+              }
               feedback.push({ action, ok, result: data });
               publish();
             } catch (error) {
