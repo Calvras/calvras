@@ -119,7 +119,7 @@ async function restartServer() {
     serverPort = await findFreePort(serverPort + 1);
     startServer(serverPort);
     await waitForServer(serverPort);
-    if (mainWindow) mainWindow.loadURL(`http://127.0.0.1:${serverPort}`);
+    if (mainWindow) mainWindow.loadURL(`http://127.0.0.1:${serverPort}/app`);
   } catch (e) {
     if (mainWindow) {
       mainWindow.loadURL('about:blank');
@@ -181,7 +181,7 @@ function createMainWindow(port) {
   };
 
   mainWindow = new BrowserWindow(windowOptions);
-  mainWindow.loadURL(`http://127.0.0.1:${port}`);
+  mainWindow.loadURL(`http://127.0.0.1:${port}/app`);
 
   // ── Show when ready ───────────────────────────────────────────────────────
   mainWindow.once('ready-to-show', () => {
@@ -410,6 +410,7 @@ app.whenReady().then(async () => {
 // ── Second instance: focus existing window ────────────────────────────────────
 app.on('second-instance', () => {
   if (mainWindow) { mainWindow.show(); mainWindow.focus(); }
+  else createMainWindow(serverPort);
 });
 
 app.on('window-all-closed', () => {
