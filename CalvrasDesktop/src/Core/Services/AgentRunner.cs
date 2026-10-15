@@ -154,7 +154,10 @@ public class AgentRunner : IAgentRunner
                 {
                     if (action.Type == "run_command" && !string.IsNullOrWhiteSpace(action.Command))
                     {
-                        var result = await _process.ExecuteCommandAsync(action.Command, projectPath, cancellationToken);
+                        var workingDir = !string.IsNullOrWhiteSpace(action.Path)
+                            ? Path.Combine(projectPath, action.Path)
+                            : projectPath;
+                        var result = await _process.ExecuteCommandAsync(action.Command, workingDir, cancellationToken);
                         traceNodes[i] = node with
                         {
                             Status = result.ExitCode == 0 ? "completed" : "failed",
@@ -162,7 +165,16 @@ public class AgentRunner : IAgentRunner
                             ExitCode = result.ExitCode,
                             DurationMs = (int)result.DurationMs
                         };
-                        toolResults.Add(new { action = action.Type, command = action.Command, ok = result.ExitCode == 0, output = result.Output, exitCode = result.ExitCode });
+                        var hint = string.Empty;
+                        if (result.ExitCode != 0 && (
+                            result.Output.Contains("not recognized", StringComparison.OrdinalIgnoreCase) ||
+                            result.Output.Contains("not found", StringComparison.OrdinalIgnoreCase) ||
+                            result.Output.Contains("ENOENT", StringComparison.Ordinal) ||
+                            result.Output.Contains("cannot find", StringComparison.OrdinalIgnoreCase)))
+                        {
+                            hint = "Command not found — consider installing with winget install <PackageId> or checking PATH.";
+                        }
+                        toolResults.Add(new { action = action.Type, command = action.Command, ok = result.ExitCode == 0, output = result.Output, exitCode = result.ExitCode, hint = hint == string.Empty ? (string?)null : hint });
                     }
                     else if ((action.Type == "create_file" || action.Type == "write_file") && !string.IsNullOrWhiteSpace(action.Path))
                     {
