@@ -2,8 +2,6 @@
 
 import * as React from "react";
 import { cn } from "@/lib/utils";
-import { MarkdownContent } from "./markdown-content";
-import { TextEffect } from "./text-effect";
 import {
   ChevronDown,
   Search,
@@ -18,11 +16,9 @@ import {
   Database,
   AlertCircle,
   Cpu,
+  Code2,
   Copy,
   CheckCheck,
-  ShieldCheck,
-  ThumbsUp,
-  ThumbsDown,
 } from "lucide-react";
 
 /* ─────────────────────────────────────────────────────────
@@ -41,38 +37,6 @@ function renderDynamicIcon(icon: any, className?: string): React.ReactNode {
 }
 
 /* ─────────────────────────────────────────────────────────
- * COMPACT 3x3 PIXEL DOT GRID LOADER
- * ───────────────────────────────────────────────────────── */
-const CHEVRON_DELAYS = Array.from({ length: 9 }, (_, i) => {
-  const r = Math.floor(i / 3);
-  const c = i % 3;
-  return (c + Math.abs(r - 1)) * 70;
-});
-
-export function PixelDotsLoader({ className }: { className?: string }) {
-  return (
-    <span
-      aria-hidden="true"
-      className={cn(
-        "grid shrink-0 grid-cols-[repeat(3,3px)] gap-[1.5px] items-center",
-        className
-      )}
-    >
-      {CHEVRON_DELAYS.map((delay, index) => (
-        <span
-          key={index}
-          className="size-[3px] rounded-full bg-foreground/80 transition-opacity motion-reduce:animate-none"
-          style={{
-            opacity: 0.2,
-            animation: `agent-pixel-on 1600ms cubic-bezier(0.23, 1, 0.32, 1) ${delay}ms infinite`,
-          }}
-        />
-      ))}
-    </span>
-  );
-}
-
-/* ─────────────────────────────────────────────────────────
  * TERMINAL & BASH COMMAND EXECUTION VIEWER
  * ───────────────────────────────────────────────────────── */
 export interface TerminalCommandProps {
@@ -87,7 +51,7 @@ export interface TerminalCommandProps {
 export function TerminalCommand({
   command,
   output,
-  exitCode,
+  exitCode = 0,
   durationMs,
   isRunning = false,
   className,
@@ -130,7 +94,7 @@ ${output}` : `$ ${command}`;
               <span className="size-1.5 rounded-full bg-violet-500 animate-pulse" />
               running
             </span>
-          ) : exitCode === undefined ? null : exitCode === 0 ? (
+          ) : exitCode === 0 ? (
             <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10.5px] font-medium text-emerald-600 dark:text-emerald-400 tabular-nums">
               exit 0
             </span>
@@ -159,8 +123,7 @@ ${output}` : `$ ${command}`;
       {output && (
         <div className="relative p-2.5 overflow-x-auto bg-muted/20 text-[11px] leading-relaxed text-muted-foreground">
           <pre className="whitespace-pre font-mono">
-            {output.split(`
-`).map((line, idx) => {
+            {output.split("\n").map((line, idx) => {
               const isPass = line.includes("✓") || line.includes("PASS") || line.includes("passed");
               const isFail = line.includes("FAIL") || line.includes("Error") || line.includes("failed");
               const isWarn = line.includes("WARN") || line.includes("warning");
@@ -211,8 +174,7 @@ export function FileDiff({ file, rows = [], className }: FileDiffProps) {
   const handleCopy = () => {
     const textContent = rows
       .map((r) => `${r.type === "add" ? "+" : r.type === "del" ? "-" : " "} ${r.text}`)
-      .join(`
-`);
+      .join("\n");
     navigator.clipboard.writeText(textContent);
     setCopied(true);
     setTimeout(() => setCopied(false), 1800);
@@ -362,11 +324,18 @@ export type TraceNode<TArgs = any, TResult = any> = {
   details?: DetailLine[];
   sources?: { name: string; url?: string }[];
   renderContent?: () => React.ReactNode;
+  checkpointId?: string;
+  image?: string;
+  previewUrl?: string;
 };
 
 export type AgentPhase = {
   trace: TraceNode[];
   message?: string;
+  startedAt?: number;
+  endedAt?: number;
+  activity?: "thinking" | "working";
+  divider?: { state: "compressing" | "compressed"; detail?: string };
 };
 
 const SENT_H = 46;
@@ -415,59 +384,52 @@ export const DEFAULT_TOOL_REGISTRY: Record<string, ToolDefinition> = {
 };
 
 /* ─────────────────────────────────────────────────────────
- * STREAMING TEXT — powered by TextEffect (framer-motion)
+ * STREAMING TEXT
  * ───────────────────────────────────────────────────────── */
 export interface StreamingTextProps extends React.HTMLAttributes<HTMLDivElement> {
   text: string;
-  speed?: number; // 1=slow, 3=default, 5=fast  → maps to stagger timing
+  speed?: number;
   chunkSize?: number;
   onComplete?: () => void;
 }
 
 export function StreamingText({
   text,
-  speed = 2,
+  speed = 18,
   chunkSize = 2,
   className,
   onComplete,
   ...props
 }: StreamingTextProps) {
-  // Use the blur preset from text-effect: fade + blur per word
-  const staggerChildren = Math.max(0.015, 0.12 / speed);
+  const [shown, setShown] = React.useState("");
+  const onCompleteRef = React.useRef(onComplete);
+  onCompleteRef.current = onComplete;
 
-  const containerVariants = {
-    hidden: { opacity: 0 },
-    visible: {
-      opacity: 1,
-      transition: { staggerChildren },
-    },
-  };
-
-  const itemVariants = {
-    hidden: { opacity: 0, filter: 'blur(12px)' },
-    visible: {
-      opacity: 1,
-      filter: 'blur(0px)',
-      transition: { duration: 0.3, ease: [0.25, 0.1, 0.25, 1] },
-    },
-  };
+  React.useEffect(() => {
+    let i = 0;
+    const id = setInterval(() => {
+      i += chunkSize;
+      const nextText = text.slice(0, i);
+      setShown(nextText);
+      if (i >= text.length) {
+        clearInterval(id);
+        onCompleteRef.current?.();
+      }
+    }, speed);
+    return () => clearInterval(id);
+  }, [text, speed, chunkSize]);
 
   return (
     <div
       aria-live="polite"
       aria-atomic="true"
-      className={cn('select-text', className)}
+      className={cn(
+        "font-sans text-[14.5px] leading-relaxed text-foreground/90 select-text whitespace-pre-line text-pretty",
+        className
+      )}
       {...props}
     >
-      <TextEffect
-        per="word"
-        as="div"
-        variants={{ container: containerVariants, item: itemVariants }}
-        className="whitespace-pre-wrap leading-relaxed text-[14.5px] text-foreground"
-        onAnimationComplete={onComplete}
-      >
-        {text}
-      </TextEffect>
+      {shown}
     </div>
   );
 }
@@ -502,12 +464,7 @@ export function NestedReasoningBlock({
   React.useEffect(() => {
     if (!isActive || isFinished) return;
 
-    // Steady cadence derived from the phase duration: random gaps make the reveal lurch.
-    const perLine = Math.max(
-      700,
-      Math.round((durationSeconds * 1000) / Math.max(sentences.length, 1))
-    );
-    const cadence = delays || sentences.map(() => perLine);
+    const cadence = delays || sentences.map(() => 1800 + Math.floor(Math.random() * 400));
     const totalMs = cadence.reduce((a, b) => a + b, 0);
 
     const timers: ReturnType<typeof setTimeout>[] = [];
@@ -525,36 +482,24 @@ export function NestedReasoningBlock({
     timers.push(
       setTimeout(() => {
         onFinishedRef.current?.();
-      }, totalMs + 50)
+      }, totalMs + 600)
     );
 
     return () => timers.forEach(clearTimeout);
-  }, [isActive, isFinished, delays, sentences, durationSeconds]);
-
-  // If parent marks us finished early (API response arrived), skip remaining animation
-  React.useEffect(() => {
-    if (isFinished) {
-      setRevealedCount(sentences.length);
-      onFinishedRef.current?.();
-    }
-  }, [isFinished, sentences.length]);
+  }, [isActive, isFinished, delays, sentences]);
 
   const expanded = isFinished ? manualOpen : isActive;
   const count = isFinished ? sentences.length : revealedCount;
-  // Reserve the block's final height on the first frame so the layout never grows
-  // while lines stream in — only the text window slides.
-  const finalH = sentences.length * SENT_H + Math.max(0, sentences.length - 1) * GAP;
   const contentH = count > 0 ? count * SENT_H + (count - 1) * GAP : 0;
-  const capped = finalH > MAX_H;
-  const overflowing = contentH > MAX_H;
-  const viewH = capped ? MAX_H : finalH;
+  const capped = contentH > MAX_H;
+  const viewH = capped ? MAX_H : contentH;
   const scrollable = isFinished && manualOpen;
-  const translate = scrollable ? 0 : Math.min(0, MAX_H - FADE - contentH);
+  const translate = scrollable ? 0 : capped ? MAX_H - FADE - contentH : 0;
 
-  const showTop = scrollable ? fade.top : overflowing;
-  const showBottom = scrollable ? fade.bottom : overflowing;
+  const showTop = scrollable ? fade.top : capped;
+  const showBottom = scrollable ? fade.bottom : capped;
 
-  const mask = overflowing
+  const mask = capped
     ? `linear-gradient(to bottom, transparent 0, #000 ${
         showTop ? FADE : 0
       }px, #000 calc(100% - ${showBottom ? FADE : 0}px), transparent 100%)`
@@ -649,11 +594,11 @@ export function NestedReasoningBlock({
                 className="flex flex-col gap-2 transition-transform duration-400 ease-out will-change-transform"
                 style={{ transform: `translateY(${translate}px)` }}
               >
-                {sentences.slice(0, count).map((line, i) => (
+                {expanded && sentences.slice(0, count).map((line, i) => (
                   <p
                     key={i}
                     className="m-0 h-[46px] text-[13px] font-[425] leading-[23px] tracking-tight text-muted-foreground line-clamp-2 overflow-hidden text-pretty"
-                    style={{ animation: "word-float-in 300ms cubic-bezier(0.4, 0, 0.2, 1) both" }}
+                    style={{ animation: "agent-fade 250ms cubic-bezier(0.23,1,0.32,1) both" }}
                   >
                     {line}
                   </p>
@@ -677,12 +622,14 @@ interface TracePillRowProps {
   toolRegistry?: Record<string, ToolDefinition>;
 }
 
-export function TracePillRow({
+function TracePillRow({
   node,
   isActive,
   isFinished,
   toolRegistry = DEFAULT_TOOL_REGISTRY,
 }: TracePillRowProps) {
+  // Every row starts collapsed. While a tool runs the row is only its label plus a
+  // spinner; the command, its output and any code appear after the user clicks.
   const [open, setOpen] = React.useState(false);
 
   const toolDef = node.toolName ? toolRegistry[node.toolName] : undefined;
@@ -697,20 +644,13 @@ export function TracePillRow({
       toolDef?.renderCustomContent ||
       node.diffRows ||
       node.codeSnippet ||
-      node.output !== undefined ||
       (node.details && node.details.length > 0) ||
       (node.sources && node.sources.length > 0) ||
       node.args ||
       node.result
   );
 
-  const isFailed = node.status === "failed" || (node.exitCode !== undefined && node.exitCode !== 0);
-  const isRunning = node.status === "running" || isActive;
-
   const primaryText =
-    (isFailed && isCommandNode ? "Command failed" : undefined) ||
-    (isFailed && node.primary ? `${node.primary} failed` : undefined) ||
-    (isRunning && isCommandNode && !node.primary ? "Running command" : undefined) ||
     node.primary ||
     (isCommandNode ? "Run" : undefined) ||
     (typeof toolDef?.label === "function" ? toolDef.label(node.args) : toolDef?.label) ||
@@ -734,7 +674,7 @@ export function TracePillRow({
         />
       );
     }
-    if (node.status === "failed" || (node.exitCode !== undefined && node.exitCode !== 0)) {
+    if (node.status === "failed" || (node.exitCode !== undefined && node.exitCode > 0)) {
       return <AlertCircle className="size-3.5 text-rose-500 shrink-0" aria-hidden="true" />;
     }
 
@@ -819,7 +759,7 @@ export function TracePillRow({
           {primaryText}
         </span>
 
-        {secondaryText && (
+        {(open || !hasDetails) && secondaryText && (
           <span
             className={cn(
               "inline-flex h-5 min-w-0 max-w-[65%] items-center truncate rounded-md bg-muted/80 px-1.5 text-[11px] text-muted-foreground border border-border/40 transition-colors group-hover/row:border-border/80 group-hover/row:text-foreground",
@@ -850,6 +790,9 @@ export function TracePillRow({
           )}
         >
           <div className="min-h-0 overflow-hidden">
+            {/* Mounted only while open, so a collapsed row never puts the command or its
+                output on screen. */}
+            {open && (
             <div className="mt-1 mb-1.5 ml-2.5 flex flex-col gap-1.5 border-l border-border/70 py-0.5 pl-2.5">
               {/* Custom Viewport Renderers */}
               {node.renderContent ? (
@@ -867,7 +810,7 @@ export function TracePillRow({
                 <TerminalCommand
                   command={node.command}
                   output={node.output}
-                  exitCode={node.exitCode}
+                  exitCode={node.exitCode ?? 0}
                   durationMs={node.durationMs}
                   isRunning={isActive}
                 />
@@ -876,12 +819,11 @@ export function TracePillRow({
               {/* Real Embedded FileDiff Component */}
               {node.diffRows && (
                 <FileDiff
-                  file={node.diffFile || node.secondary || ""}
+                  file={node.diffFile || (typeof node.secondary === "string" ? node.secondary : "patch.ts")}
                   rows={node.diffRows}
                 />
               )}
 
-              {!isCommandNode && node.output !== undefined && <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border/80 bg-card p-2.5 font-mono text-[11px] leading-relaxed text-muted-foreground">{node.output}</pre>}
               {/* Structured Line Details */}
               {!isCommandNode && node.details && node.details.length > 0 && (
                 <div className="flex flex-col gap-1">
@@ -929,10 +871,52 @@ export function TracePillRow({
                 </div>
               )}
             </div>
+            )}
           </div>
         </div>
       )}
     </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────
+ * ELAPSED TIME
+ * Anything past a minute reads in minutes, never "Worked for 137 seconds".
+ * ───────────────────────────────────────────────────────── */
+export function formatElapsed(totalSeconds: number): string {
+  const seconds = Math.max(1, Math.round(totalSeconds));
+  if (seconds < 60) return `${seconds} ${seconds === 1 ? "second" : "seconds"}`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  if (!rest) return `${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
+  return `${minutes} ${minutes === 1 ? "min" : "mins"} ${rest}s`;
+}
+
+function HeaderText({ isWorking, kind, workingLabel, elapsedSeconds }: { isWorking: boolean; kind: "thinking" | "working"; workingLabel: string; elapsedSeconds: number }) {
+  return (
+    <span className="text-[13.5px] font-normal transition-colors">
+      {isWorking ? (
+        <span
+          className="bg-clip-text text-transparent font-medium"
+          style={{
+            backgroundImage:
+              "linear-gradient(90deg, var(--color-muted-foreground, oklch(0.55 0 0)) 35%, var(--color-foreground, oklch(0.95 0 0)) 50%, var(--color-muted-foreground, oklch(0.55 0 0)) 65%)",
+            backgroundSize: "200% 100%",
+            animation: "agent-shimmer 1.5s linear infinite",
+          }}
+        >
+          {kind === "thinking" ? "Thinking…" : workingLabel}
+        </span>
+      ) : kind === "thinking" ? (
+        <span>
+          Thought for <span className="tabular-nums font-mono text-[12px]">{formatElapsed(elapsedSeconds)}</span>
+        </span>
+      ) : (
+        <span>
+          Worked for <span className="tabular-nums font-mono text-[12px]">{formatElapsed(elapsedSeconds)}</span>
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -942,13 +926,15 @@ export function TracePillRow({
 export interface ThinkingStateProps extends React.HTMLAttributes<HTMLDivElement> {
   nodes?: TraceNode[];
   tools?: Record<string, ToolDefinition> | undefined;
+  /** Live execution control. Omit to retain the supplied standalone demo behavior. */
+  running?: boolean;
+  measuredSeconds?: number;
   autoPlay?: boolean;
   defaultExpanded?: boolean;
   workingLabel?: string;
-  isComplete?: boolean;
+  /** Thinking phases read "Thinking… / Thought for"; working phases read "Working… / Worked for". */
+  kind?: "thinking" | "working";
   onSettled?: () => void;
-  /** Pre-computed elapsed seconds. When set, overrides the internal wall-clock timer. */
-  fixedElapsedSeconds?: number;
 }
 
 export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps>(
@@ -959,9 +945,10 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
       autoPlay = true,
       defaultExpanded,
       workingLabel = "Working...",
-      isComplete,
+      kind = "working",
       onSettled,
-      fixedElapsedSeconds,
+      running,
+      measuredSeconds,
       className,
       style,
       ...props
@@ -970,13 +957,15 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
   ) => {
     const totalNodes = nodes.length;
     const [activeIndex, setActiveIndex] = React.useState(autoPlay ? 0 : totalNodes);
-    const [isWorking, setIsWorking] = React.useState(autoPlay);
+    const [simulatedWorking, setIsWorking] = React.useState(autoPlay);
+    const isWorking = running ?? simulatedWorking;
     const [manualExpanded, setManualExpanded] = React.useState<boolean | null>(
       defaultExpanded !== undefined ? defaultExpanded : null
     );
 
     const startTimeRef = React.useRef<number>(Date.now());
-    const [elapsedSeconds, setElapsedSeconds] = React.useState<number>(fixedElapsedSeconds ?? 0);
+    const [simulatedSeconds, setElapsedSeconds] = React.useState<number>(0);
+    const elapsedSeconds = measuredSeconds ?? simulatedSeconds;
     const isWorkingRef = React.useRef(isWorking);
     isWorkingRef.current = isWorking;
 
@@ -984,7 +973,7 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
     onSettledRef.current = onSettled;
 
     React.useEffect(() => {
-      if (!autoPlay) return;
+      if (!autoPlay || running !== undefined) return;
       startTimeRef.current = Date.now();
 
       const timer = setInterval(() => {
@@ -997,63 +986,39 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
       }, 250);
 
       return () => clearInterval(timer);
-    }, [autoPlay]);
-
-    // When isComplete becomes true (API returned with complete result), settle immediately with zero delay!
-    React.useEffect(() => {
-      if (isComplete) {
-        setIsWorking(false);
-        setActiveIndex(totalNodes);
-        const finalDuration = fixedElapsedSeconds ?? Math.max(1, Math.round((Date.now() - startTimeRef.current) / 1000));
-        setElapsedSeconds(finalDuration);
-        onSettledRef.current?.();
-      }
-    }, [isComplete, totalNodes, fixedElapsedSeconds]);
+    }, [autoPlay, running]);
 
     const advanceStep = React.useCallback(() => {
       setActiveIndex((prev) => {
         const next = prev + 1;
         if (next >= totalNodes) {
-          // If isComplete is explicitly false (API still in flight), stay in working state
-          if (isComplete === false) {
-            return prev;
-          }
           setIsWorking(false);
           const finalDuration = Math.max(1, Math.round((Date.now() - startTimeRef.current) / 1000));
           setElapsedSeconds(finalDuration);
         }
         return next;
       });
-    }, [totalNodes, isComplete]);
-
-    // When nodes change while autoPlay is false, mark not working
-    React.useEffect(() => {
-      if (!autoPlay) {
-        setIsWorking(false);
-        setActiveIndex(totalNodes);
-      }
-    }, [autoPlay, totalNodes]);
+    }, [totalNodes]);
 
     React.useEffect(() => {
-      if (!autoPlay || !isWorking || activeIndex >= totalNodes) return;
+      if (running !== undefined || !autoPlay || !isWorking || activeIndex >= totalNodes) return;
 
       const currentNode = nodes[activeIndex];
       if (currentNode?.type === "reasoning") return;
 
-      // Fast, snappy step advance so there is no lag
       const delay =
         currentNode?.type === "tool" || currentNode?.type === "terminal"
-          ? 350
+          ? 2200
           : currentNode?.type === "search"
-          ? 400
-          : 250;
+          ? 2400
+          : 1700;
 
       const timer = setTimeout(() => {
         advanceStep();
       }, delay);
 
       return () => clearTimeout(timer);
-    }, [activeIndex, autoPlay, isWorking, totalNodes, nodes, advanceStep]);
+    }, [activeIndex, autoPlay, isWorking, totalNodes, nodes, advanceStep, running]);
 
     React.useEffect(() => {
       if (!isWorking && autoPlay) {
@@ -1061,10 +1026,19 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
       }
     }, [isWorking, autoPlay]);
 
-    const isGlobalExpanded = manualExpanded !== null ? manualExpanded : isWorking;
+    const isGlobalExpanded = manualExpanded ?? false;
 
-    const hasActions = nodes.some(
-      (n) => n.type === "terminal" || n.type === "tool" || n.type === "command" || Boolean(n.command)
+    // With the timeline collapsed, the header alone says nothing about the work in progress,
+    // so the current step gets its own line until the user opens the full list.
+    const labeledNodes = nodes.filter((node) => node.primary);
+    const liveNode = [...labeledNodes].reverse().find((node) => node.status === "running" || node.status === "pending")
+      ?? labeledNodes[labeledNodes.length - 1];
+
+    // Opening the header is only worth offering when it would reveal something: a thought with
+    // sentences, or a labelled step row. A turn that thought with nothing recorded shows plain
+    // prose instead of a chevron that leads to an empty gutter.
+    const hasTimeline = nodes.some((node) =>
+      node.type === "reasoning" ? Boolean(node.sentences?.some((sentence) => sentence.trim())) : Boolean(node.primary)
     );
 
     return (
@@ -1075,87 +1049,30 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
         {...props}
       >
         <style>{`
-          @keyframes agent-pixel-on {
-            0%, 100% { opacity: 0.35; transform: scale(0.96); }
-            50% { opacity: 0.85; transform: scale(1.04); }
-          }
           @keyframes agent-shimmer {
             0% { background-position: 200% 0; }
             100% { background-position: -200% 0; }
           }
           @keyframes agent-fade {
-            from { opacity: 0; }
-            to { opacity: 1; }
-          }
-          @keyframes word-float-in {
-            from { opacity: 0; transform: translateY(4px); }
+            from { opacity: 0; transform: translateY(2px); }
             to { opacity: 1; transform: translateY(0); }
           }
         `}</style>
 
         {/* Master Header Trigger (Seamless unboxed prose integration) */}
+        {hasTimeline ? (
         <button
           type="button"
-          aria-label={(() => {
-            if (nodes.length === 0) return undefined; // no label for empty-trace buttons
-            if (isWorking) return "Activity";
-            // Include elapsed time only when a fixed duration was provided (e.g. for history renders)
-            if (fixedElapsedSeconds !== undefined) {
-              const hasTools = nodes.some(n => n.type === "tool" || n.type === "terminal" || n.type === "command" || Boolean(n.command));
-              const mins = Math.floor(elapsedSeconds / 60);
-              const secs = elapsedSeconds % 60;
-              const timeStr = mins > 0 ? `${mins}min ${secs}s` : `${elapsedSeconds}s`;
-              return hasTools ? `Activity Worked for ${timeStr}` : `Activity Thought for ${timeStr}`;
-            }
-            return "Activity";
-          })()}
           aria-expanded={isGlobalExpanded}
-          disabled={nodes.length === 0}
-          onClick={() => {
-            if (nodes.length === 0) return;
-            setManualExpanded((prev) => !(prev !== null ? prev : isWorking));
-          }}
+          onClick={() => setManualExpanded((prev) => !(prev ?? false))}
           className={cn(
-            "group flex w-fit items-center gap-1.5 p-0 bg-transparent text-left transition-colors duration-150",
-            nodes.length > 0 ? "cursor-pointer" : "cursor-default",
-            "text-muted-foreground/75 hover:text-foreground font-normal text-[13.5px] leading-relaxed",
+            "group flex w-fit flex-col items-start gap-1 p-0 bg-transparent text-left transition-colors duration-150 cursor-pointer",
+            "text-muted-foreground hover:text-foreground font-normal text-[13.5px] leading-relaxed",
             "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none rounded-xs"
           )}
         >
-          {isWorking && <PixelDotsLoader />}
-
-          <span className="text-[13.5px] font-normal transition-colors">
-            {isWorking ? (
-              <span
-                className="bg-clip-text text-transparent font-medium"
-                style={{
-                  backgroundImage:
-                    "linear-gradient(90deg, var(--color-muted-foreground, oklch(0.55 0 0)) 35%, var(--color-foreground, oklch(0.95 0 0)) 50%, var(--color-muted-foreground, oklch(0.55 0 0)) 65%)",
-                  backgroundSize: "200% 100%",
-                  animation: "agent-shimmer 1.5s linear infinite",
-                }}
-              >
-                {(() => {
-                  const hasTools = nodes.some(n => n.type === "tool" || n.type === "terminal" || n.type === "command" || Boolean(n.command));
-                  return hasTools ? "Working..." : "Thinking...";
-                })()}
-              </span>
-            ) : (
-              <span>
-                {(() => {
-                  const hasTools = nodes.some(n => n.type === "tool" || n.type === "terminal" || n.type === "command" || Boolean(n.command));
-                  const mins = Math.floor(elapsedSeconds / 60);
-                  const secs = elapsedSeconds % 60;
-                  const timeStr = mins > 0 ? `${mins}min ${secs}s` : `${elapsedSeconds}s`;
-                  return hasTools
-                    ? <>Worked for <span className="tabular-nums font-mono text-[12px]">{timeStr}</span></>
-                    : <>Thought for <span className="tabular-nums font-mono text-[12px]">{timeStr}</span></>;
-                })()}
-              </span>
-            )}
-          </span>
-
-          {nodes.length > 0 && (
+          <span className="flex items-center gap-1.5">
+            <HeaderText isWorking={isWorking} kind={kind} workingLabel={workingLabel} elapsedSeconds={elapsedSeconds} />
             <ChevronDown
               aria-hidden="true"
               className={cn(
@@ -1163,55 +1080,67 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
                 isGlobalExpanded ? "rotate-180" : "rotate-0"
               )}
             />
-          )}
+          </span>
         </button>
+        ) : (
+          <p className="flex w-fit items-center gap-1.5 p-0 text-muted-foreground font-normal text-[13.5px] leading-relaxed">
+            <HeaderText isWorking={isWorking} kind={kind} workingLabel={workingLabel} elapsedSeconds={elapsedSeconds} />
+          </p>
+        )}
 
-        {/* Master Collapsible Timeline Channel — only rendered when nodes exist */}
-        {nodes.length > 0 && (
-          <div
-            className={cn(
-              "grid transition-[grid-template-rows,opacity] duration-300 ease-out",
-              isGlobalExpanded
-                ? "grid-rows-[1fr] opacity-100"
-                : "grid-rows-[0fr] opacity-0 pointer-events-none"
+        {isWorking && !isGlobalExpanded && liveNode && (
+          <p className="mt-1.5 flex flex-wrap items-baseline gap-x-2 max-w-[68ch] text-[14.5px] leading-[1.7] text-foreground/90 text-pretty">
+            <span>{liveNode.primary}</span>
+            {liveNode.secondary && (
+              <span className="break-all font-mono text-[12px] leading-none text-muted-foreground/80">{liveNode.secondary}</span>
             )}
-            aria-hidden={!isGlobalExpanded}
-          >
-            <div className="min-h-0 overflow-hidden">
-              {isGlobalExpanded && (
-                <div className="mt-1 ml-2 border-l border-border/60 py-0.5 pl-2 flex flex-col gap-0.5">
-                {nodes.slice(0, activeIndex + 1).map((node, idx) => {
-                  const isNodeActive = idx === activeIndex && isWorking;
-                  const isNodeFinished = idx < activeIndex || !isWorking;
+          </p>
+        )}
 
-                  if (node.type === "reasoning" && node.sentences) {
-                    return (
-                      <NestedReasoningBlock
-                        key={idx}
-                        sentences={node.sentences}
-                        durationSeconds={node.durationSeconds}
-                        isActive={isNodeActive}
-                        isFinished={isNodeFinished}
-                        onFinished={advanceStep}
-                      />
-                    );
-                  }
+        {/* Master Collapsible Timeline Channel */}
+        <div
+          className={cn(
+            "grid transition-[grid-template-rows,opacity] duration-300 ease-out",
+            isGlobalExpanded
+              ? "grid-rows-[1fr] opacity-100"
+              : "grid-rows-[0fr] opacity-0 pointer-events-none"
+          )}
+        >
+          <div className="min-h-0 overflow-hidden">
+            <div className="mt-1 ml-2 border-l border-border/60 py-0.5 pl-2 flex flex-col gap-0.5">
+              {/* While collapsed the live step line above already carries this text, so the rows
+                  stay out of the DOM instead of repeating it invisibly. Demo playback has no
+                  live line and keeps rendering its scripted rows. */}
+              {(isGlobalExpanded || running === undefined) && nodes.slice(0, running !== undefined ? totalNodes : activeIndex + 1).map((node, idx) => {
+                const isNodeActive = running !== undefined ? node.status === "running" || node.status === "pending" : idx === activeIndex && isWorking;
+                const isNodeFinished = running !== undefined ? node.status === "completed" || node.status === "failed" : idx < activeIndex || !isWorking;
 
+                if (node.type === "reasoning" && node.sentences) {
                   return (
-                    <TracePillRow
+                    <NestedReasoningBlock
                       key={idx}
-                      node={node}
+                      sentences={node.sentences}
+                      durationSeconds={node.durationSeconds}
                       isActive={isNodeActive}
                       isFinished={isNodeFinished}
-                      toolRegistry={tools}
+                      onFinished={advanceStep}
                     />
                   );
-                })}
-              </div>
-              )}
+                }
+
+                return (
+                  <TracePillRow
+                    key={idx}
+                    node={node}
+                    isActive={isNodeActive}
+                    isFinished={isNodeFinished}
+                    toolRegistry={tools}
+                  />
+                );
+              })}
             </div>
           </div>
-        )}
+        </div>
       </div>
     );
   }
@@ -1225,105 +1154,37 @@ export interface AgentWorkflowProps extends React.HTMLAttributes<HTMLDivElement>
   phases: AgentPhase[];
   tools?: Record<string, ToolDefinition>;
   workingLabel?: string;
-  isComplete?: boolean;
   onComplete?: () => void;
-  /** Pre-computed elapsed seconds. When set, overrides the internal wall-clock timer in ThinkingState. */
-  fixedElapsedSeconds?: number;
 }
-
-/* ─────────────────────────────────────────────────────────
- * RESPONSE ACTIONS TOOLBAR (Copy, Thumbs Up, Thumbs Down)
- * ───────────────────────────────────────────────────────── */
-export function ResponseActionsToolbar({ text, className }: { text: string; className?: string }) {
-  const [copied, setCopied] = React.useState(false);
-  const [feedback, setFeedback] = React.useState<"up" | "down" | null>(null);
-
-  const handleCopy = () => {
-    if (!text) return;
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  return (
-    <div className={cn("mt-2.5 flex items-center gap-1.5 text-muted-foreground/60", className)}>
-      {/* 1. Copy SVG */}
-      <button
-        type="button"
-        onClick={handleCopy}
-        aria-label={copied ? "Copied" : "Copy to clipboard"}
-        title={copied ? "Copied!" : "Copy"}
-        className="inline-flex size-7 items-center justify-center rounded-md hover:text-foreground hover:bg-muted/60 active:scale-[0.92] transition-colors cursor-pointer"
-      >
-        {copied ? (
-          <CheckCheck className="size-3.5 text-emerald-500 animate-in fade-in" aria-hidden="true" />
-        ) : (
-          <Copy className="size-3.5" aria-hidden="true" />
-        )}
-      </button>
-
-      {/* 2. Thumbs Up SVG */}
-      <button
-        type="button"
-        onClick={() => setFeedback((prev) => (prev === "up" ? null : "up"))}
-        aria-label="Good response"
-        title={feedback === "up" ? "Liked" : "Good response"}
-        className={cn(
-          "inline-flex size-7 items-center justify-center rounded-md hover:text-foreground hover:bg-muted/60 active:scale-[0.92] transition-colors cursor-pointer",
-          feedback === "up" && "text-foreground bg-muted/80 shadow-xs"
-        )}
-      >
-        <ThumbsUp className="size-3.5" aria-hidden="true" />
-      </button>
-
-      {/* 3. Thumbs Down SVG */}
-      <button
-        type="button"
-        onClick={() => setFeedback((prev) => (prev === "down" ? null : "down"))}
-        aria-label="Bad response"
-        title={feedback === "down" ? "Disliked" : "Bad response"}
-        className={cn(
-          "inline-flex size-7 items-center justify-center rounded-md hover:text-foreground hover:bg-muted/60 active:scale-[0.92] transition-colors cursor-pointer",
-          feedback === "down" && "text-foreground bg-muted/80 shadow-xs"
-        )}
-      >
-        <ThumbsDown className="size-3.5" aria-hidden="true" />
-      </button>
-    </div>
-  );
-}
-
-export const ResponseCopyButton = ResponseActionsToolbar;
 
 export function AgentWorkflow({
   phases = [],
   tools,
   workingLabel = "Working...",
-  isComplete = false,
   onComplete,
-  fixedElapsedSeconds,
   className,
   ...props
 }: AgentWorkflowProps) {
   const [currentPhaseIdx, setCurrentPhaseIdx] = React.useState(0);
   const [phaseStatus, setPhaseStatus] = React.useState<"trace" | "message">("trace");
-  const [streamFinishedPhases, setStreamFinishedPhases] = React.useState<Record<number, boolean>>({});
   const onCompleteRef = React.useRef(onComplete);
   onCompleteRef.current = onComplete;
 
-  // When parent marks workflow complete or phases update
-  React.useEffect(() => {
-    if (isComplete) {
-      setCurrentPhaseIdx(Math.max(0, phases.length - 1));
-      setPhaseStatus("message");
-    } else if (phases.length > 0 && currentPhaseIdx >= phases.length) {
-      setCurrentPhaseIdx(phases.length - 1);
-    }
-  }, [isComplete, phases, currentPhaseIdx]);
-
   const handleTraceSettled = React.useCallback((idx: number) => {
-    setPhaseStatus("message");
-    if (!phases[idx]?.message) {
+    if (idx === currentPhaseIdx) {
+      if (phases[idx]?.message) {
+        setPhaseStatus("message");
+      } else if (idx < phases.length - 1) {
+        setCurrentPhaseIdx((prev) => prev + 1);
+        setPhaseStatus("trace");
+      } else {
+        onCompleteRef.current?.();
+      }
+    }
+  }, [currentPhaseIdx, phases]);
+
+  const handleMessageCompleted = React.useCallback((idx: number) => {
+    if (idx === currentPhaseIdx) {
       if (idx < phases.length - 1) {
         setCurrentPhaseIdx((prev) => prev + 1);
         setPhaseStatus("trace");
@@ -1331,63 +1192,45 @@ export function AgentWorkflow({
         onCompleteRef.current?.();
       }
     }
-  }, [phases]);
-
-  const handleMessageCompleted = React.useCallback((idx: number) => {
-    setStreamFinishedPhases((prev) => ({ ...prev, [idx]: true }));
-    if (idx < phases.length - 1) {
-      setCurrentPhaseIdx((prev) => prev + 1);
-      setPhaseStatus("trace");
-    } else {
-      onCompleteRef.current?.();
-    }
-  }, [phases]);
+  }, [currentPhaseIdx, phases]);
 
   return (
     <div className={cn("flex flex-col gap-4 w-full", className)} {...props}>
       {phases.map((phase, idx) => {
-        if (!isComplete && idx > currentPhaseIdx) return null;
+        if (idx > currentPhaseIdx) return null;
 
         const isCurrentPhase = idx === currentPhaseIdx;
         const shouldShowTrace = true;
-        const shouldPlayTrace = !isComplete && isCurrentPhase && phaseStatus === "trace";
-        const isTraceFinished = isComplete || !isCurrentPhase || phaseStatus === "message";
+        const shouldPlayTrace = isCurrentPhase && phaseStatus === "trace";
+        const isTraceFinished = !isCurrentPhase || phaseStatus === "message";
 
-        const shouldShowMessage = (isComplete || isTraceFinished) && !!phase.message;
-        const shouldStreamMessage = !isComplete && isCurrentPhase && phaseStatus === "message";
-        const hasFinishedStreaming = isComplete || !shouldStreamMessage || streamFinishedPhases[idx];
+        const shouldShowMessage = isTraceFinished && !!phase.message;
+        const shouldStreamMessage = isCurrentPhase && phaseStatus === "message";
 
         return (
-          <div key={idx} className="flex flex-col gap-1.5">
+          <div key={idx} className="flex flex-col gap-1">
             {shouldShowTrace && (
               <ThinkingState
                 nodes={phase.trace}
                 tools={tools}
                 autoPlay={shouldPlayTrace}
-                isComplete={isComplete}
                 workingLabel={workingLabel}
-                fixedElapsedSeconds={fixedElapsedSeconds}
                 onSettled={() => handleTraceSettled(idx)}
               />
             )}
 
             {shouldShowMessage && phase.message && (
-              <div className="pt-1 select-text group/reply">
-                {shouldStreamMessage && !streamFinishedPhases[idx] ? (
+              <div className="pt-0 animate-[agent-fade_300ms_ease-out_both]">
+                {shouldStreamMessage ? (
                   <StreamingText
                     text={phase.message}
-                    speed={1}
+                    speed={18}
                     chunkSize={2}
                     onComplete={() => handleMessageCompleted(idx)}
                   />
                 ) : (
-                  <MarkdownContent content={phase.message} />
-                )}
-
-                {/* Copy button — only visible on hover */}
-                {hasFinishedStreaming && (
-                  <div className="opacity-0 group-hover/reply:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity duration-150">
-                    <ResponseCopyButton text={phase.message} />
+                  <div className="font-sans text-[14.5px] leading-relaxed text-foreground/90 select-text whitespace-pre-line text-pretty">
+                    {phase.message}
                   </div>
                 )}
               </div>
@@ -1398,4 +1241,3 @@ export function AgentWorkflow({
     </div>
   );
 }
-

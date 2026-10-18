@@ -1,4 +1,5 @@
 import { DownloadDetails, useLatestRelease } from "@/components/DownloadDetails";
+import { DOWNLOAD } from "@/lib/download";
 import { useRef } from "react";
 import { motion, useReducedMotion, useScroll } from "framer-motion";
 import { ArrowUpRight, Download } from "lucide-react";
@@ -74,7 +75,7 @@ export function LandingPage() {
       <div className="landing-technologies" aria-label="Built with">
         {["Electron", "TypeScript", "React 19", "Vite", "Nitro", "Tailwind CSS", "Inno Setup"].map(tech => <span key={tech}>{tech}</span>)}
       </div>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: '{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Calvras","url":"https://calvras.com/","applicationCategory":"DeveloperApplication","operatingSystem":"Windows 10, Windows 11 (x64)","softwareVersion":"10.0.0","downloadUrl":"https://github.com/SHIKARI-hey/Calvras/releases/download/v10.0.0/Calvras-Setup-win-x64.exe","image":"https://calvras.com/social-preview.png","description":"A Windows x64 desktop AI coding agent for project files, local commands, and visible change review."}' }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify({ "@context": "https://schema.org", "@type": "SoftwareApplication", name: "Calvras", url: "https://calvras.com/", applicationCategory: "DeveloperApplication", operatingSystem: "Windows 10, Windows 11 (x64)", softwareVersion: DOWNLOAD.version, downloadUrl: DOWNLOAD_URL, image: "https://calvras.com/social-preview.png", description: "A Windows x64 desktop AI coding agent for project files, local commands, and visible change review." }) }} />
       <MarketingFooter />
     </div>
   );

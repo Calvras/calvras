@@ -148,7 +148,7 @@ export function ChapterScrubber({
 
   React.useEffect(() => {
     onActiveChange?.(
-      engaged ? chapters[activeIndex] : null,
+      engaged ? chapters[activeIndex] ?? null : null,
       engaged ? activeIndex : -1,
     );
   }, [engaged, activeIndex, chapters, onActiveChange]);

@@ -190,12 +190,10 @@ const VerticalCutReveal = forwardRef<VerticalCutRevealRef, TextProps>(
                     initial="hidden"
                     animate={isAnimating ? "visible" : "hidden"}
                     variants={variants}
-                    onAnimationComplete={
-                      wordIndex === elements.length - 1 &&
-                      charIndex === wordObj.characters.length - 1
-                        ? onComplete
-                        : undefined
-                    }
+                    {...(wordIndex === elements.length - 1 &&
+                      charIndex === wordObj.characters.length - 1 && onComplete
+                        ? { onAnimationComplete: onComplete }
+                        : {})}
                     className="inline-block"
                   >
                     {char}

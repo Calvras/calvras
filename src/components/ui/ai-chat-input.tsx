@@ -2,13 +2,28 @@
 
 import * as React from "react";
 import { useRef, useState, useEffect, useCallback } from "react";
+import { readPreferences } from "@/lib/preferences";
+import { AccessSelector, ComposerApproval, type ComposerRequest } from "./composer-access";
+import type { AccessMode } from "@/lib/tool-catalog";
 import { cn } from "@/lib/utils";
+import { LinkifiedText } from "@/components/ui/markdown-content";
+import { ArrowUpRight, ChevronDown, Globe, ListTodo, MessageSquare, RotateCcw, ScanSearch, Sparkles, SquarePen, SquareTerminal, Target } from "lucide-react";
 
 // ----------------------------------------------------------------------
 // Transition Physics
 // ----------------------------------------------------------------------
 const SPRING_TRANSITION = "max-width 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), height 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)";
 const SMOOTH_HEIGHT_TRANSITION = "max-width 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), height 0.15s ease-out";
+
+const DOCUMENT_EXTENSIONS = /\.(pdf|txt|md|markdown|json|csv|tsv|log|xml|yaml|yml|toml|ini|cfg|conf|ts|tsx|js|jsx|mjs|cjs|py|rb|go|rs|java|kt|c|h|cpp|hpp|cs|php|sql|sh|bash|zsh|bat|ps1|cmd|html|htm|css|scss|less|vue|svelte|graphql|prisma)$/i;
+const ATTACHMENT_ACCEPT = "image/*,.pdf,.txt,.md,.markdown,.json,.csv,.tsv,.log,.xml,.yaml,.yml,.toml,.ini,.ts,.tsx,.js,.jsx,.py,.rb,.go,.rs,.java,.c,.h,.cpp,.cs,.php,.sql,.sh,.bat,.ps1,.html,.css,.scss,.vue,.svelte";
+
+function classifyAttachment(file: File): "image" | "document" | null {
+  if (file.type.startsWith("image/")) return "image";
+  if (file.type === "application/pdf" || file.type.startsWith("text/") || ["application/json", "application/xml", "application/yaml", "application/javascript", "application/typescript"].includes(file.type)) return "document";
+  if (DOCUMENT_EXTENSIONS.test(file.name)) return "document";
+  return null;
+}
 
 // ----------------------------------------------------------------------
 // Types
@@ -20,6 +35,7 @@ interface Attachment {
   name: string;
   width?: number;
   height?: number;
+  kind: "image" | "document";
 }
 
 // ----------------------------------------------------------------------
@@ -53,28 +69,6 @@ function MorphingText({ text }: { text: string }) {
   );
 }
 
-function ModelIcon({ model, className }: { model: string; className?: string }) {
-  const icons: Record<string, string> = {
-    "Composer 2.5": "https://cdn.21st.dev/assets/mirror/7d/7dc00bc09f225fcda46cbc9c6b669c69c025a231877d6c17baa6a003f04f02b2.svg",
-    "Gemini 3.5 Flash": "https://cdn.21st.dev/assets/mirror/cd/cda2df6631d5fa227de3fa04ed78cf354f910ba92a9f086e7455655c10ad9d09.svg",
-    "GPT 5.5": "https://cdn.21st.dev/assets/mirror/b9/b93fa7942be639a1dae60194ff12141145d7d9fd59581582d6ff23335755f19c.svg",
-    "Opus 4.8": "https://cdn.21st.dev/assets/mirror/5d/5de1221c77cc91e748066fd642ad0eee1c1fa65328814f5178166f901e599709.svg",
-    "GLM 5.2": "https://cdn.21st.dev/assets/mirror/b2/b2a6c0ff63efd8a555edf8a174ea6fcfeca120ac1595a2d461ca11d3ae89276c.svg"
-  };
-
-  const filters: Record<string, string> = {
-    "GPT 5.5": "dark:invert", 
-  };
-
-  return (
-    <img 
-      src={icons[model] || icons["GPT 5.5"]} 
-      alt={model} 
-      className={cn("object-contain", filters[model], className)} 
-    />
-  );
-}
-
 function ArrowUpIcon() {
   return (
     <svg width="12" height="12" viewBox="0 0 14 14" fill="none" aria-hidden="true">
@@ -100,6 +94,16 @@ function StopIcon() {
   );
 }
 
+function ScreenIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <rect x="1.5" y="2.5" width="11" height="7.5" rx="1.4" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M5 12.5h4M7 10v2.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <circle cx="7" cy="6.25" r="1.3" stroke="currentColor" strokeWidth="1.2" />
+    </svg>
+  );
+}
+
 function PlusIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
@@ -107,6 +111,41 @@ function PlusIcon() {
     </svg>
   );
 }
+
+function FolderIcon({ withPlus = false }: { withPlus?: boolean }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <path d="M1.5 4.2c0-.66.54-1.2 1.2-1.2h2.3c.32 0 .62.12.85.35l.7.7h4.75c.66 0 1.2.54 1.2 1.2v5.1c0 .66-.54 1.2-1.2 1.2H2.7c-.66 0-1.2-.54-1.2-1.2V4.2Z" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round" />
+      {withPlus ? <path d="M7 6.6v3.1M5.45 8.15h3.1" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" /> : <path d="M1.5 5.4h11" stroke="currentColor" strokeWidth="1.25" />}
+    </svg>
+  );
+}
+
+type SlashCommand = {
+  id: string;
+  label: string;
+  hint: string;
+  icon: React.ComponentType<{ className?: string }>;
+  /** Hidden instruction prepended to the agent prompt; the composer only shows a chip. */
+  directive?: string;
+  /** Panel action handled by the host route (no chip, no text). */
+  action?: boolean;
+};
+
+// Directive commands drop a removable chip in the composer — the user types their own
+// request after it and the hidden `directive` rides along to the agent, never shown as a
+// sentence in the bubble. Panel commands just open their dock.
+const SLASH_COMMANDS: SlashCommand[] = [
+  { id: "goal", label: "Goal", hint: "Set what you want done", icon: Target, directive: "This is your goal for the task. Treat the user's message as the outcome to achieve and carry it through to a verified, working result — don't stop partway." },
+  { id: "plan", label: "Plan", hint: "Outline the steps, then build", icon: Sparkles, directive: "Take a careful look first: inspect the workspace, lay out a short plan, then start. Don't stop at the plan — carry it through and verify the result." },
+  { id: "review", label: "Review", hint: "Check what's broken and fix it", icon: ScanSearch, directive: "Review this workspace for anything broken, unfinished, or inconsistent. Fix what you find, then verify it actually works." },
+  { id: "continue", label: "Continue", hint: "Pick up where we left off", icon: RotateCcw, directive: "Continue from where we stopped. Check the current files and any unfinished work, then keep going without repeating finished steps." },
+  { id: "new-chat", label: "Start fresh", hint: "Clear this conversation", icon: SquarePen, action: true },
+  { id: "tasks", label: "Show what's happening", hint: "Open the task and environment panel", icon: ListTodo, action: true },
+  { id: "sidechat", label: "Open side chat", hint: "Ask questions while the agent works", icon: MessageSquare, action: true },
+  { id: "terminal", label: "Open the terminal", hint: "Run commands in this folder", icon: SquareTerminal, action: true },
+  { id: "browser", label: "Open the browser panel", hint: "See the app you're building", icon: Globe, action: true },
+];
 
 function CloseIcon() {
   return (
@@ -117,8 +156,8 @@ function CloseIcon() {
 }
 
 function DynamicBarsIcon({ level }: { level: string }) {
-  const isMediumOrHigh = level === "Medium" || level === "Max Effort";
-  const isHigh = level === "Max Effort";
+  const isMediumOrHigh = level === "Medium" || level === "Max Effort" || level === "Balanced" || level === "Thorough";
+  const isHigh = level === "Max Effort" || level === "Thorough";
 
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
@@ -172,7 +211,19 @@ function AttachmentThumb({
       )}
       aria-label={`Open preview of ${attachment.name}`}
     >
-      <img src={attachment.url} alt={attachment.name} className="size-full object-cover" draggable={false} />
+      {attachment.kind === "image" ? (
+        <img src={attachment.url} alt={attachment.name} className="size-full object-cover" draggable={false} />
+      ) : (
+        <span className="flex size-full flex-col items-center justify-center gap-0.5 px-1 text-muted-foreground">
+          <svg width="17" height="17" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M4 1.5h5.5L13 5v9.5H4z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+            <path d="M9.5 1.5V5H13M6 8.5h4M6 11h4" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+          </svg>
+          <span className="w-full truncate text-center text-[7.5px] font-semibold uppercase tracking-wide">
+            {(attachment.name.split(".").pop() ?? "file").slice(0, 4)}
+          </span>
+        </span>
+      )}
       <span className={cn("absolute inset-0 flex items-start justify-end bg-black/0 transition-colors duration-200", isHovered && "bg-black/25")}>
         <span
           role="button" tabIndex={-1}
@@ -269,7 +320,17 @@ function AttachmentGalleryModal({
         onTransitionEnd={() => { if (phase === "closing") onClose(); }}
         onClick={(e) => e.stopPropagation()}
       >
-        <img ref={imgRef} src={attachment.url} alt={attachment.name} className="size-full object-cover" draggable={false} />
+        {attachment.kind === "image" ? (
+          <img ref={imgRef} src={attachment.url} alt={attachment.name} className="size-full object-cover" draggable={false} />
+        ) : (
+          <span className="flex size-full flex-col items-center justify-center gap-4 p-6 text-center">
+            <svg width="64" height="64" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="text-muted-foreground/60">
+              <path d="M4 1.5h5.5L13 5v9.5H4z" stroke="currentColor" strokeWidth="0.8" strokeLinejoin="round" />
+              <path d="M9.5 1.5V5H13M6 8.5h4M6 11h4" stroke="currentColor" strokeWidth="0.8" strokeLinejoin="round" />
+            </svg>
+            <span className="max-w-full truncate text-sm font-medium text-foreground">{attachment.name}</span>
+          </span>
+        )}
       </div>
 
       <button
@@ -295,15 +356,14 @@ export interface PromptInputProps {
   onSubmit?: (
     value: string,
     meta?: {
-      model: string;
       effort: string;
       attachments: File[];
       files?: { type: string; url: string; name?: string }[];
+      directive?: string;
     }
   ) => void;
   placeholder?: string;
   className?: string;
-  models?: string[];
   efforts?: string[];
   defaultValue?: string;
   value?: string;
@@ -311,6 +371,31 @@ export interface PromptInputProps {
   maxAttachments?: number;
   isThinking?: boolean;
   onStop?: () => void;
+  accessMode?: AccessMode;
+  onAccessModeChange?: (mode: AccessMode) => void;
+  approval?: ComposerRequest | undefined;
+  onApprovalDecision?: (choice: string) => void;
+  /** The folder Calvras is working in, shown beneath the composer. */
+  projectName?: string | null;
+  projectPath?: string | null;
+  folderBusy?: boolean;
+  folderError?: string;
+  onFolderFiles?: (files: File[]) => void;
+  /** Electron only: open the native folder picker, which can see an empty folder. */
+  onPickFolder?: (() => void) | undefined;
+  /** A running chat keeps its folder, so changing it means starting a fresh one. */
+  onNewChatWithFolder?: (() => void) | undefined;
+  onClearFolder?: () => void;
+  /** Once a chat has started its folder is fixed; clicking the badge does nothing. */
+  folderLocked?: boolean;
+  /** Messages the user sent while the agent was busy, stacked above the input. */
+  queued?: { id: string; text: string }[];
+  onSendQueuedNow?: (id: string) => void;
+  onRemoveQueued?: (id: string) => void;
+  /** Panel actions chosen from the slash menu. */
+  onSlashAction?: (id: string) => void;
+  /** Electron only: capture the desktop and attach it to the queued message. */
+  onCaptureScreen?: () => Promise<{ file: File; name: string; type: string } | null>;
 }
 
 export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
@@ -319,26 +404,34 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
       onSubmit,
       placeholder = "Ask anything",
       className,
-      models = ["GPT 5.5", "Opus 4.8", "Gemini 3.5 Flash", "Composer 2.5", "GLM 5.2"],
-      efforts = ["Low", "Medium", "Max Effort"],
+      efforts = ["Quick", "Balanced", "Thorough"],
       defaultValue = "",
       value: controlledValue,
       onChange,
       maxAttachments = 6,
       isThinking = false,
       onStop,
+      accessMode = "automatic", onAccessModeChange, approval, onApprovalDecision, onCaptureScreen,
+      projectName = null, projectPath = null, folderBusy = false, folderError = "", onFolderFiles, onPickFolder, onNewChatWithFolder, onClearFolder, onSlashAction,
+      folderLocked = false, queued = [], onSendQueuedNow, onRemoveQueued,
     },
     ref
   ) => {
     const [expanded, setExpanded] = useState(false);
     const [isSmoothResize, setIsSmoothResize] = useState(false);
     const [localValue, setLocalValue] = useState(defaultValue);
-    const [selectedModel, setSelectedModel] = useState(models[0] || "GPT 5.5");
     const [effortIndex, setEffortIndex] = useState(1);
-    const [isModelSelectOpen, setIsModelSelectOpen] = useState(false);
+    useEffect(() => {
+      const update = () => { const effort = readPreferences().effort; const index = efforts.indexOf(effort); if (index >= 0) setEffortIndex(index); };
+      update(); window.addEventListener("calvras:preferences", update);
+      return () => window.removeEventListener("calvras:preferences", update);
+    }, [efforts.join(",")]);
+    const [folderMenuOpen, setFolderMenuOpen] = useState(false);
 
     const [attachments, setAttachments] = useState<Attachment[]>([]);
     const [activeAttachment, setActiveAttachment] = useState<{ attachment: Attachment; rect: DOMRect } | null>(null);
+    const [capturingScreen, setCapturingScreen] = useState(false);
+    const [captureError, setCaptureError] = useState("");
 
     // Audio/Voice recording states
     const [isRecording, setIsRecording] = useState(false);
@@ -360,13 +453,31 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
     const value = isControlled ? controlledValue : localValue;
     const hasValue = value.trim() !== "" || attachments.length > 0;
     const hasAttachments = attachments.length > 0;
+    const draftLink = value.match(/(?:https?:\/\/|www\.|localhost:|127\.0\.0\.1:)[^\s<>"']+/i)?.[0];
+    const draftLinkHref = draftLink
+      ? /^(localhost|127\.0\.0\.1):/i.test(draftLink) ? `http://${draftLink}`
+      : /^www\./i.test(draftLink) ? `https://${draftLink}`
+      : draftLink
+      : undefined;
 
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const internalContainerRef = useRef<HTMLDivElement>(null);
     const topFadeRef = useRef<HTMLDivElement>(null);
     const bottomFadeRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const folderInputRef = useRef<HTMLInputElement>(null);
     const thumbRefs = useRef<Map<string, HTMLButtonElement | null>>(new Map());
+
+    const [slashIndex, setSlashIndex] = useState(0);
+    const [slashDismissed, setSlashDismissed] = useState(false);
+    const [chip, setChip] = useState<{ id: string; label: string; directive: string; Icon: React.ComponentType<{ className?: string }> } | null>(null);
+    const slashQuery = value.startsWith("/") ? value.slice(1).toLowerCase() : "";
+    const slashCandidates = value.startsWith("/") && !value.includes("\n") && !value.slice(1).includes(" ")
+      ? SLASH_COMMANDS.filter((command) => !slashQuery || `${command.label} ${command.hint} ${command.id}`.toLowerCase().includes(slashQuery))
+      : [];
+    const slashMenuOpen = expanded && !isThinking && !isRecording && !slashDismissed && slashCandidates.length > 0;
+    useEffect(() => { setSlashIndex(0); }, [slashQuery]);
+    useEffect(() => { if (!value.startsWith("/")) setSlashDismissed(false); }, [value]);
 
     // Sync value ref for audio callback closure
     useEffect(() => {
@@ -391,6 +502,19 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
       if (!isControlled) setLocalValue(val);
       onChange?.(val);
     }, [isControlled, onChange]);
+
+    const chooseSlash = useCallback((command: SlashCommand) => {
+      setSlashDismissed(true);
+      if (command.directive) {
+        setChip({ id: command.id, label: command.label, directive: command.directive, Icon: command.icon });
+        handleValueChange("");
+        if (!expanded) { setIsSmoothResize(false); setExpanded(true); }
+        requestAnimationFrame(() => { textareaRef.current?.focus(); });
+        return;
+      }
+      handleValueChange("");
+      onSlashAction?.(command.id);
+    }, [handleValueChange, onSlashAction, expanded]);
 
     const expand = () => {
       setIsSmoothResize(false); 
@@ -539,11 +663,11 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
     }, [stopRecording, attachments]);
 
     useEffect(() => {
-      if ((value.trim() !== "" || hasAttachments) && !expanded) {
+      if ((value.trim() !== "" || hasAttachments || chip) && !expanded) {
         setIsSmoothResize(false);
         setExpanded(true);
       }
-    }, [value, expanded, hasAttachments]);
+    }, [value, expanded, hasAttachments, chip]);
 
     useEffect(() => {
       if (expanded && !isRecording) {
@@ -556,6 +680,7 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
         }, 50);
         return () => clearTimeout(timer);
       }
+      return undefined;
     }, [expanded, isRecording]);
 
     // Updates height on value/text change
@@ -581,50 +706,38 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
     }, [value, expanded]); 
 
     useEffect(() => {
-      setContainerHeight(Math.max(116, textareaHeight + 48));
+      setContainerHeight(Math.max(116, textareaHeight + 48 + (chip ? 34 : 0)));
       setTimeout(updateFades, 0);
-    }, [textareaHeight]);
-
-    useEffect(() => {
-      if (!isModelSelectOpen) return;
-      const handleOutsideClick = (e: MouseEvent) => {
-        if (internalContainerRef.current && !internalContainerRef.current.contains(e.target as Node)) {
-          setIsModelSelectOpen(false);
-        }
-      };
-      document.addEventListener("mousedown", handleOutsideClick);
-      return () => document.removeEventListener("mousedown", handleOutsideClick);
-    }, [isModelSelectOpen]);
+    }, [textareaHeight, chip]);
 
     const handleBlur = (e: React.FocusEvent<HTMLDivElement>) => {
       if (internalContainerRef.current && internalContainerRef.current.contains(e.relatedTarget as Node)) return;
       if (value.trim() === "" && !hasAttachments && !isRecording) {
         setIsSmoothResize(false);
         setExpanded(false);
-        setIsModelSelectOpen(false);
       }
     };
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
       if (value.trim() === "" && !hasAttachments) return;
       setIsSmoothResize(false);
       const files = attachments.map((a) => a.file);
-      const attPreviews = attachments.map((a) => ({
+      const attPreviews = await Promise.all(attachments.map(async (a) => ({
         type: a.file.type,
-        url: a.url,
+        url: await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(new Error("Could not read the attachment.")); reader.readAsDataURL(a.file); }),
         name: a.name,
-      }));
+      })));
       onSubmit?.(value, {
-        model: selectedModel,
-        effort: efforts[effortIndex] || "Medium",
+        effort: efforts[effortIndex] || "Balanced",
         attachments: files,
         files: attPreviews,
+        ...(chip ? { directive: chip.directive } : {}),
       });
       handleValueChange("");
+      setChip(null);
       attachments.forEach((a) => URL.revokeObjectURL(a.url));
       setAttachments([]);
       setExpanded(false);
-      setIsModelSelectOpen(false);
     };
 
     const cycleEffort = (e: React.MouseEvent) => {
@@ -637,29 +750,71 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
       fileInputRef.current?.click();
     };
 
-    const handleFilesChosen = async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = Array.from(e.target.files ?? []).filter((f) => f.type.startsWith("image/"));
-      e.target.value = ""; 
+    const captureScreen = async (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!onCaptureScreen || capturingScreen) return;
+      setCapturingScreen(true);
+      setCaptureError("");
+      try {
+        const shot = await onCaptureScreen();
+        if (shot) acceptFiles([shot.file]);
+      } catch (error) {
+        setCaptureError(error instanceof Error ? error.message : "The screen could not be captured.");
+      } finally {
+        setCapturingScreen(false);
+      }
+    };
 
-      if (files.length === 0) return;
+    const acceptFiles = (incoming: File[]): boolean => {
+      const files = incoming.filter((file) => classifyAttachment(file) !== null);
+      if (files.length === 0) return false;
       const room = Math.max(0, maxAttachments - attachments.length);
       const accepted = files.slice(0, room);
+      if (accepted.length === 0) return false;
 
-      if (!expanded) { setIsSmoothResize(false); setExpanded(true); } 
+      if (!expanded) { setIsSmoothResize(false); setExpanded(true); }
       else { setIsSmoothResize(true); }
 
       for (const file of accepted) {
         const url = URL.createObjectURL(file);
-        const img = new Image();
-        img.onload = () => addAttachment(file, url, img.naturalWidth, img.naturalHeight);
-        img.onerror = () => addAttachment(file, url, 800, 600);
-        img.src = url;
+        const kind = classifyAttachment(file)!;
+        if (kind === "image") {
+          const img = new Image();
+          img.onload = () => addAttachment(file, url, img.naturalWidth, img.naturalHeight, kind);
+          img.onerror = () => addAttachment(file, url, 800, 600, kind);
+          img.src = url;
+        } else {
+          addAttachment(file, url, 0, 0, kind);
+        }
       }
+      return true;
     };
 
-    const addAttachment = (file: File, url: string, width: number, height: number) => {
+    const handleFilesChosen = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(e.target.files ?? []);
+      e.target.value = "";
+      acceptFiles(files);
+    };
+
+    const handleFolderChosen = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(e.target.files ?? []);
+      e.target.value = "";
+      // An empty folder reports no files at all. Passing the empty list on is what lets the
+      // app say so instead of swallowing the pick and looking dead.
+      onFolderFiles?.(files);
+    };
+
+    // The native picker can see a folder with nothing in it; the browser's directory input
+    // cannot, so it stays as the fallback for non-Electron builds.
+    const chooseFolder = () => {
+      if (onPickFolder) onPickFolder();
+      else folderInputRef.current?.click();
+    };
+
+    const addAttachment = (file: File, url: string, width: number, height: number, kind: "image" | "document") => {
       const id = `${file.name}-${file.lastModified}-${Math.random().toString(36).slice(2, 8)}`;
-      setAttachments((prev) => [...prev, { id, file, url, name: file.name, width, height }]);
+      setAttachments((prev) => [...prev, { id, file, url, name: file.name, width, height, kind }]);
     };
 
     const removeAttachment = (id: string) => {
@@ -674,12 +829,14 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
 
     // Calculate action button states
     const showArrow = (hasValue || isThinking) && !isRecording;
-    const showStop = isRecording || isThinking;
+    const showStop = isRecording || (isThinking && !hasValue);
     const showMic = !hasValue && !isRecording && !isThinking;
 
     const onActionButtonClick = (e: React.MouseEvent) => {
       e.preventDefault();
-      if (isThinking && onStop) {
+      if (isThinking && hasValue) {
+        void handleSubmit();
+      } else if (isThinking && onStop) {
         onStop();
       } else if (isRecording) {
         stopRecording();
@@ -689,6 +846,8 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
         startRecording();
       }
     };
+
+    if (approval) return <ComposerApproval request={approval} onDecision={(choice) => onApprovalDecision?.(choice)} onStop={onStop} />;
 
     return (
       <>
@@ -710,13 +869,74 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept={ATTACHMENT_ACCEPT}
             multiple
             onChange={handleFilesChosen}
             className="hidden"
             tabIndex={-1}
             aria-hidden="true"
           />
+          <input
+            ref={folderInputRef}
+            type="file"
+            multiple
+            onChange={handleFolderChosen}
+            className="hidden"
+            tabIndex={-1}
+            aria-hidden="true"
+            {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
+          />
+
+          {slashMenuOpen && (
+            <div
+              role="listbox"
+              aria-label="Slash commands"
+              className="absolute bottom-full left-0 right-0 z-30 mb-2 overflow-hidden rounded-2xl border border-[#dfd6c8] bg-[#f5f0e8] text-[#1a1512] shadow-[0_18px_50px_-12px_rgba(0,0,0,0.45)] animate-in fade-in slide-in-from-bottom-2 duration-150"
+            >
+              <p className="px-3.5 pb-1.5 pt-3 text-[9px] font-semibold uppercase tracking-[0.16em] text-[#8a7e72]">What do you want to do?</p>
+              <div className="max-h-[320px] overflow-y-auto px-1.5 pb-1.5">
+                {(["directive", "action"] as const).map((group, gi) => {
+                  const items = slashCandidates
+                    .map((command, index) => ({ command, index }))
+                    .filter(({ command }) => (command.directive ? group === "directive" : group === "action"));
+                  if (!items.length) return null;
+                  return (
+                    <div key={group} className={cn(gi === 1 && "mt-1 border-t border-[#e3dacd] pt-1")}>
+                      {items.map(({ command, index }) => {
+                        const Icon = command.icon;
+                        const selected = index === slashIndex;
+                        return (
+                          <button
+                            key={command.id}
+                            type="button"
+                            role="option"
+                            aria-selected={selected}
+                            onMouseDown={(event) => { event.preventDefault(); chooseSlash(command); }}
+                            onMouseEnter={() => setSlashIndex(index)}
+                            className={cn(
+                              "relative flex w-full items-center gap-2.5 rounded-lg py-1.5 pl-2.5 pr-2 text-left outline-none transition-colors",
+                              selected ? "bg-[#ece4d7]" : "hover:bg-[#efe8dd]"
+                            )}
+                          >
+                            {selected && <span aria-hidden="true" className="absolute left-0 top-1/2 h-5 w-[2px] -translate-y-1/2 rounded-full bg-[#1a1512]" />}
+                            <span className={cn("flex size-7 shrink-0 items-center justify-center rounded-full ring-1", command.directive ? "bg-[#1a1512]/[0.06] text-[#6b5a46] ring-[#d8cdbd]" : "text-[#8a7e72] ring-transparent")}>
+                              <Icon className="size-4" />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-[12.5px] font-medium text-[#1a1512]">{command.label}</span>
+                              <span className="block truncate text-[10.5px] text-[#8a7e72]">{command.hint}</span>
+                            </span>
+                            {selected && <kbd className="rounded border border-[#d8cdbd] bg-[#f5f0e8] px-1.5 py-0.5 text-[9px] text-[#8a7e72]">↵</kbd>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="border-t border-[#e3dacd] bg-[#f1ebe0] px-3.5 py-2 text-[9.5px] text-[#8a7e72]">↑↓ to move · Enter to pick · Esc to close</p>
+            </div>
+          )}
 
           {/* Independent Attachment Tab (Slides up from behind the prompt input) */}
           <div
@@ -757,6 +977,37 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
             </div>
           </div>
 
+          {queued.length > 0 && (
+            <div role="list" className="mb-1.5 flex flex-col gap-1" aria-label="Waiting to send">
+              {queued.map((item) => (
+                <div key={item.id} role="listitem" className="flex items-center gap-2 rounded-lg border border-border bg-muted/60 px-2.5 py-1 text-[12px] text-muted-foreground">
+                  <span className="min-w-0 flex-1 truncate"><LinkifiedText text={item.text} /></span>
+                  {onSendQueuedNow && (
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => onSendQueuedNow(item.id)}
+                      className="shrink-0 rounded-md border border-border bg-background px-2 py-0.5 text-[11px] font-medium text-foreground transition-colors hover:bg-muted"
+                    >
+                      Send now
+                    </button>
+                  )}
+                  {onRemoveQueued && (
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => onRemoveQueued(item.id)}
+                      aria-label={`Discard queued message ${item.text}`}
+                      className="flex size-4 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-black/10"
+                    >
+                      <CloseIcon />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Main Input Card */}
           <div
             onMouseDown={(e) => {
@@ -771,9 +1022,10 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
               height: expanded ? containerHeight : 48,
               transition: isSmoothResize ? SMOOTH_HEIGHT_TRANSITION : SPRING_TRANSITION,
               overflow: expanded ? "visible" : "hidden",
+              background: "#f5f0e8",
             }}
             className={cn(
-              "relative w-full border border-border bg-card shadow-sm focus-within:border-ring/40 focus-within:ring-1 focus-within:ring-ring/20 hover:border-border/80 z-10",
+              "relative w-full border border-border shadow-sm focus-within:border-ring/40 focus-within:ring-1 focus-within:ring-ring/20 hover:border-border/80 z-10",
               expanded ? "cursor-text" : "cursor-default"
             )}
           >
@@ -784,12 +1036,64 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
               .prompt-scrollbar:hover::-webkit-scrollbar-thumb { background: hsl(var(--muted-foreground) / 0.3); }
             `}} />
 
+            {chip && expanded && (
+              <div
+                className="absolute left-3 top-2 z-[4] flex items-center gap-1.5 rounded-full border border-[#d7ccbb] bg-[#e9e0d1] py-1 pl-2 pr-1 text-[#1a1512] shadow-xs animate-in fade-in zoom-in-95 duration-150"
+                data-slash-chip={chip.id}
+              >
+                <chip.Icon className="size-3" />
+                <span className="text-[11.5px] font-semibold leading-none tracking-tight">{chip.label}</span>
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => setChip(null)}
+                  aria-label={`Remove ${chip.label}`}
+                  className="ml-0.5 flex size-4 items-center justify-center rounded-full text-[#8a7e72] transition-colors hover:bg-black/10 hover:text-[#1a1512]"
+                >
+                  <CloseIcon />
+                </button>
+              </div>
+            )}
+
             <textarea
               ref={textareaRef}
               value={value}
               onChange={(e) => handleValueChange(e.target.value)}
               onScroll={updateFades}
+              onPaste={(e) => {
+                // Pasted images or files arrive as clipboard files — attach them instead of
+                // inserting their names as text so the agent can read the real content.
+                const pasted = Array.from(e.clipboardData?.files ?? []);
+                if (pasted.length && acceptFiles(pasted)) e.preventDefault();
+              }}
               onKeyDown={(e) => {
+                if (chip && value === "" && e.key === "Backspace") {
+                  e.preventDefault();
+                  setChip(null);
+                  return;
+                }
+                if (slashMenuOpen) {
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    setSlashIndex((index) => (index + 1) % slashCandidates.length);
+                    return;
+                  }
+                  if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setSlashIndex((index) => (index - 1 + slashCandidates.length) % slashCandidates.length);
+                    return;
+                  }
+                  if (e.key === "Enter" || e.key === "Tab") {
+                    e.preventDefault();
+                    chooseSlash(slashCandidates[Math.min(slashIndex, slashCandidates.length - 1)]!);
+                    return;
+                  }
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    setSlashDismissed(true);
+                    return;
+                  }
+                }
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   handleSubmit();
@@ -797,19 +1101,20 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
                 if (e.key === "Escape" && value.trim() === "" && !hasAttachments) {
                   setIsSmoothResize(false);
                   setExpanded(false);
-                  setIsModelSelectOpen(false);
                 }
               }}
               placeholder={placeholder}
               aria-label="Prompt"
               disabled={isRecording}
               style={{
+                top: chip ? 38 : 0,
                 transition: isSmoothResize
                   ? "height 0.15s ease-out"
                   : "opacity 0.3s ease-out, transform 0.3s ease-out, height 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)"
               }}
               className={cn(
-                "prompt-scrollbar absolute top-0 inset-x-0 z-[1] w-full resize-none bg-transparent pl-4 pr-12 py-3.5 text-sm leading-[22px] text-foreground outline-none placeholder:font-medium placeholder:text-muted-foreground/80 cursor-text",
+                "prompt-scrollbar absolute top-0 inset-x-0 z-[1] w-full resize-none bg-transparent pl-4 pr-12 py-3.5 text-sm leading-[22px] outline-none cursor-text",
+                "text-[#1a1512] placeholder:font-medium placeholder:text-[#8a7e72]",
                 expanded ? "opacity-100 scale-100 translate-y-0" : "opacity-0 scale-95 -translate-y-1 pointer-events-none",
                 isScrolling ? "overflow-y-auto" : "overflow-y-hidden",
                 isRecording && "pointer-events-none"
@@ -818,14 +1123,16 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
 
             <div
               ref={topFadeRef}
-              className="absolute left-4 right-12 top-0 z-[2] h-8 bg-gradient-to-b from-card via-card/90 to-transparent pointer-events-none"
+              className="absolute left-4 right-12 top-0 z-[2] h-8 pointer-events-none"
+              style={{ background: "linear-gradient(to bottom, #f5f0e8, transparent)", top: chip ? 38 : 0 }}
             />
             <div
               ref={bottomFadeRef}
-              className="absolute left-4 right-12 z-[2] h-8 bg-gradient-to-t from-card via-card/90 to-transparent pointer-events-none"
+              className="absolute left-4 right-12 z-[2] h-8 pointer-events-none"
               style={{ 
                 opacity: 0, 
-                top: `${textareaHeight - 32}px`,
+                top: `${textareaHeight - 32 + (chip ? 38 : 0)}px`,
+                background: "linear-gradient(to top, #f5f0e8, transparent)",
                 transition: isSmoothResize ? "top 0.15s ease-out" : "top 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)"
               }}
             />
@@ -835,7 +1142,8 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
               onClick={expand}
               style={{ transition: isSmoothResize ? "none" : "all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)" }}
               className={cn(
-                "absolute inset-x-0 top-0 z-[1] cursor-text pl-4 pr-12 py-[15px] text-left text-sm font-medium leading-[17px] text-muted-foreground/80 outline-none",
+                "absolute inset-x-0 top-0 z-[1] cursor-text pl-4 pr-12 py-[15px] text-left text-sm font-medium leading-[17px] outline-none",
+                "text-[#8a7e72]",
                 !expanded ? "opacity-100 scale-100 translate-y-0" : "opacity-0 scale-105 translate-y-1 pointer-events-none"
               )}
               aria-label="Open prompt input"
@@ -850,77 +1158,43 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
                 expanded && !isRecording ? "opacity-100 blur-0 translate-y-0 pointer-events-auto" : "opacity-0 blur-sm translate-y-2 pointer-events-none"
               )}
             >
-              <div className="relative">
-                <button
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()} 
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setIsModelSelectOpen((prev) => !prev);
-                  }}
-                  className={cn(
-                    "group flex items-center gap-1 rounded-full px-2 py-1 text-foreground/50 transition-all duration-200 outline-none hover:bg-accent/60 hover:text-foreground cursor-default",
-                    isModelSelectOpen ? "bg-accent/60 text-foreground" : ""
-                  )}
-                  aria-label={`Select model. Current: ${selectedModel}`}
-                >
-                  <ModelIcon model={selectedModel} className="size-3.5 opacity-70 group-hover:opacity-100 transition-opacity" />
-                  <span className="text-xs font-semibold select-none transition-colors">
-                    <MorphingText text={selectedModel} />
-                  </span>
-                </button>
-
-                <div
-                  style={{ transformOrigin: "bottom left" }}
-                  onMouseLeave={() => {
-                    setHoverStyle((prev) => ({
-                      ...prev, opacity: 0, transform: prev.transform.replace("scale(1)", "scale(0.95)"), transition: "opacity 0.2s ease-in, transform 0.2s ease-out",
-                    }));
-                  }}
-                  className={cn(
-                    "absolute bottom-full left-0 mb-2.5 z-50 w-44 rounded-2xl border border-border bg-card/95 p-1 shadow-xl backdrop-blur-md flex flex-col gap-0.5 transition-all duration-400 cursor-default",
-                    isModelSelectOpen
-                      ? "opacity-100 scale-100 translate-y-0 pointer-events-auto ease-[cubic-bezier(0.34,1.56,0.64,1)]"
-                      : "opacity-0 scale-95 translate-y-3 pointer-events-none ease-[cubic-bezier(0.175,0.885,0.32,1.275)]"
-                  )}
-                >
-                  <div className="relative flex flex-col gap-0.5">
-                    <div style={hoverStyle} className="absolute left-0 right-0 top-0 h-8 -z-10 rounded-xl bg-accent pointer-events-none" />
-                    {models.map((model, idx) => (
-                      <button
-                        key={model}
-                        type="button"
-                        onMouseDown={(e) => e.preventDefault()}
-                        onMouseEnter={() => {
-                          setHoverStyle((prev) => ({
-                            opacity: 1, transform: `translateY(${idx * 34}px) scale(1)`,
-                            transition: prev.opacity === 0 ? "opacity 0.15s ease-out" : "transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.15s ease", 
-                          }));
-                        }}
-                        onClick={(e) => { e.stopPropagation(); setSelectedModel(model); setIsModelSelectOpen(false); }}
-                        className="group relative flex h-8 w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-left text-xs font-medium text-foreground/80 outline-none active:scale-[0.98] cursor-default"
-                      >
-                        <span className="flex items-center gap-2">
-                          <ModelIcon model={model} className="size-3.5 opacity-85 group-hover:opacity-100 transition-opacity" />
-                          {model}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
               <button
                 type="button" onMouseDown={(e) => e.preventDefault()} onClick={cycleEffort}
-                className="group flex items-center gap-1 rounded-full px-2 py-1 text-foreground/50 transition-all duration-200 hover:bg-accent/60 hover:text-foreground outline-none cursor-default"
+                className="group flex items-center gap-1 rounded-full px-2 py-1 transition-all duration-200 hover:bg-black/8 outline-none cursor-default text-[#4a3f35] hover:text-[#1a1512]"
               >
                 <DynamicBarsIcon level={efforts[effortIndex] || "Medium"} />
                 <span className="text-xs font-semibold select-none transition-colors"><MorphingText text={efforts[effortIndex] || "Medium"} /></span>
               </button>
 
+              {draftLink && (
+                <a
+                  href={draftLinkHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onMouseDown={(e) => e.preventDefault()}
+                  title={`Open ${draftLink}`}
+                  className="ml-1 flex max-w-[240px] items-center gap-1.5 rounded-full bg-black/5 px-2 py-1 transition-colors hover:bg-black/10"
+                >
+                  <Globe className="size-3 shrink-0 text-link" aria-hidden="true" />
+                  <span className="truncate text-[11px] font-medium leading-none text-link underline decoration-link/50 underline-offset-2">{draftLink}</span>
+                  <ArrowUpRight className="size-3 shrink-0 text-link/60" aria-hidden="true" />
+                </a>
+              )}
+
+              {onCaptureScreen && (
+                <button
+                  type="button" onMouseDown={(e) => e.preventDefault()} onClick={captureScreen}
+                  disabled={capturingScreen || attachments.length >= maxAttachments}
+                  title="Look at my screen"
+                  aria-label="Look at my screen"
+                  className="ml-auto flex size-7 items-center justify-center rounded-full transition-all duration-200 hover:bg-black/8 outline-none cursor-default disabled:opacity-40 disabled:pointer-events-none text-[#4a3f35] hover:text-[#1a1512]"
+                >
+                  {capturingScreen ? <span className="size-3 animate-spin rounded-full border border-current border-t-transparent" /> : <ScreenIcon />}
+                </button>
+              )}
               <button
                 type="button" onMouseDown={(e) => e.preventDefault()} onClick={openFileChooser} disabled={attachments.length >= maxAttachments}
-                className="ml-auto flex size-7 items-center justify-center rounded-full text-foreground/50 transition-all duration-200 hover:bg-accent/60 hover:text-foreground outline-none cursor-default disabled:opacity-40 disabled:pointer-events-none"
+                className={cn("flex size-7 items-center justify-center rounded-full transition-all duration-200 hover:bg-black/8 outline-none cursor-default disabled:opacity-40 disabled:pointer-events-none text-[#4a3f35] hover:text-[#1a1512]", onCaptureScreen ? "ml-1" : "ml-auto")}
               >
                 <PlusIcon />
               </button>
@@ -946,9 +1220,9 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
               type="button"
               onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }} 
               onClick={onActionButtonClick}
-              aria-label={showStop ? "Stop recording" : showArrow ? "Send prompt" : "Use voice input"}
-              style={{ borderRadius: 9999 }}
-              className="absolute right-2 bottom-2 z-[10] flex h-8 w-8 items-center justify-center bg-primary text-primary-foreground transition-all duration-300 hover:opacity-90 outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-default"
+              aria-label={isThinking ? hasValue ? "Queue message" : "Stop task" : showStop ? "Stop recording" : showArrow ? "Send prompt" : "Use voice input"}
+              className="absolute right-2 bottom-2 z-[10] flex h-8 w-8 items-center justify-center transition-all duration-300 hover:opacity-90 outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-default"
+              style={{ borderRadius: 9999, background: "#1a1512", color: "#f5f0e8" }}
             >
               <span className="relative flex h-full w-full items-center justify-center">
                 <span className={cn("absolute inset-0 flex items-center justify-center transition-all duration-300 ease-[cubic-bezier(0.175,0.885,0.32,1.275)]", showArrow && !showStop ? "opacity-100 scale-100 rotate-0 blur-none" : "opacity-0 scale-50 rotate-45 blur-[1px] pointer-events-none")}>
@@ -963,6 +1237,77 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
               </span>
             </button>
           </div>
+          {captureError ? <p role="alert" className="mt-1 px-2 text-[11px] leading-4 text-red-400">{captureError}</p> : null}
+          <div className="mt-1 flex items-center justify-between gap-2">
+            <AccessSelector value={accessMode} onChange={(mode) => onAccessModeChange?.(mode)} />
+            <div className="relative min-w-0">
+              {folderMenuOpen && <div className="fixed inset-0 z-20" onMouseDown={() => setFolderMenuOpen(false)} aria-hidden="true" />}
+              {projectName ? (
+                <>
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => setFolderMenuOpen((open) => !open)}
+                    title={folderLocked ? "This chat keeps its folder. Start a new chat to pick a different one." : projectPath || projectName}
+                    aria-haspopup="menu"
+                    aria-expanded={folderMenuOpen}
+                    className="flex max-w-full items-center gap-1.5 rounded-full px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  >
+                    {folderBusy ? <span className="size-3 animate-spin rounded-full border border-current border-t-transparent" /> : <FolderIcon />}
+                    <span className="truncate">{folderBusy ? "Adding…" : projectName}</span>
+                    <ChevronDown className="size-3 shrink-0 opacity-60" />
+                  </button>
+                  {folderMenuOpen && (
+                    <div role="menu" className="absolute bottom-full right-0 z-30 mb-2 w-60 overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-lg animate-in fade-in slide-in-from-bottom-1 duration-150">
+                      {folderLocked ? (
+                        <button role="menuitem" type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => { setFolderMenuOpen(false); onNewChatWithFolder?.(); chooseFolder(); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] transition-colors hover:bg-muted">
+                          <FolderIcon withPlus /> Start a new chat in another folder
+                        </button>
+                      ) : (
+                        <>
+                          <button role="menuitem" type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => { setFolderMenuOpen(false); chooseFolder(); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] transition-colors hover:bg-muted">
+                            <FolderIcon withPlus /> Choose a new folder
+                          </button>
+                          {onClearFolder && (
+                            <button role="menuitem" type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => { setFolderMenuOpen(false); onClearFolder(); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] text-muted-foreground transition-colors hover:bg-muted">
+                              <CloseIcon /> Work with no folder
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
+                </>
+              ) : folderLocked ? (
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => { onNewChatWithFolder?.(); chooseFolder(); }}
+                  disabled={folderBusy || !onNewChatWithFolder}
+                  aria-label="Add a folder in a new chat"
+                  title="A chat keeps one folder for its whole life, so this starts a new chat and picks it."
+                  className="flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+                >
+                  {folderBusy ? <span className="size-3 animate-spin rounded-full border border-current border-t-transparent" /> : <FolderIcon withPlus />}
+                  <span>{folderBusy ? "Adding…" : "Add a folder in a new chat"}</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={chooseFolder}
+                  disabled={folderBusy}
+                  aria-label="Add a folder"
+                  title="Bring a project folder into Calvras"
+                  className="flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+                >
+                  {folderBusy ? <span className="size-3 animate-spin rounded-full border border-current border-t-transparent" /> : <FolderIcon withPlus />}
+                  <span>{folderBusy ? "Adding…" : "Add a folder"}</span>
+                </button>
+              )}
+            </div>
+          </div>
+          {folderError && <p role="alert" className="mt-1 px-2 text-[11px] leading-4 text-red-400">{folderError}</p>}
         </div>
 
         {activeAttachment && (

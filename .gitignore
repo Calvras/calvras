@@ -48,5 +48,9 @@ archive/CalvrasDesktop-avalonia/**/obj/
 
 # Electron build output
 electron-dist/
+.build-*/
 centering-chat-companion/
 public/*.exe
+
+# Calvras app state: module cards, batch queue, journal and appointments
+.calvras/

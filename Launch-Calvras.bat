@@ -1,5 +1,10 @@
 @echo off
-title Launching Calvras...
+title Calvras Desktop
 echo Starting Calvras Desktop...
-start "" "%~dp0CalvrasDesktop\publish\win-x64\Calvras.App.exe"
-exit
+cd /d "%~dp0"
+"%~dp0node_modules\electron\dist\electron.exe" .
+if %ERRORLEVEL% NEQ 0 (
+  echo.
+  echo Calvras encountered an issue.
+  pause
+)

@@ -6,7 +6,7 @@ import { PromptInput } from "@/components/ui/ai-chat-input";
 export default function Demo() {
   const handleSendMessage = (
     message: string,
-    meta: { model: string; effort: string; attachments: File[] }
+    meta?: { effort: string; attachments: File[] }
   ) => {
     console.log("Message Submitted:", message);
     console.log("Submission Meta:", meta);

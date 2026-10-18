@@ -1,4 +1,5 @@
 import { DOWNLOAD } from "@/lib/download";
+import { readRelease } from "@/lib/update";
 import { ArrowUpRight } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -9,33 +10,29 @@ interface LatestRelease {
   releaseUrl: string;
 }
 
+const bundled: LatestRelease = {
+  version: DOWNLOAD.version,
+  installer: DOWNLOAD.installer,
+  portable: DOWNLOAD.portable,
+  releaseUrl: DOWNLOAD.release,
+};
+
+/** Quotes whatever version calvras.com says is published, and the bundled version until it answers. */
 function useLatestRelease(): LatestRelease {
-  const [latest, setLatest] = useState<LatestRelease>({
-    version: DOWNLOAD.version,
-    installer: DOWNLOAD.installer,
-    portable: DOWNLOAD.portable,
-    releaseUrl: DOWNLOAD.release,
-  });
+  const [latest, setLatest] = useState<LatestRelease>(bundled);
 
   useEffect(() => {
     let mounted = true;
-    fetch(DOWNLOAD.releaseApi, { headers: { Accept: "application/vnd.github.v3+json" } })
-      .then((r) => r.json())
-      .then((data) => {
-        if (!mounted) return;
-        const tag: string = data.tag_name || "";
-        if (!tag) return;
-        const assets: { name: string; browser_download_url: string }[] = data.assets || [];
-        const installerAsset = assets.find((a) => a.name.toLowerCase().endsWith(".exe"));
-        const zipAsset = assets.find((a) => a.name.toLowerCase().endsWith(".zip"));
-        setLatest({
-          version: tag.replace(/^v/i, ""),
-          installer: installerAsset?.browser_download_url ?? DOWNLOAD.installer,
-          portable: zipAsset?.browser_download_url ?? DOWNLOAD.portable,
-          releaseUrl: data.html_url || DOWNLOAD.release,
-        });
+    fetch(DOWNLOAD.feed, { headers: { accept: "application/json" } })
+      .then((response) => {
+        if (!response.ok) throw new Error(String(response.status));
+        return response.json();
       })
-      .catch(() => {/* keep fallback */});
+      .then((payload) => {
+        const release = readRelease(payload);
+        if (mounted) setLatest({ version: release.version, installer: release.installer, portable: release.portable || bundled.portable, releaseUrl: release.release || bundled.releaseUrl });
+      })
+      .catch(() => {/* keep the bundled version */});
     return () => { mounted = false; };
   }, []);
 

@@ -182,18 +182,18 @@ export function TextEffect({
   const stagger = defaultStaggerTimes[per];
 
   const delayedContainerVariants: Variants = {
-    hidden: containerVariants.hidden,
+    hidden: containerVariants['hidden'] ?? {},
     visible: {
-      ...containerVariants.visible,
+      ...containerVariants['visible'],
       transition: {
-        ...(containerVariants.visible as TargetAndTransition)?.transition,
+        ...(containerVariants['visible'] as TargetAndTransition)?.transition,
         staggerChildren:
-          (containerVariants.visible as TargetAndTransition)?.transition
+          (containerVariants['visible'] as TargetAndTransition)?.transition
             ?.staggerChildren || stagger,
         delayChildren: delay,
       },
     },
-    exit: containerVariants.exit,
+    exit: containerVariants['exit'] ?? {},
   };
 
   return (
@@ -206,7 +206,7 @@ export function TextEffect({
           aria-label={ariaLabel}
           variants={delayedContainerVariants}
           className={cn('whitespace-pre-wrap', className)}
-          onAnimationComplete={onAnimationComplete}
+          {...(onAnimationComplete ? { onAnimationComplete } : {})}
         >
           {segments.map((segment, index) => (
             <AnimationComponent
@@ -214,7 +214,7 @@ export function TextEffect({
               segment={segment}
               variants={itemVariants}
               per={per}
-              segmentWrapperClassName={segmentWrapperClassName}
+              {...(segmentWrapperClassName !== undefined ? { segmentWrapperClassName } : {})}
             />
           ))}
         </MotionTag>

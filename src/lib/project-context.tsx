@@ -130,7 +130,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     setProjects((prev) =>
       prev.map((proj) => ({
         ...proj,
-        tasks: proj.tasks?.filter((t) => t !== idOrLabel),
+        ...(proj.tasks ? { tasks: proj.tasks.filter((t) => t !== idOrLabel) } : {}),
       }))
     );
   };
@@ -147,7 +147,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     setProjects((prev) =>
       prev.map((proj) => ({
         ...proj,
-        tasks: proj.tasks?.map((t) => (t === idOrLabel ? newLabel : t)),
+        ...(proj.tasks ? { tasks: proj.tasks.map((t) => (t === idOrLabel ? newLabel : t)) } : {}),
       }))
     );
   };

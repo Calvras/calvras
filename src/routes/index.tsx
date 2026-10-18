@@ -1,22 +1,40 @@
 import { marketingHead } from "@/lib/marketing-seo";
 import { LandingPage } from "@/components/LandingPage";
-import { AgentActivity } from "@/components/AgentActivity";
-import { runAgent, type AgentAction, type ToolFeedback } from "@/lib/agent-run";
-import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { AgentActivity, type SubagentJob } from "@/components/AgentActivity";
+import { runAgent, type AgentAction } from "@/lib/agent-run";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState, useCallback } from "react";
+import { agentIntent, asksToReproduce } from "@/lib/agent-intent";
+import { executeInOrder } from "@/lib/agent-context";
+import { RuntimeClient } from "@/lib/runtime-client";
+import type { AccessMode, ToolAction } from "@/lib/tool-catalog";
+import { TOOL_RISK } from "@/lib/tool-catalog";
+import type { ComposerRequest } from "@/components/ui/composer-access";
+import { TasksPanel, type ScheduledRunView, type TaskStep } from "@/components/TasksPanel";
+import { TerminalDock } from "@/components/TerminalDock";
+import { effectivePolicies, readPolicies, readPreferences, savePolicies, type Policies, type Preferences } from "@/lib/preferences";
+import { blockReason, urlHost } from "@/lib/policy-rules";
+import { fidelityNote } from "@/lib/image-fidelity";
+import { recordUsage } from "@/lib/telemetry";
 import { PromptInput } from "@/components/ui/ai-chat-input";
+import { LinkifiedText } from "@/components/ui/markdown-content";
 import {
   type AgentPhase,
   type TraceNode,
 } from "@/components/ui/ai-agent-response";
 import { useProjects } from "@/lib/project-context";
 import { callAI, type MediaAttachment } from "@/lib/gemini";
+import { CALVRAS_SYSTEM_PROMPT, policyNotes } from "@/lib/system-prompt";
+import { playCompletionChimeWhenUnfocused } from "@/lib/completion-sound";
+import { decodeTextDataUrl, extractPdfText, isPdfAttachment, isTextLikeAttachment } from "@/lib/attachment-text";
 import { cn } from "@/lib/utils";
 import { ChapterScrubber, type Chapter } from "@/components/ui/chapter-scrubber";
-import { Copy, CheckCheck, X } from "lucide-react";
-import { DOWNLOAD } from "@/lib/download";
-import { isNewerSemver } from "@/lib/version";
+import { RightDock, type DockTab } from "@/components/RightDock";
+import { browserBridge, hasInAppBrowser, isInAppBrowserTool } from "@/lib/browser-bridge";
+import { evaluatePreviewHealth } from "@/lib/preview-health";
+import { Copy, CheckCheck, ListTodo, PanelRight, SquareTerminal } from "lucide-react";
+import { SideChat } from "@/components/SideChat";
+import { UpdatePill } from "@/components/UpdatePill";
 
 export const Route = createFileRoute("/")({
   head: () => marketingHead("/", "Calvras", "Build real projects with Calvras, a Windows x64 desktop AI coding agent for local files, commands, and visible change review."),
@@ -34,6 +52,155 @@ interface AttachedFile {
   url: string; // object URL or data URL
 }
 
+/** Tool rows say what is happening in plain words instead of printing a log line with a
+ * file name in it. The exact path or command still lives on the row and shows when the
+ * user expands it. */
+const TOOL_NARRATION: Record<string, string> = {
+  semantic_search: "Searching the code",
+  search_knowledge: "Searching the module map",
+  read_module: "Reading a module card",
+  build_knowledge: "Mapping the folder's modules",
+  read_file: "Opening a file",
+  read_image: "Looking at an image",
+  list_files: "Listing the files",
+  list_dir: "Listing the folder",
+  directory_tree: "Mapping the folder",
+  get_file_info: "Checking a file",
+  grep_search: "Searching the code",
+  search_files: "Searching the code",
+  find_files: "Finding files",
+  search_symbols: "Searching the code",
+  go_to_definition: "Following the code",
+  find_references: "Following the code",
+  get_hover_info: "Following the code",
+  list_symbols: "Reading the structure",
+  read_diagnostics: "Reading the errors",
+  get_errors: "Reading the errors",
+  get_stack_trace: "Reading the errors",
+  read_package_json: "Reading the setup",
+  analyze_project: "Getting a read on the project",
+  detect_framework: "Getting a read on the project",
+  read_project_structure: "Getting a read on the project",
+  map_dependencies: "Checking the dependencies",
+  write_file: "Writing a file",
+  create_file: "Creating a file",
+  search_replace: "Editing a file",
+  multi_replace: "Editing a file",
+  insert_code: "Editing a file",
+  delete_lines: "Editing a file",
+  apply_patch: "Editing a file",
+  apply_diff: "Editing a file",
+  multi_file_edit: "Editing several files",
+  refactor_code: "Refactoring",
+  format_code: "Formatting the code",
+  format_file: "Formatting the code",
+  organize_imports: "Tidying the imports",
+  rename_file: "Renaming a file",
+  move_file: "Moving a file",
+  copy_file: "Copying a file",
+  delete_file: "Deleting a file",
+  undo_edit: "Undoing a change",
+  create_checkpoint: "Saving a restore point",
+  rollback_changes: "Rolling back",
+  list_checkpoints: "Listing restore points",
+  generate_tests: "Writing tests",
+  generate_documentation: "Writing documentation",
+  explain_code: "Reading through the code",
+  run_command: "Running a command",
+  run_terminal: "Running a command",
+  run_code: "Running the code",
+  run_tests: "Running the tests",
+  run_single_test: "Running a test",
+  run_build: "Building the app",
+  run_lint: "Running the linter",
+  run_linter: "Running the linter",
+  run_typecheck: "Type-checking the code",
+  install_dependencies: "Installing dependencies",
+  install_deps: "Installing dependencies",
+  start_dev_server: "Starting the server",
+  start_server: "Starting the server",
+  stop_dev_server: "Stopping the server",
+  check_server: "Checking the server",
+  run_background_process: "Starting a background process",
+  get_terminal_output: "Reading the terminal",
+  check_preview: "Looking at the preview",
+  compare_to_reference: "Comparing the page to your screenshot",
+  check_console_errors: "Checking for console errors",
+  verify_changes: "Verifying the change",
+  debug_code: "Debugging",
+  take_screenshot: "Taking a screenshot",
+  take_screen_screenshot: "Taking a screenshot",
+  inspect_element: "Inspecting the page",
+  test_responsive_layout: "Testing the layout",
+  open_browser: "Opening the page",
+  navigate_browser: "Loading the page",
+  click_element: "Clicking on the page",
+  fill_input: "Typing into the page",
+  press_page_key: "Pressing a key on the page",
+  scroll_page: "Scrolling the page",
+  upload_file_to_page: "Uploading to the page",
+  wait_for_element: "Waiting for the page",
+  queue_batch: "Adding the list to the queue",
+  next_batch: "Taking the next targets",
+  report_batch: "Marking a target finished",
+  batch_status: "Checking the queue",
+  schedule_run: "Appointing work for later",
+  list_scheduled: "Checking the appointments",
+  cancel_scheduled: "Cancelling an appointment",
+  read_page: "Reading the page",
+  web_search: "Searching the web",
+  search_documentation: "Reading the docs",
+  probe_key: "Testing the API key",
+  manage_environment_variables: "Saving the API key",
+  git_status: "Checking git",
+  git_diff: "Checking git",
+  git_show_diff: "Checking git",
+  git_log: "Reading the git history",
+  git_branch: "Checking the branch",
+  git_add: "Staging the change",
+  git_commit: "Committing the change",
+  git_push: "Pushing the change",
+  git_checkout: "Switching branch",
+  git_restore: "Restoring a file",
+  git_clone: "Cloning the repo",
+  deploy_application: "Deploying",
+  plan_tasks: "Planning the work",
+  create_task_list: "Planning the work",
+  delegate_task: "Handing off a subtask",
+  ask_subagent: "Asking a subagent",
+  read_agent: "Checking a subagent",
+  write_memory: "Taking a note",
+  read_memory: "Checking the notes",
+  track_progress: "Checking progress",
+  summarize_changes: "Summarising the change",
+};
+
+const COMMAND_NARRATION: [RegExp, string][] = [
+  [/\b(?:npm|pnpm|yarn|bun) (?:ci|install)\b/, "Installing dependencies"],
+  [/\b(?:npm|pnpm|yarn|bun) run dev\b|\bvite\b(?! build)/, "Starting the dev server"],
+  [/\b(?:npm|pnpm|yarn|bun) run build\b|\b(?:vite|next|turbo) build\b/, "Building the app"],
+  [/\b(?:npm|pnpm|yarn|bun) (?:test|run test)\b|\bvitest\b|\bjest\b|\bpytest\b/, "Running the tests"],
+  [/\btsc\b|typecheck/, "Type-checking the code"],
+  [/\beslint\b|\beslint\b|run lint/, "Running the linter"],
+  [/\bgit\b/, "Working with git"],
+  [/\b(?:curl|wget|httpie)\b/, "Hitting the endpoint"],
+  [/\bnode\b.*\.(?:mjs|cjs|js)/, "Running the script"],
+  [/\b(?:kill|taskkill)\b/, "Stopping a process"],
+];
+
+function humanToolLabel(action: { type: string; command?: string | undefined; intent?: string | undefined }): string {
+  // The model says in its own words why it is making this call; that sentence is what the
+  // user reads while the timeline is collapsed. The lookup below is only the fallback for
+  // a call that came back without one.
+  const intent = action.intent?.trim().replace(/\s+/g, " ");
+  if (intent && intent.length > 3) return intent.charAt(0).toUpperCase() + intent.slice(1);
+  const command = action.command?.trim().toLowerCase() ?? "";
+  if (action.type === "run_command" || action.type === "run_terminal") {
+    for (const [pattern, label] of COMMAND_NARRATION) if (pattern.test(command)) return label;
+  }
+  return TOOL_NARRATION[action.type] ?? action.type.replaceAll("_", " ");
+}
+
 interface Message {
   id: number;
   text: string;
@@ -44,18 +211,51 @@ interface Message {
   error?: string;
   startedAt?: number;
   endedAt?: number;
+  rating?: "up" | "down" | undefined;
+  subagents?: SubagentJob[] | undefined;
   role: "user" | "assistant";
 }
 
-interface ImplementationPlan {
-  title: string;
-  content: string;
-  messageId: number;
+/** Posts a folder to one of the import endpoints and returns the project it created. */
+async function requestImport(endpoint: string, body: BodyInit, headers?: Record<string, string>): Promise<{ name: string; projectPath: string }> {
+  const response = await fetch(endpoint, { method: "POST", body, ...(headers ? { headers } : {}) });
+  const data: { ok?: boolean; error?: string; name?: string; projectPath?: string } = await response.json().catch(() => ({}));
+  if (!response.ok || !data.ok || !data.name || !data.projectPath) throw new Error(data.error || `The folder upload could not be completed (HTTP ${response.status}).`);
+  return { name: data.name, projectPath: data.projectPath };
 }
 
-interface UpdateInfo {
-  version: string;
-  url: string;
+const SESSION_MEMORY_KEY = "calvras_session_memory";
+const CONTEXT_COMPRESSION_SYSTEM_PROMPT = `You compress the working memory of Calvras, an AI agent. Merge the supplied earlier memory and the new conversation turns into one dense continuation brief. Preserve exactly: the user's goals and constraints, decisions made, completed work, files/paths/commands that matter, failures and unresolved problems, and the next steps for any unfinished task. Keep the user's wording for explicit preferences. Never invent results. Output plain text under 900 words.`;
+
+function readSessionMemory(): { summary: string; covered: number } {
+  try {
+    const value = JSON.parse(localStorage.getItem(SESSION_MEMORY_KEY) || "null");
+    if (value && typeof value.summary === "string") return { summary: value.summary, covered: Number(value.covered) || 0 };
+  } catch { /* storage unavailable */ }
+  return { summary: "", covered: 0 };
+}
+
+function writeSessionMemory(memory: { summary: string; covered: number }) {
+  try {
+    if (memory.summary.trim()) localStorage.setItem(SESSION_MEMORY_KEY, JSON.stringify(memory));
+    else localStorage.removeItem(SESSION_MEMORY_KEY);
+  } catch { /* storage unavailable */ }
+}
+
+function digestTurn(message: Message): string {
+  const final = [...message.phases].reverse().find((phase) => phase.message?.trim())?.message?.trim() || "";
+  const attachments = message.attachments?.map((file) => file.name).join(", ") || "";
+  const actions = message.phases.flatMap((phase) => phase.trace.filter((node) => !["reasoning", "step"].includes(node.type)).map((node) => `${node.status === "completed" ? "ok" : "FAILED"} ${node.primary}${node.secondary ? ` ${node.secondary}` : ""}`)).slice(-12);
+  return [
+    `User: ${(message.text || "(attachment)").slice(0, 700)}`,
+    attachments ? `Attached: ${attachments}` : "",
+    final ? `Assistant: ${final.slice(0, 1400)}` : "",
+    actions.length ? `Actions: ${actions.join("; ")}` : "",
+  ].filter(Boolean).join("\n");
+}
+
+function fallbackSessionSummary(existing: string, turns: Message[]): string {
+  return [existing.trim(), ...turns.map(digestTurn)].filter(Boolean).join("\n\n").slice(-16_000);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -187,7 +387,7 @@ function UserMessageBubble({ text }: { text: string }) {
     return (
       <div className="group flex flex-col items-end gap-0.5">
         <div className="break-words rounded-2xl bg-muted px-4 py-2.5 text-sm leading-relaxed text-foreground shadow-xs select-text">
-          {text}
+          <LinkifiedText text={text} />
         </div>
         {copyButton}
       </div>
@@ -201,19 +401,16 @@ function UserMessageBubble({ text }: { text: string }) {
         onClick={() => setIsExpanded((prev) => !prev)}
         title={isExpanded ? "Click to fold message" : "Click to expand message"}
         className={cn(
-          "relative break-words rounded-2xl bg-muted text-foreground shadow-xs transition-all duration-200 cursor-pointer select-text",
+          "relative break-words rounded-xl bg-muted text-foreground transition-colors duration-200 cursor-pointer select-text",
           isExpanded
             ? "px-4 py-2.5 text-sm leading-relaxed max-w-full"
             : "px-4 py-2.5 max-h-[100px] overflow-hidden hover:bg-muted/90 text-sm leading-relaxed"
         )}
       >
         {isExpanded ? (
-          <div className="whitespace-pre-wrap">{text}</div>
+          <div className="whitespace-pre-wrap"><LinkifiedText text={text} /></div>
         ) : (
-          <div className="relative">
-            <div className="whitespace-pre-wrap">{text}</div>
-            <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-muted via-muted/60 to-transparent" />
-          </div>
+          <div className="whitespace-pre-wrap"><LinkifiedText text={text} /></div>
         )}
       </div>
       {copyButton}
@@ -221,148 +418,12 @@ function UserMessageBubble({ text }: { text: string }) {
   );
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
- * PLAN PANEL CONTENT — rich structured renderer
- * ─────────────────────────────────────────────────────────────────────────────
- */
-function PlanPanelContent({ content }: { content: string }) {
-  // Parse markdown into sections by ## headers
-  const lines = content.split('\n');
-  const sections: { title: string; items: string[] }[] = [];
-  let currentSection: { title: string; items: string[] } | null = null;
-  let preamble: string[] = [];
-
-  for (const line of lines) {
-    const h2 = line.match(/^##\s+(.+)/);
-    const h1 = line.match(/^#\s+(.+)/);
-    if (h1 && !currentSection) {
-      preamble.push(line.replace(/^#+\s+/, '').trim());
-      continue;
-    }
-    if (h2) {
-      if (currentSection) sections.push(currentSection);
-      currentSection = { title: line.replace(/^#+\s+/, '').trim(), items: [] };
-    } else if (currentSection) {
-      const trimmed = line.trim();
-      if (trimmed && !trimmed.match(/^#+/)) {
-        currentSection.items.push(trimmed);
-      }
-    } else {
-      const trimmed = line.trim();
-      if (trimmed && !trimmed.match(/^#+/)) preamble.push(trimmed);
-    }
-  }
-  if (currentSection) sections.push(currentSection);
-
-  const phaseColors = [
-    { badge: 'bg-blue-500/15 text-blue-400 border-blue-500/30', dot: '#3b82f6', line: '#3b82f620' },
-    { badge: 'bg-violet-500/15 text-violet-400 border-violet-500/30', dot: '#8b5cf6', line: '#8b5cf620' },
-    { badge: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30', dot: '#10b981', line: '#10b98120' },
-    { badge: 'bg-orange-500/15 text-orange-400 border-orange-500/30', dot: '#f97316', line: '#f9731620' },
-    { badge: 'bg-pink-500/15 text-pink-400 border-pink-500/30', dot: '#ec4899', line: '#ec489920' },
-  ];
-
-  const renderItem = (raw: string, idx: number, totalItems: number, dotColor: string) => {
-    const text = raw.replace(/^[-*•]\s+/, '').replace(/^\d+\.\s+/, '');
-    const isFilePath = /`[^`]*[\/\\][^`]*`/.test(text) || /\.(tsx?|jsx?|css|json|ts|js|md)/.test(text);
-    const parts = text.split(/(`[^`]+`)/);
-
-    return (
-      <div key={idx} className="flex items-start gap-2 relative" style={{minHeight: 22}}>
-        <div className="relative flex flex-col items-center" style={{width: 16, minHeight: 22}}>
-          {idx > 0 && (
-            <svg width="16" height="10" style={{position: 'absolute', top: -10, left: 0}} aria-hidden="true">
-              <line x1="8" y1="0" x2="8" y2="10" stroke={dotColor} strokeWidth="1.5" strokeOpacity="0.35" />
-            </svg>
-          )}
-          <svg width="16" height="16" style={{flexShrink: 0, marginTop: 3}} aria-hidden="true">
-            <circle cx="8" cy="8" r="3" fill={dotColor} fillOpacity="0.85" />
-          </svg>
-          {idx < totalItems - 1 && (
-            <svg width="16" height="100%" style={{flex: 1, minHeight: 8}} aria-hidden="true">
-              <line x1="8" y1="0" x2="8" y2="100%" stroke={dotColor} strokeWidth="1.5" strokeOpacity="0.25" />
-            </svg>
-          )}
-        </div>
-        <div className="flex-1 min-w-0 pb-1.5">
-          <span className={cn('text-[12.5px] leading-relaxed break-words', isFilePath ? 'text-foreground/80' : 'text-foreground/75')}>
-            {parts.map((part, pi) =>
-              part.startsWith('`') && part.endsWith('`') ? (
-                <code
-                  key={pi}
-                  className="mx-0.5 rounded px-1 py-0.5 text-[11px] font-mono bg-muted/60 border border-border/40 text-primary/90"
-                >
-                  {part.slice(1, -1)}
-                </code>
-              ) : (
-                <span key={pi}>{part}</span>
-              )
-            )}
-          </span>
-        </div>
-      </div>
-    );
-  };
-
-  return (
-    <div className="space-y-5 pb-4">
-      {preamble.length > 0 && (
-        <div className="rounded-xl border border-border/40 bg-muted/20 px-4 py-3">
-          {preamble.map((line, i) => (
-            <p key={i} className="text-[13px] text-foreground/70 leading-relaxed">{line}</p>
-          ))}
-        </div>
-      )}
-
-      {sections.map((section, si) => {
-        const color = phaseColors[si % phaseColors.length];
-        const phaseNum = si + 1;
-        const visibleItems = section.items.filter(item => {
-          const t = item.replace(/^[-*•]\s+/, '').replace(/^\d+\.\s+/, '').trim();
-          return t.length > 0;
-        });
-
-        return (
-          <div key={si} className="rounded-xl border border-border/50 bg-card/40 overflow-hidden">
-            <div className="flex items-center gap-2.5 px-4 py-2.5 border-b border-border/30 bg-muted/10">
-              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true" className="shrink-0 opacity-70">
-                <rect x="2" y="3" width="11" height="13" rx="2" stroke="currentColor" strokeWidth="1.3" />
-                <rect x="5" y="1" width="11" height="13" rx="2" fill="currentColor" fillOpacity="0.08" stroke="currentColor" strokeWidth="1.3" />
-                <path d="M7 6h6M7 8.5h6M7 11h4" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
-              </svg>
-              <span className={cn('text-[11px] font-semibold rounded-full border px-2 py-0.5 shrink-0', color.badge)}>
-                Phase {phaseNum}
-              </span>
-              <span className="text-[12.5px] font-semibold text-foreground/90 truncate">{section.title}</span>
-            </div>
-
-            {visibleItems.length > 0 && (
-              <div className="px-4 py-3 space-y-0">
-                {visibleItems.map((item, ii) => renderItem(item, ii, visibleItems.length, color.dot))}
-              </div>
-            )}
-          </div>
-        );
-      })}
-
-      {sections.length === 0 && preamble.length === 0 && (
-        <pre className="whitespace-pre-wrap font-sans text-[13px] leading-relaxed select-text text-foreground/80">{content}</pre>
-      )}
-    </div>
-  );
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
- * COMPONENT
- * ─────────────────────────────────────────────────────────────────────────────
- */
 export function Index() {
   // Expose global new chat handler for Electron shortcut
   useEffect(() => {
     if (typeof window !== "undefined") {
       (window as any).__calvrasNewChat = () => {
-        setMessages([]);
-        setActivePlan(null);
+        abortControllerRef.current?.abort(); void runtimeRef.current?.stop(); runtimeRef.current = null; setApprovalQueue([]); setIsLoading(false); setMessages([]); queuedRef.current = []; setQueued([]); writeSessionMemory({ summary: "", covered: 0 });
       };
     }
     return () => {
@@ -374,7 +435,153 @@ export function Index() {
   const [projectPath, setProjectPath] = useState<string | null>(activeProject?.path || null);
   const [projectName, setProjectName] = useState<string | null>(activeProject?.name || null);
   const [isLoading, setIsLoading] = useState(false);
-  const [pendingFolder, setPendingFolder] = useState<File[] | null>(null);
+  const [accessMode, setAccessMode] = useState<AccessMode>("automatic");
+  const [approvalQueue, setApprovalQueue] = useState<(ComposerRequest & { sessionId: string; local?: boolean; resolve?: (choice: string | undefined) => void })[]>([]);
+  const [tasksOpen, setTasksOpen] = useState(false);
+  const [sidechatOpen, setSidechatOpen] = useState(false);
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  const [browserAvailable, setBrowserAvailable] = useState(false);
+  const [browserEverUsed, setBrowserEverUsed] = useState(false);
+  const [browserActive, setBrowserActive] = useState(false);
+  // One right-hand surface for the whole workspace: the files the agent is editing, the running
+  // preview, the page it is driving, and the subagents it handed work to.
+  const [dockOpen, setDockOpen] = useState(false);
+  const [dockTab, setDockTab] = useState<DockTab>("files");
+  const [dockMounted, setDockMounted] = useState(false);
+  const dockMountedRef = useRef(false);
+  const serverPreviewUrlRef = useRef("");
+  const [previewUrl, setPreviewUrl] = useState("");
+  // The most recent screenshot the user sent, kept across turns so a rebuilt screen can
+  // always be measured against the picture it was supposed to match.
+  const referenceImageRef = useRef("");
+  // True once this conversation has asked for the screen in that image to be reproduced.
+  const referenceTargetRef = useRef(false);
+  // Mount the dock closed first so the first reveal slides in instead of popping.
+  const openDock = (next: DockTab) => {
+    setDockTab(next);
+    if (!dockMountedRef.current) {
+      dockMountedRef.current = true;
+      setDockMounted(true);
+      setDockOpen(false);
+      requestAnimationFrame(() => requestAnimationFrame(() => setDockOpen(true)));
+    } else {
+      setDockOpen(true);
+    }
+  };
+  const revealBrowserPanel = (lock: boolean) => {
+    setBrowserActive(lock);
+    setBrowserEverUsed(true);
+    openDock("browser");
+  };
+  const [runtimeState, setRuntimeState] = useState<any>({ tasks: [], agents: [], logs: [], checkpoints: [], memory: {} });
+  const runtimeRef = useRef<RuntimeClient | null>(null);
+  // Every subagent job the pool reported while a turn was live, kept so the finished turn shows
+  // the same rows it showed while it was running.
+  const subagentLogRef = useRef<Map<string, SubagentJob>>(new Map());
+  const runtimeStartRef = useRef<Promise<RuntimeClient> | null>(null);
+  const steeringRef = useRef<string[]>([]);
+  // Messages the user sends while a task is running are held here and released one at a
+  // time as each task finishes. "Send now" pushes one into the live task instead.
+  const [queued, setQueued] = useState<{ id: string; text: string; files?: { type: string; url: string; name?: string }[]; effort?: string; directive?: string }[]>([]);
+  const queuedRef = useRef<typeof queued>([]);
+  const writeQueue = useCallback((next: typeof queued) => { queuedRef.current = next; setQueued(next); }, []);
+  // Appointments the agent made in this folder, read back from .calvras/schedule.json.
+  const [scheduled, setScheduled] = useState<ScheduledRunView[]>([]);
+  const isLoadingRef = useRef(false); isLoadingRef.current = isLoading;
+  // The scheduled run whose turn is in flight right now, so its real outcome can be reported.
+  const pendingScheduledRef = useRef<ScheduledRunView | null>(null);
+  const approvalRef = useRef(approvalQueue); approvalRef.current = approvalQueue;
+  useEffect(() => { const mode = localStorage.getItem("calvras_access_mode"); if (["ask", "automatic", "full"].includes(mode || "")) setAccessMode(mode as AccessMode); }, []);
+  useEffect(() => { setBrowserAvailable(hasInAppBrowser()); }, []);
+  // Keep the panel locked for the whole task; it unlocks as soon as the run ends.
+  useEffect(() => { if (!isLoading) setBrowserActive(false); }, [isLoading]);
+  const askDecision = useCallback((request: any, sessionId: string, signal?: AbortSignal): Promise<string | undefined> => new Promise((resolve, reject) => {
+    if (signal?.aborted) { reject(new Error("Task stopped.")); return; }
+    const abort = () => { setApprovalQueue((queue) => queue.filter((item) => item.id !== request.id)); reject(new Error("Task stopped.")); };
+    signal?.addEventListener("abort", abort, { once: true });
+    const finish = (choice: string | undefined) => { signal?.removeEventListener("abort", abort); resolve(choice); };
+    setApprovalQueue((queue) => [...queue.filter((item) => item.id !== request.id), { ...request, sessionId, resolve: finish }]);
+  }), []);
+  const decideApproval = useCallback(async (choice: string) => {
+    const request = approvalRef.current[0]; if (!request || request.busy) return;
+    setApprovalQueue((queue) => queue.map((item) => item.id === request.id ? { ...item, busy: true } : item));
+    try {
+      if (request.kind === "question") {
+        if (request.resolve) request.resolve(choice);
+        else {
+          const response = await fetch("/api/agent/answer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId: request.sessionId, questionId: request.id, answer: choice }) });
+          const result = await response.json(); if (!result.ok) throw new Error(result.error || "Could not send the answer.");
+        }
+      }
+      else if (request.local) {
+        // The visible browser runs inside this process, so its approval resolves here.
+        request.resolve?.(choice);
+      }
+      else {
+        const response = await fetch("/api/agent/approve", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId: request.sessionId, approvalId: request.id, choice }) });
+        const result = await response.json(); if (!result.ok) throw new Error(result.error);
+        request.resolve?.(result.token);
+      }
+      setApprovalQueue((queue) => queue.filter((item) => item.id !== request.id));
+    } catch (error) { setApprovalQueue((queue) => queue.map((item) => item.id === request.id ? { ...item, busy: false, question: `${request.question} (${error instanceof Error ? error.message : "Please retry"})` } : item)); }
+  }, []);
+  const ensureRuntime = useCallback(async (root: string, task = "Workspace inspection") => {
+    if (runtimeRef.current?.root === root) return runtimeRef.current;
+    if (runtimeStartRef.current) return runtimeStartRef.current;
+    const starting = (async () => { const client = new RuntimeClient(root, askDecision); const state = await client.start(accessMode, task, effectivePolicies(root), readPreferences().workerRouting); runtimeRef.current = client; setRuntimeState(state); return client; })();
+    runtimeStartRef.current = starting;
+    try { return await starting; } finally { runtimeStartRef.current = null; }
+  }, [accessMode, askDecision]);
+  const workspaceExecute = useCallback(async (action: ToolAction, options?: { userInitiated?: boolean }) => {
+    if (!projectPath) return { ok: false, error: "Select a project folder first." };
+    const client = await ensureRuntime(projectPath);
+    const result = await client.execute(action, undefined, undefined, options);
+    setRuntimeState(await client.status()); return result;
+  }, [projectPath, ensureRuntime]);
+  useEffect(() => {
+    let active = true;
+    const refresh = async () => {
+      const client = runtimeRef.current; if (!client?.id) return;
+      try { const state = await client.status(); if (!active) return; setRuntimeState(state);
+        for (const group of state.agents || []) for (const job of group.jobs || []) {
+          subagentLogRef.current.set(job.id, {
+            id: job.id, role: job.role, task: String(job.task || "").slice(0, 200), status: job.status,
+            startedAt: job.startedAt, endedAt: job.endedAt,
+            // The engine the session routes this role onto, read back from the session's own
+            // status rather than from anything the worker said about itself.
+            engine: job.engine ? { profile: job.engine.profile, model: job.engine.model } : undefined,
+            // The worker's own final report, when it produced one. Nothing here is summarised on
+            // its behalf — the row shows the sentence the subagent actually finished with.
+            result: typeof (job.outcome as { message?: unknown } | undefined)?.message === "string" ? String((job.outcome as { message: string }).message).slice(0, 1500) : undefined,
+            updates: (job.updates || []).slice(-6).map((line: string) => String(line).slice(0, 400)),
+            // The checkout git really made for this job, with the file count read back from git.
+            worktree: job.worktree ? { branch: job.worktree.branch, path: job.worktree.path, files: job.worktree.files, error: job.worktree.error } : undefined,
+          });
+        }
+        const incoming = [...state.approvals.map((item: any) => ({ ...item, kind: "approval", sessionId: client.id })), ...(state.questions || []).map((item: any) => ({ ...item, kind: "question", sessionId: client.id }))];
+        setApprovalQueue((queue) => [...queue.filter((item) => item.resolve || incoming.some((pending) => pending.id === item.id)), ...incoming.filter((item) => !queue.some((existing) => existing.id === item.id))]);
+      } catch { /* Session might be closing. */ }
+    };
+    const timer = setInterval(refresh, 1200); return () => { active = false; clearInterval(timer); };
+  }, []);
+  const changeAccess = (mode: AccessMode) => { setAccessMode(mode); savePolicies({ ...readPolicies(), securityPreset: mode }); void runtimeRef.current?.update({ mode, policies: effectivePolicies(projectPath), routing: readPreferences().workerRouting }); };
+  useEffect(() => {
+    const changed = (event: Event) => { const preferences = (event as CustomEvent<Preferences>).detail; setAccessMode(preferences.accessMode); void runtimeRef.current?.update({ mode: preferences.accessMode, policies: effectivePolicies(projectPath), routing: preferences.workerRouting }); };
+    window.addEventListener("calvras:preferences", changed);
+    return () => window.removeEventListener("calvras:preferences", changed);
+  }, [projectPath]);
+  // Every Settings switch that gates the agent is pushed into the live session, so a
+  // rule changed mid-task takes effect on the next action instead of the next chat.
+  useEffect(() => {
+    const applied = (event: Event) => {
+      const policies = (event as CustomEvent<Policies>).detail;
+      setAccessMode(policies.securityPreset);
+      void runtimeRef.current?.update({ mode: policies.securityPreset, policies: effectivePolicies(projectPath), routing: readPreferences().workerRouting });
+    };
+    window.addEventListener("calvras:policies", applied);
+    return () => window.removeEventListener("calvras:policies", applied);
+  }, [projectPath]);
+
   const [folderError, setFolderError] = useState("");
   const [importing, setImporting] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -385,63 +592,8 @@ export function Index() {
   // Effort level: "Low" | "Medium" | "Max Effort"
   const [effortLevel, setEffortLevel] = useState<string>("Medium");
 
-  // Implementation plan slide-out panel
-  const [activePlan, setActivePlan] = useState<ImplementationPlan | null>(null);
-  const [planPanelOpen, setPlanPanelOpen] = useState(false);
 
-  // Live clock
-  // Update check: button ONLY appears when a newer version is released
-  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
-
-  useEffect(() => {
-    let mounted = true;
-    async function checkForUpdates() {
-      try {
-        const res = await fetch("https://api.github.com/repos/SHIKARI-hey/Calvras/releases/latest", {
-          headers: { Accept: "application/vnd.github.v3+json" },
-        });
-        if (!res.ok) return;
-        const data = await res.json();
-        const latestTag = (data.tag_name || "").replace(/^v/i, "").trim();
-        const currentVersion = DOWNLOAD.version;
-        if (latestTag && isNewerSemver(latestTag, currentVersion)) {
-          if (mounted) {
-            setUpdateInfo({
-              version: latestTag,
-              url: data.html_url || "https://calvras.com",
-            });
-          }
-        } else {
-          if (mounted) setUpdateInfo(null);
-        }
-      } catch {
-        // Offline or fetch failure: do not show update button
-      }
-    }
-
-    checkForUpdates();
-    const interval = setInterval(checkForUpdates, 30 * 60 * 1000);
-    return () => {
-      mounted = false;
-      clearInterval(interval);
-    };
-  }, []);
-
-  // Project dropdown
-  const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
-  const projectBadgeRef = useRef<HTMLButtonElement>(null);
-
-  // Close project dropdown on outside click
-  useEffect(() => {
-    if (!projectDropdownOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (projectBadgeRef.current && !projectBadgeRef.current.closest('[data-project-badge-wrapper]')?.contains(e.target as Node)) {
-        setProjectDropdownOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [projectDropdownOpen]);
+  // Project badge is display-only; folders are added from the composer.
 
   // Sync when activeProject changes from context
   useEffect(() => {
@@ -453,9 +605,8 @@ export function Index() {
 
   // Storage keys for persisting conversation across page refresh
   const CHAT_STORAGE_KEY = "calvras_chat_messages";
-  const PLAN_STORAGE_KEY = "calvras_active_plan";
 
-  // Hydrate messages & plan from localStorage on client mount
+  // Hydrate messages from localStorage on client mount
   const hasHydratedRef = useRef(false);
   useEffect(() => {
     try {
@@ -463,19 +614,18 @@ export function Index() {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          setMessages(parsed.map((message: Message) => ({
-            ...message, done: true,
-            phases: (message.phases || []).map((phase) => ({ ...phase, trace: (phase.trace || []).filter((node) => node.type !== "reasoning" && node.type !== "step") })),
-          })));
+          setMessages(parsed.map((message: Message) => {
+            // Reasoning rows are part of the reply format now, so they persist with the
+            // trace; a restored conversation still shows its Thought block.
+            const phases = (message.phases || []).map((phase) => ({ ...phase, trace: (phase.trace || []).map((node) => (node.type === "reasoning" && node.status === "running" ? { ...node, status: "completed" as const } : node)) }));
+            const hasResponse = phases.some((phase) => phase.message?.trim() || phase.trace.length);
+            const interrupted = !message.done || (Boolean(message.startedAt) && !message.endedAt && !hasResponse);
+            const lastRecordedTime = message.endedAt ?? Math.max(message.startedAt || 0, ...phases.map((phase) => phase.endedAt || phase.startedAt || 0));
+            return { ...message, phases, done: true, ...(lastRecordedTime ? { endedAt: lastRecordedTime } : {}), ...(interrupted ? { status: "stopped", error: "This task was interrupted before a complete response was saved. Resume to continue." } : {}) };
+          }));
         }
       }
-      const savedPlan = localStorage.getItem(PLAN_STORAGE_KEY);
-      if (savedPlan) {
-        const parsedPlan = JSON.parse(savedPlan);
-        if (parsedPlan && typeof parsedPlan === "object") {
-          setActivePlan(parsedPlan);
-        }
-      }
+      localStorage.removeItem("calvras_active_plan");
     } catch (e) {
       console.warn("Failed to restore chat from localStorage:", e);
     } finally {
@@ -505,34 +655,24 @@ export function Index() {
     }
   }, [messages]);
 
-  // Persist activePlan to localStorage
-  useEffect(() => {
-    if (!hasHydratedRef.current) return;
-    try {
-      if (activePlan) {
-        localStorage.setItem(PLAN_STORAGE_KEY, JSON.stringify(activePlan));
-      } else {
-        localStorage.removeItem(PLAN_STORAGE_KEY);
-      }
-    } catch {}
-  }, [activePlan]);
-
   // Handle New Chat signal
   const prevSignalRef = useRef(newChatSignal);
   useEffect(() => {
     if (newChatSignal !== prevSignalRef.current) {
       prevSignalRef.current = newChatSignal;
       setMessages([]);
-      setActivePlan(null);
       try {
         localStorage.removeItem(CHAT_STORAGE_KEY);
-        localStorage.removeItem(PLAN_STORAGE_KEY);
+        localStorage.removeItem(SESSION_MEMORY_KEY);
       } catch {}
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
         abortControllerRef.current = null;
       }
       setIsLoading(false);
+      // A new conversation starts with no screenshot and no screen to reproduce.
+      referenceImageRef.current = "";
+      referenceTargetRef.current = false;
     }
   }, [newChatSignal]);
 
@@ -570,35 +710,47 @@ export function Index() {
     );
   }, []);
 
-  // Get project context snapshot
-  const getProjectContextString = useCallback(async (activePath: string): Promise<string> => {
-    try {
-      const res = await fetch(`/api/fs/tree?projectPath=${encodeURIComponent(activePath)}`);
-      if (!res.ok) return "Workspace access failed. Do not infer that this folder is empty.";
-      const data = await res.json();
-      if (!data.ok || !Array.isArray(data.files)) return `Workspace access failed: ${data.error || "invalid folder response"}.`;
-      if (data.files.length === 0) {
-        return "Project is empty. No files exist yet.";
-      }
-      return data.files
-        .map(
-          (f: { path: string; lines: number; contentSample: string }) =>
-            `File: ${f.path} (${f.lines} lines):\n${f.contentSample}`
-        )
-        .join("\n\n---\n\n");
-    } catch {
-      return "";
-    }
+  // One-click desktop capture: attaches the real screen as an image for the next turn.
+  const handleCaptureScreen = useCallback(async () => {
+    const capture = (window as any).__electron?.captureScreen;
+    if (typeof capture !== "function") throw new Error("Screen capture is only available in the desktop app.");
+    const shot = await capture();
+    if (!shot?.image) throw new Error("The screen capture came back empty.");
+    const match = /^data:([^;,]+)?(;base64)?,(.*)$/s.exec(String(shot.image));
+    if (!match) throw new Error("The screen capture was not a readable image.");
+    const mime = match[1] || "image/png";
+    const payload = match[3] ?? "";
+    const bytes = match[2] ? Uint8Array.from(atob(payload), (char) => char.charCodeAt(0)) : new TextEncoder().encode(decodeURIComponent(payload));
+    const blob = new Blob([bytes], { type: mime });
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const name = `screen-${stamp}.png`;
+    return { file: new File([blob], name, { type: "image/png" }), name, type: "image/png" };
   }, []);
 
   // ── Main submit handler ────────────────────────────────────────────────────
   const handleSubmit = useCallback(
     async (
       value: string,
-      attachmentFiles?: { type: string; url: string; name?: string }[]
+      attachmentFiles?: { type: string; url: string; name?: string }[],
+      effort = "Balanced",
+      directive?: string
     ) => {
       const text = value.trim();
-      if ((!text && (!attachmentFiles || attachmentFiles.length === 0)) || isLoading) return;
+      if (!text && (!attachmentFiles || attachmentFiles.length === 0)) return;
+      if (isLoading) {
+        const item = { id: crypto.randomUUID(), text, ...(attachmentFiles?.length ? { files: attachmentFiles } : {}), effort, ...(directive ? { directive } : {}) };
+        // "Send Immediately" hands the message to the turn that is already running.
+        // Attachments and slash directives still wait, because steering carries text only.
+        if (text && !item.files && !directive && effectivePolicies(projectPath).queuedDelivery === "immediate") {
+          steeringRef.current.push(text);
+          setMessages((previous) => [...previous, { id: Date.now(), text, phases: [], done: true, role: "user", status: "finished" }]);
+          return;
+        }
+        writeQueue([...queuedRef.current, item]);
+        return;
+      }
+      if (runtimeRef.current && !await runtimeRef.current.preserveWorkersFor(projectPath)) runtimeRef.current = null;
+      steeringRef.current = [];
 
       setIsLoading(true);
       const controller = new AbortController();
@@ -623,22 +775,28 @@ export function Index() {
       let activePath = projectPath;
       let activeName = projectName;
 
-      // Build conversation history for full memory
-      const conversationHistory = messages
-        .filter((m) => m.done)
+      // Build conversation history: a compressed memory covers older turns, while the
+      // most recent turns stay verbatim so references like "do that" still resolve.
+      const priorTurns = messages.filter((m) => m.done);
+      const recentTurns = priorTurns.slice(-6);
+      const olderTurns = priorTurns.slice(0, Math.max(0, priorTurns.length - 6));
+      const conversationHistory = recentTurns
         .flatMap((m) => [
           { role: "user" as const, content: m.text || "(attachment)" },
           {
             role: "assistant" as const,
-            content: m.phases.map((phase) => [phase.message, ...phase.trace.map((node) => JSON.stringify({ action: node.primary, path: node.secondary, output: node.output, exitCode: node.exitCode, status: node.status, details: node.details }))].filter(Boolean).join("\n")).join("\n\n"),
+            content: m.phases.map((phase) => [phase.message?.slice(0, 1200), ...phase.trace.slice(-4).map((node) => JSON.stringify({ action: node.primary, path: node.secondary, output: node.output?.slice(-500), exitCode: node.exitCode, status: node.status }))].filter(Boolean).join("\n")).join("\n\n"),
           },
         ]);
 
       // Add the initial thinking phase — clean live indicator without fake or hardcoded sentences
       const msgId = Date.now();
+      subagentLogRef.current.clear();
 
       const initialThinkingPhase: AgentPhase = {
         trace: [],
+        startedAt: msgId,
+        activity: "thinking",
       };
 
       setMessages((prev) => [
@@ -655,19 +813,67 @@ export function Index() {
       ]);
 
       // Project snapshot
-      let projectSnapshot = "";
-      if (activePath) {
-        projectSnapshot = await getProjectContextString(activePath);
-      }
+      const projectSnapshot = activePath ? `Workspace folder: ${activePath}. Inspect files through tools as needed.` : "";
 
-      // Build media list for AI
+      // Build media list for AI. PDFs and text-like documents are extracted to text so the
+      // model can read them; images go through multimodal parts as before.
       const mediaList: MediaAttachment[] = [];
+      const documentContext: string[] = [];
+      const extractedTexts = new Map<string, string>();
       if (attachmentFiles && attachmentFiles.length > 0) {
         for (const att of attachmentFiles) {
+          const name = att.name || "attachment";
+          if (isPdfAttachment(name, att.type)) {
+            try { const text = await extractPdfText(att.url); extractedTexts.set(name, text); documentContext.push(`[ATTACHED FILE: ${name}]\n${text}`); }
+            catch (error) { console.warn(`[attachments] PDF extraction failed for ${name}: ${error instanceof Error ? `${error.name}: ${error.message} | ${error.stack}` : String(error)}`); documentContext.push(`[ATTACHED FILE: ${name}] (The PDF could not be read.)`); }
+            continue;
+          }
+          if (isTextLikeAttachment(name, att.type)) {
+            try { const text = decodeTextDataUrl(att.url).slice(0, 60_000); extractedTexts.set(name, text); documentContext.push(`[ATTACHED FILE: ${name}]\n${text}`); }
+            catch (error) { console.warn(`[attachments] Text extraction failed for ${name}: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`); documentContext.push(`[ATTACHED FILE: ${name}] (The file could not be read.)`); }
+            continue;
+          }
           mediaList.push({
             mimeType: att.type || "image/jpeg",
             data: att.url,
           });
+        }
+      }
+      const attachedImages = mediaList.filter((item) => (item.mimeType || "").startsWith("image/"));
+      const lastAttached = attachedImages[attachedImages.length - 1];
+      if (lastAttached?.data) referenceImageRef.current = lastAttached.data;
+      // An image is context until the words around it ask for that screen. Once the
+      // conversation has asked for it, later turns in this session inherit the target.
+      if (attachedImages.length && asksToReproduce(text)) referenceTargetRef.current = true;
+
+      // Keep the real file inside the workspace, or in the global Calvras vault when no
+      // folder is selected, so the agent can reuse it in later turns either way.
+      let storedAttachments: { name: string; relativePath: string; type: string; size: number; scope: "workspace" | "vault"; textRelativePath?: string }[] = [];
+      if (attachmentFiles?.length) {
+        try {
+          const response = await fetch("/api/agent/attachments", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ projectPath: activePath || "", files: attachmentFiles.map((att) => ({ name: att.name || "attachment", type: att.type, dataUrl: att.url, text: extractedTexts.get(att.name || "attachment") })) }),
+            signal: controller.signal,
+          });
+          const data = await response.json();
+          if (!response.ok || !data.ok) throw new Error(data.error || "The attachment could not be stored.");
+          storedAttachments = data.files || [];
+        } catch (error) {
+          if (controller.signal.aborted) throw error;
+          documentContext.push(`[ATTACHMENT STORAGE FAILED] ${error instanceof Error ? error.message : "The file could not be saved inside Calvras."}`);
+        }
+      }
+
+      // Recent verified work in this workspace, so the agent continues instead of repeating itself.
+      let workspaceJournal = "";
+      if (activePath) {
+        try {
+          const response = await fetch(`/api/agent/journal?projectPath=${encodeURIComponent(activePath)}`, { signal: controller.signal });
+          const data = await response.json();
+          if (response.ok && data.ok && typeof data.content === "string") workspaceJournal = data.content.slice(-14000);
+        } catch (error) {
+          if (controller.signal.aborted) throw error;
         }
       }
 
@@ -676,50 +882,334 @@ export function Index() {
       if (conversationHistory.length > 0) {
         const historyStr = conversationHistory
           .slice(-8)
-          .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
+          .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content.slice(0, 2000)}`)
           .join("\n");
         fullPrompt = `[CONVERSATION HISTORY]\n${historyStr}\n\n[CURRENT USER MESSAGE]\n${text || "(attachment)"}`;
       }
 
-      // Inject system prompt and time context on every message
+      // Time context on every message; behavior rules live in the server system prompt.
       const now = new Date();
       const timeStr = now.toLocaleString('en-US', {
         weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
         hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
       });
-      const systemPrefix = `You are Calvras, an autonomous coding agent. You are helpful, direct, and conversational.
-IMPORTANT RULES:
-- Do NOT introduce yourself.
-- Do NOT assume the user wants to start coding immediately.
-- If the user sends a casual greeting or vague message (like hey, hello, hi, what can you do), respond conversationally and ask what they would like to work on. Keep it short, one or two sentences max.
-- Only provide code, setup instructions, or technical steps when the user has clearly described a specific task.
-- Do not suggest Vite, Tailwind, shadcn, or any stack unprompted.
-- When helping with code, be concise and focused on exactly what was asked.
+      fullPrompt = `[CURRENT TIME]: ${timeStr}\n\n${fullPrompt}`;
+      if (directive) fullPrompt = `[TASK DIRECTIVE — how to approach this request]\n${directive}\n\n${fullPrompt}`;
+      if (documentContext.length) fullPrompt = `${fullPrompt}\n\n${documentContext.join("\n\n")}`;
+      if (storedAttachments.length) {
+        const inVault = storedAttachments.every((file) => file.scope === "vault");
+        const location = inVault
+          ? "saved in the Calvras attachment vault and remain available across chats"
+          : "saved inside this workspace";
+        const reuse = inVault
+          ? "Their extracted text or image is already included for this turn, so review it directly. They remain available in later turns. These belong to the user: do not delete or edit them unless asked."
+          : "Use read_image for stored images and read_file for the extracted .txt sidecars. These belong to the user: do not delete or edit them unless asked.";
+        fullPrompt = `${fullPrompt}\n\n[STORED ATTACHMENTS]\nThe user's files are ${location} and remain available in later turns:\n${storedAttachments.map((file) => `- ${file.relativePath} (${file.type || "file"}, ${file.size} bytes)${file.textRelativePath ? `; extracted text: ${file.textRelativePath}` : ""}`).join("\n")}\n${reuse}`;
+      }
 
-[CURRENT TIME]: ${timeStr}`;
-      fullPrompt = `${systemPrefix}\n\n${fullPrompt}`;
+      // Build phases: one phase per agent turn (tools + message)
+      const phases: AgentPhase[] = [initialThinkingPhase];
+      let currentPhase: AgentPhase | null = initialThinkingPhase;
+      // Once the agent starts running tools, its running commentary belongs in the
+      // timeline as the expandable Thought block rather than as reply text.
+      let toolRounds = 0;
+      let liveThought: { node: TraceNode; startedAt: number } | null = null;
 
-      // Append real feedback and tool states in the order they arrive.
-      const phases: AgentPhase[] = [];
       const publish = () => {
         if (controller.signal.aborted) return;
         setMessages((previous) => previous.map((message) => message.id === msgId ? { ...message, phases: phases.map((phase) => ({ ...phase, trace: [...phase.trace] })) } : message));
       };
+
+      /** The streamed commentary becomes a real Thought row: it collapses to
+       * "Thought for Ns" and expands to the sentences the agent actually wrote. */
+      const noteThought = (text: string) => {
+        if (!currentPhase) { currentPhase = { trace: [], startedAt: Date.now(), activity: "thinking" }; phases.push(currentPhase); }
+        if (!liveThought) {
+          const node: TraceNode = { id: crypto.randomUUID(), type: "reasoning", status: "running", sentences: [] };
+          currentPhase.trace.push(node);
+          liveThought = { node, startedAt: Date.now() };
+        }
+        liveThought.node.sentences = text.split(/(?<=[.!?])\s+/).map((sentence) => sentence.trim()).filter(Boolean).slice(-5);
+      };
+      const closeThought = () => {
+        if (!liveThought) return;
+        const { node, startedAt } = liveThought;
+        liveThought = null;
+        if (!node.sentences?.length) {
+          for (const phase of phases) { const index = phase.trace.indexOf(node); if (index >= 0) phase.trace.splice(index, 1); }
+          return;
+        }
+        node.status = "completed";
+        node.durationSeconds = Math.max(0.6, Math.round((Date.now() - startedAt) / 100) / 10);
+      };
+
+      // Cross-turn memory: genuinely compress older turns before they fall out of the
+      // verbatim window, so a long chat keeps its plan, decisions and unfinished work.
+      let sessionMemory = readSessionMemory();
+      const uncovered = olderTurns.slice(Math.min(sessionMemory.covered, olderTurns.length));
+      const uncoveredChars = uncovered.reduce((total, turn) => total + turn.text.length + turn.phases.reduce((sum, phase) => sum + (phase.message?.length || 0), 0), 0);
+      if (uncovered.length >= 4 || uncoveredChars > 18_000) {
+        const divider: AgentPhase = { trace: [], startedAt: Date.now(), divider: { state: "compressing" } };
+        phases.splice(0, phases.length, divider);
+        currentPhase = null;
+        publish();
+        let summary = "";
+        const transcript = [
+          sessionMemory.summary ? `[EXISTING SESSION MEMORY]\n${sessionMemory.summary}` : "",
+          ...uncovered.map(digestTurn),
+        ].filter(Boolean).join("\n\n").slice(-60_000);
+        try {
+          summary = (await callAI(`Merge this session into one continuation brief:\n\n${transcript}`, CONTEXT_COMPRESSION_SYSTEM_PROMPT, undefined, undefined, controller.signal, undefined, "Quick")).trim();
+        } catch (error) {
+          if (controller.signal.aborted) throw error;
+        }
+        sessionMemory = { summary: (summary || fallbackSessionSummary(sessionMemory.summary, uncovered)).slice(0, 16_000), covered: olderTurns.length };
+        writeSessionMemory(sessionMemory);
+        divider.divider = { state: "compressed" };
+        divider.endedAt = Date.now();
+        const resumed: AgentPhase = { trace: [], startedAt: Date.now(), activity: "thinking" };
+        phases.push(resumed);
+        currentPhase = resumed;
+        publish();
+      }
+      if (sessionMemory.summary.trim()) {
+        fullPrompt = `[EARLIER SESSION MEMORY — compressed from earlier turns, still true]\n${sessionMemory.summary}\n\n${fullPrompt}`;
+      }
+
+      const intent = agentIntent(text, messages.filter((message) => message.done).map((message) => message.text), Boolean(activePath));
+      const hasAttachments = Boolean(attachmentFiles?.length);
+      const directAttachmentReview = hasAttachments && !intent.requiresWork;
+      if (directAttachmentReview) {
+        fullPrompt = `${fullPrompt}\n\n[ATTACHMENT REVIEW MODE] The user's attached file content is already included above — text, PDF text, or the image itself. Review it directly now with actions: [] and status complete. Never call file or workspace tools to read an attachment. Answer the actual question in your own words using the attached evidence, with a direct verdict and specific reasons.`;
+      }
+      if (!activePath && !intent.requiresTools) {
+        fullPrompt = `${fullPrompt}\n\n[CONVERSATION MODE] This message is conversation, not file or code work. Reply directly in your own words with actions: [] and status complete. Do not call tools. Do not say the words project, folder, workspace, repository, files, or work on. Do not offer a menu of tasks, ask what the user wants to work on, or invite them to assign work. A greeting gets a short warm greeting back and nothing else. A question gets a direct answer. Respond in 1-4 sentences, then stop.`;
+      }
+      if (workspaceJournal.trim() && intent.requiresTools) {
+        fullPrompt = `${fullPrompt}\n\n[PROJECT JOURNAL — recent work verified in this workspace]\n${workspaceJournal.trim()}\nStay consistent with this. Anything marked failed or unfinished is not done; verify before claiming it works.`;
+      }
+      // First encounter with a workspace: map it completely before touching anything.
+      const seenWorkspaces = (() => { try { return JSON.parse(localStorage.getItem("calvras_seen_workspaces") || "[]") as string[]; } catch { return [] as string[]; } })();
+      const firstEncounter = Boolean(activePath) && !seenWorkspaces.includes(activePath!);
+      if (firstEncounter && intent.requiresTools) {
+        fullPrompt = `[FIRST ENCOUNTER] This workspace has not been explored yet. Before changing anything, understand it: run directory_tree at the root, read_package_json (or the equivalent manifest), the entry point, the main configs, and the README when present. Read broadly until you know the layout, then implement the request.\n\n${fullPrompt}`;
+      }
+      const initialActions = firstEncounter && intent.requiresTools
+        ? [{ type: "directory_tree", path: "." } as AgentAction, { type: "read_package_json", path: "." } as AgentAction]
+        : intent.initialActions;
+      // After repeated command failures, steer the agent to research the real error
+      // instead of burning the run on identical retries.
+      let terminalFailureStreak = 0;
+      const recordTerminalResult = (terminal: boolean, ok: boolean) => {
+        if (!terminal) return;
+        terminalFailureStreak = ok ? 0 : terminalFailureStreak + 1;
+        if (terminalFailureStreak < 2) return;
+        terminalFailureStreak = 0;
+        steeringRef.current.push("[SYSTEM] Two terminal actions failed in a row. Stop retrying the same approach. Read the actual error above, then use web_search or search_documentation to confirm the command, API, or version, and re-read the relevant files. For a web task, use check_console_errors and read_page to see what actually failed. Change the approach based on that evidence. If no working path exists, explain the blocker instead of repeating the attempt.");
+      };
+      type PreviewInspection = {
+        ok: boolean;
+        healthy: boolean;
+        issues: string[];
+        url: string;
+        title: string;
+        text: string;
+        consoleErrors: string[];
+        screenshot: boolean;
+        layout?: Record<string, unknown> | null;
+        error?: string;
+      };
+      // Loads, probes and captures the visible preview. Completion is gated on
+      // this result, so it must reflect the real rendered page, not the server.
+      const inspectPreview = async (url: string, options: { reload?: boolean; node?: TraceNode } = {}): Promise<PreviewInspection> => {
+        const node: TraceNode = options.node ?? { id: crypto.randomUUID(), type: "tool", toolName: "check_preview", primary: "Looking at the preview", secondary: url, mono: true, status: "running" };
+        if (!options.node) currentPhase?.trace.push(node);
+        node.status = "running";
+        delete node.durationMs;
+        node.secondary = url;
+        publish();
+        const started = Date.now();
+        const errorFloor = browserBridge.getConsoleErrors().length;
+        const loaded = await browserBridge.preview(url, options.reload ? { reload: true } : undefined).catch(() => null);
+        if (!loaded?.ok) {
+          node.status = "failed";
+          node.durationMs = Date.now() - started;
+          node.output = `The preview did not load at ${url}.`;
+          publish();
+          return { ok: false, healthy: false, url, title: "", text: "", consoleErrors: [], screenshot: false, issues: ["The preview page did not load in the browser panel."], error: "The preview did not load in the browser panel." };
+        }
+        // Give the first render, styles and hydration a moment to settle before judging it.
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        const [layout, shot] = await Promise.all([
+          browserBridge.probe().catch(() => null),
+          browserBridge.screenshot(false).catch(() => null),
+        ]);
+        const consoleErrors = browserBridge.getConsoleErrors().slice(errorFloor).slice(-20);
+        const health = evaluatePreviewHealth(layout, consoleErrors);
+        const text = String(layout?.text || "").replace(/\s+/g, " ").trim();
+        const pageUrl = String(layout?.url || loaded.url || url);
+        const title = String(layout?.title || loaded.title || "");
+        node.status = health.healthy ? "completed" : "failed";
+        node.durationMs = Date.now() - started;
+        node.output = [
+          `Preview ${health.healthy ? "verified" : "needs work"}: ${title || pageUrl}`,
+          `URL: ${pageUrl}`,
+          layout ? `Layout: ${layout.textLength ?? 0} chars of text, ${layout.visibleElements ?? 0} visible elements, ${layout.richElements ?? 0} media/interactive, ${layout.styleTags ?? 0} inline styles, ${layout.stylesheetLinks ?? 0} stylesheet links.` : "Layout: could not be inspected.",
+          text ? `Visible page text:\n${text.slice(0, 3000)}` : "Visible page text: (none)",
+          health.issues.length ? `Problems:\n${health.issues.map((issue) => `- ${issue}`).join("\n")}` : "Problems: none",
+          consoleErrors.length ? `Console errors:\n${consoleErrors.map((entry) => `- ${entry}`).join("\n")}` : "Console errors: none",
+        ].filter(Boolean).join("\n");
+        if (shot?.image) {
+          node.image = shot.image;
+          if (mediaList.length >= 3) mediaList.pop();
+          mediaList.push({ mimeType: shot.mimeType || "image/png", data: shot.image });
+        }
+        publish();
+        return {
+          ok: true,
+          healthy: health.healthy,
+          issues: health.issues,
+          url: pageUrl,
+          title,
+          text: text.slice(0, 1800),
+          consoleErrors: consoleErrors.slice(0, 10),
+          screenshot: Boolean(shot?.image),
+          layout: layout ? {
+            textLength: layout.textLength,
+            visibleElements: layout.visibleElements,
+            richElements: layout.richElements,
+            styleTags: layout.styleTags,
+            stylesheetLinks: layout.stylesheetLinks,
+            stylesheetCount: layout.stylesheetCount,
+            overlay: layout.overlay || "",
+          } : null,
+        };
+      };
+      let compressionPhase: AgentPhase | null = null;
+      // Settings the model must know about; the runtime enforces the same rules regardless.
+      const turnNotes = policyNotes(effectivePolicies(activePath || projectPath));
+      const turnSystem = turnNotes ? `${CALVRAS_SYSTEM_PROMPT}\n${turnNotes}` : undefined;
       const outcome = await runAgent({
         prompt: fullPrompt,
-        requiresTools: !/^(how|what|why|explain)\b/i.test(text) && /\b(check|inspect|read|edit|fix|build|create|implement|run|deploy|search|update)\b/i.test(text),
+        requiresTools: directAttachmentReview && !activePath ? false : intent.requiresTools,
+        requiresWork: directAttachmentReview && !activePath ? false : intent.requiresWork,
         signal: controller.signal,
-        infer: (prompt) => callAI(prompt, undefined, mediaList, projectSnapshot, controller.signal),
-        onFeedback: (message) => { phases.push({ trace: [], message }); publish(); },
-        execute: async (actions) => {
-          // Publish immediately so the UI shows a running spinner at once
-          const workingPhase: AgentPhase = { trace: [] };
-          phases.push(workingPhase);
+        initialActions: directAttachmentReview && !activePath ? [] : initialActions,
+        finishOnServerReady: intent.finishOnServerReady,
+        hasReferenceImage: Boolean(referenceImageRef.current) && referenceTargetRef.current,
+        getSteering: () => steeringRef.current.splice(0),
+        compress: async (transcript) => callAI(
+          `Re-summarize this agent working session so it can continue without restarting. Preserve the task, completed work, concrete paths and commands, decisions, failures and exact next steps. Do not invent anything.\n\n${transcript}`,
+          CONTEXT_COMPRESSION_SYSTEM_PROMPT,
+          undefined, undefined, controller.signal, undefined, "Quick"
+        ),
+        onCompression: (state) => {
+          if (state === "compressing") {
+            if (currentPhase) { currentPhase.endedAt = Date.now(); currentPhase = null; }
+            compressionPhase = { trace: [], startedAt: Date.now(), divider: { state: "compressing" } };
+            phases.push(compressionPhase);
+          } else if (compressionPhase) {
+            compressionPhase.divider = { state: "compressed" };
+            compressionPhase.endedAt = Date.now();
+            compressionPhase = null;
+            currentPhase = { trace: [], startedAt: Date.now(), activity: "thinking" };
+            phases.push(currentPhase);
+          }
           publish();
-          if (!activePath) {
+        },
+        infer: async (prompt, onDelta) => {
+          if (!currentPhase) { currentPhase = { trace: [], startedAt: Date.now(), activity: "thinking" }; phases.push(currentPhase); }
+          // Only a phase that has not run a single tool is "thinking". Composing the next
+          // step after real work has started is still work, so the indicator stays Working.
+          else if (!currentPhase.trace.some((node) => node.type !== "reasoning")) currentPhase.activity = "thinking";
+          publish();
+          if (activePath) await ensureRuntime(activePath, text);
+          // A rate-limited or dropped provider is this run's problem, not the user's: ask
+          // again with a short pause and keep the working indicator honest.
+          for (let attempt = 0; attempt < 4; attempt++) {
+            try {
+              return await callAI(prompt, turnSystem, mediaList, `${projectSnapshot}\n${runtimeRef.current?.context || ""}`, controller.signal, onDelta, /^(?:hey|hi|hello|thanks|thank you)[.!\s]*$/i.test(text) ? "Quick" : effort);
+            } catch (error) {
+              const reason = error instanceof Error ? error.message : "";
+              const providerTrouble = /rate limited|requires credits|did not respond in time|connection dropped|HTTP [45]\d\d/i.test(reason);
+              if (!providerTrouble || controller.signal.aborted) throw error;
+              if (attempt === 3) throw new Error("Calvras could not reach the model after several tries. Send the message again to continue.");
+              await new Promise((resolve) => setTimeout(resolve, 2_500 * (attempt + 1)));
+              if (controller.signal.aborted) throw error;
+            }
+          }
+          throw new Error("Calvras could not reach the model. Send the message again to continue.");
+        },
+        onMessageDelta: (message) => {
+          if (!currentPhase) { currentPhase = { trace: [], startedAt: Date.now() }; phases.push(currentPhase); }
+          if (toolRounds === 0) currentPhase.message = message;
+          else noteThought(message);
+          publish();
+        },
+        onFeedback: (message) => {
+          if (!currentPhase) {
+            currentPhase = { trace: [], startedAt: Date.now() };
+            phases.push(currentPhase);
+          }
+          if (!message.trim()) return;
+          // The first update reads as the reply. Once the agent is working, its running
+          // commentary belongs to the Thought row instead of repeating as an answer.
+          if (toolRounds === 0) currentPhase.message = message;
+          else noteThought(message);
+          publish();
+        },
+        onPhaseComplete: (message, final) => {
+          closeThought();
+          // An interim update already lives in the timeline; only the closing reply
+          // is written out as the message under the header.
+          if (final === false) { publish(); return; }
+          // Phase complete: finalize current phase with its message
+          if (currentPhase) {
+            currentPhase.message = message;
+            currentPhase.endedAt = Date.now();
+            currentPhase = null;
+            publish();
+          } else if (message.trim()) {
+            // The final summary frequently repeats the last progress update verbatim —
+            // keep a single record instead of rendering the same sentence twice.
+            const previous = phases[phases.length - 1];
+            if (previous?.message?.trim() === message.trim()) return;
+            // Message without tools (e.g. final answer with no actions) — create a message-only phase
+            phases.push({ trace: [], message, startedAt: Date.now(), endedAt: Date.now() });
+            publish();
+          }
+        },
+        execute: async (actions) => {
+          closeThought();
+          toolRounds += 1;
+          if (!currentPhase) {
+            currentPhase = { trace: [], startedAt: Date.now() };
+            phases.push(currentPhase);
+          }
+          currentPhase.activity = "working";
+          publish();
+          const browserOnlyTurn = hasInAppBrowser() && accessMode === "full" && actions.length > 0 && actions.every((action) => isInAppBrowserTool(action.type));
+          if (!activePath && !browserOnlyTurn) {
             const canCreate = actions.some((action) => action.type === "create_file" || action.type === "write_file") && !actions.some((action) => action.type === "read_file" || action.type === "list_dir");
-            if (!canCreate) throw new Error("Select a project folder first so Calvras can inspect the actual files.");
-            const response = await fetch("/api/fs/create-project", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: projectNameFrom(text) }), signal: controller.signal });
+            if (!canCreate) {
+              // No workspace: skip project actions instead of hardcoding a user-facing
+              // folder demand. The model sees this note and answers in its own words.
+              const notice = hasAttachments
+                ? "The user's attachment is already included in your context, so this tool call was skipped and is not needed. Review the attachment directly and answer the user's actual question now with actions: [] and status complete. Do not mention tooling, directories, or workspaces."
+                : intent.requiresTools
+                ? "No project folder is selected, so this project action was not run. If the task truly needs existing files, ask for a folder in your own words. If it starts a new build, use create_file or write_file and the user will be asked where that folder should live before anything is created. Otherwise answer the user directly without tools."
+                : "This message is conversation, not file work. The action was skipped. Answer the user's message directly in your own words with actions: [] and status complete. Do not call tools, mention directories or workspaces, or ask what work the user wants.";
+              return actions.map((action) => ({ action, ok: false, result: { skipped: true, noWorkspace: true, error: notice } }));
+            }
+            // Nothing is open, so the folder has to be the user's decision, not a side effect of
+            // the model returning a write. Deny it and the build simply has nowhere to go yet.
+            const projectName = projectNameFrom(text);
+            const answer = await askDecision({ id: crypto.randomUUID(), kind: "approval", local: true, question: `Create a new project folder "${projectName}" and build there?`, reason: "No folder is open, so this build has nowhere to live yet. Deny it and tell Calvras where to work instead.", action: { type: "create_file", path: projectName } }, "", controller.signal);
+            if (!answer || answer === "deny") {
+              const notice = "The user did not allow a new project folder, so nothing was created and no file was written. Ask them in your own words where this work should live, or answer without files. Do not retry creating a folder in this turn.";
+              return actions.map((action) => ({ action, ok: false, result: { skipped: true, noWorkspace: true, error: notice } }));
+            }
+            const response = await fetch("/api/fs/create-project", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: projectName }), signal: controller.signal });
             const data = await response.json();
             if (!response.ok || !data.ok || !data.projectPath) throw new Error(data.error || "Could not create a workspace.");
             activePath = data.projectPath;
@@ -728,58 +1218,138 @@ IMPORTANT RULES:
             setProjectName(activeName);
             addProject({ name: data.name, path: data.projectPath });
           }
-          const feedback: ToolFeedback[] = [];
-          const routes: Record<AgentAction["type"], string> = {
-            // File system — served under /api/fs/...
-            create_file: "fs/create", write_file: "fs/write-file", read_file: "fs/read-file", list_dir: "fs/list-dir", run_command: "fs/command",
-            rename_file: "fs/rename", delete_file: "fs/delete", copy_file: "fs/copy", get_file_info: "fs/stat",
-            search_files: "fs/search", find_files: "fs/find-files",
-            search_replace: "fs/search-replace",
-            // Git — served under /api/git/...
-            git_status: "git/status", git_diff: "git/diff", git_log: "git/log",
-            git_add: "git/add", git_commit: "git/commit", git_checkout: "git/checkout",
-            git_branch: "git/branch", git_restore: "git/restore", git_push: "git/push", git_clone: "git/clone",
-            // Build & run — served under /api/run/...
-            run_build: "run/build", run_tests: "run/test", run_lint: "run/lint",
-            run_typecheck: "run/typecheck", install_deps: "run/install",
-          };
-          const labels: Record<AgentAction["type"], string> = {
-            create_file: "Create file", write_file: "Write file", read_file: "Read file", list_dir: "List directory", run_command: "Run command",
-            rename_file: "Rename file", delete_file: "Delete file", copy_file: "Copy file", get_file_info: "File info",
-            search_files: "Search files", find_files: "Find files",
-            search_replace: "Search & replace",
-            git_status: "Git status", git_diff: "Git diff", git_log: "Git log",
-            git_add: "Git add", git_commit: "Git commit", git_checkout: "Git checkout",
-            git_branch: "Git branch", git_restore: "Git restore", git_push: "Git push", git_clone: "Git clone",
-            run_build: "Run build", run_tests: "Run tests", run_lint: "Run lint",
-            run_typecheck: "Type check", install_deps: "Install dependencies",
-          };
-          for (const action of actions) {
+
+          return executeInOrder(actions, async (action) => {
             controller.signal.throwIfAborted();
-            const isTerminal = action.type === "run_command" || action.type.startsWith("git_") || action.type.startsWith("run_") || action.type === "install_deps";
-            const node: TraceNode = { id: crypto.randomUUID(), type: isTerminal ? "terminal" : "tool", primary: labels[action.type], secondary: action.command || action.path || action.from || action.url || ".", status: "running", ...(isTerminal ? { command: action.command ?? action.message ?? action.branch ?? action.url ?? action.type } : {}) };
-            workingPhase.trace.push(node);
+            const isTerminal = TOOL_RISK[action.type] === "execute" || action.type.startsWith("git_");
+            const node: TraceNode = { id: crypto.randomUUID(), type: isTerminal ? "terminal" : "tool", toolName: action.type, mono: true, primary: humanToolLabel(action), secondary: action.command || action.path || action.from || action.url || ".", status: "running", ...(isTerminal ? { command: action.command ?? action.message ?? action.branch ?? action.url ?? action.type } : {}) };
+            if (currentPhase) currentPhase.trace.push(node);
             publish();
             const started = Date.now();
             try {
-              const response = await fetch(`/api/${routes[action.type]}`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ ...action, projectPath: activePath }),
-                signal: isTerminal
-                  ? AbortSignal.any([controller.signal, AbortSignal.timeout(60_000)])
-                  : controller.signal,
-              });
-              const data = await response.json();
-              const ok = response.ok && data.ok === true && (action.type !== "run_command" || data.exitCode === 0);
-              node.status = ok ? "completed" : "failed";
+              const usesVisibleBrowser = hasInAppBrowser() && accessMode === "full" && isInAppBrowserTool(action.type);
+              let data: any;
+              if (action.type === "use_user_file") {
+                const root = activePath || projectPath;
+                if (!root) data = { ok: false, error: "Select a workspace folder before bringing a document in." };
+                else {
+                  try {
+                    const imported = await (window as any).__electron.importUserFile(root, String(action.path ?? ""));
+                    const reader = (window as any).__electron.readWorkspaceFile;
+                    let text = "";
+                    if (/\.(pdf)$/i.test(imported.relativePath)) {
+                      const { dataUrl } = await reader(root, imported.relativePath);
+                      text = await extractPdfText(dataUrl);
+                    } else if (isTextLikeAttachment(imported.relativePath, "")) {
+                      const { dataUrl } = await reader(root, imported.relativePath);
+                      text = decodeTextDataUrl(dataUrl);
+                    }
+                    data = {
+                      ok: true,
+                      path: imported.relativePath,
+                      fileName: imported.relativePath.split("/").pop(),
+                      copiedInside: imported.copied,
+                      text: text ? text.slice(0, 24000) : undefined,
+                      note: text
+                        ? "Use this text to answer the site's questions. Upload it with upload_file_to_page using this exact path."
+                        : "The document is now inside the workspace; attach it with upload_file_to_page using this exact path. Its text could not be extracted, so ask the user for an answer you cannot read.",
+                    };
+                  } catch (error) {
+                    data = { ok: false, error: error instanceof Error ? error.message : "That file could not be used." };
+                  }
+                }
+              } else if (action.type === "compare_to_reference") {
+                const reference = referenceImageRef.current;
+                if (!hasInAppBrowser()) data = { ok: false, error: "compare_to_reference measures the app's visible preview. Get the page loaded in the panel first (start_server, then check_preview)." };
+                else if (!reference) data = { ok: false, error: "The user has not sent a screenshot in this session, so there is nothing to compare the render against." };
+                else {
+                  revealBrowserPanel(false);
+                  try { data = await browserBridge.compareWithReference(reference); }
+                  catch (error) { data = { ok: false, error: error instanceof Error ? error.message : "The page could not be measured against the screenshot." }; }
+                }
+              } else if (action.type === "check_preview") {
+                const previewUrl = serverPreviewUrlRef.current || browserBridge.getSnapshot().url;
+                if (!hasInAppBrowser() || !/^https?:/i.test(previewUrl)) {
+                  data = { ok: false, error: "No server preview is open yet. Start the server with start_server, then check_preview." };
+                } else {
+                  revealBrowserPanel(false);
+                  const inspection = await inspectPreview(previewUrl, { reload: true, node });
+                  data = { ...inspection, preview: inspection };
+                }
+              } else if (usesVisibleBrowser) {
+                // The split panel is the agent's browser: show it, lock it for the
+                // duration of the task, and let the agent drive the real page.
+                revealBrowserPanel(true);
+                // Full access runs these here instead of through the runtime, so the
+                // Settings rules have to be checked at this boundary too.
+                const rules = effectivePolicies(activePath || projectPath);
+                const targetHost = urlHost(action.url) || urlHost(browserBridge.getSnapshot().url);
+                const blocker = blockReason(rules, action.type, targetHost, true);
+                if (blocker) data = { ok: false, error: blocker };
+                else if (action.type === "run_page_script" && rules.browserJs === "ask") {
+                  const choice = await askDecision({ id: crypto.randomUUID(), kind: "approval", local: true, question: `Run this JavaScript on ${targetHost || "the open page"}?`, reason: "The page script can read and change anything on the site you are looking at.", action }, "", controller.signal);
+                  data = choice && choice !== "deny" ? await browserBridge.execute(action.type, action, activePath)
+                    : { ok: false, error: "The user did not allow running JavaScript on this page. Use click_element, fill_input or press_page_key instead." };
+                }
+                else data = await browserBridge.execute(action.type, action, activePath);
+              } else {
+                const client = await ensureRuntime(activePath!, text);
+                data = await client.execute(action, controller.signal, (output) => { node.output = ((node.output || "") + output).slice(-32000); publish(); });
+              }
+              const ok = data.ok === true;
+              node.status = action.type === "check_preview" ? (data.healthy === true ? "completed" : "failed")
+                : action.type === "compare_to_reference" ? (data.matched === true ? "completed" : "failed")
+                : ok ? "completed" : "failed";
               node.durationMs = Date.now() - started;
+              recordTerminalResult(isTerminal, ok);
+              if (data.checkpointId) node.checkpointId = data.checkpointId;
+              if (data.image) {
+                node.image = data.image;
+                if (mediaList.length >= 3) mediaList.pop();
+                mediaList.push({ mimeType: data.mimeType || "image/png", data: data.image });
+              }
+              if (data.url && data.ready) node.previewUrl = data.url;
+              const serverTool = action.type === "start_dev_server" || action.type === "start_server" || action.type === "check_server";
+              if (serverTool && ok && data.ready === true && typeof data.url === "string" && data.url && hasInAppBrowser()) {
+                const firstReady = serverPreviewUrlRef.current !== data.url;
+                serverPreviewUrlRef.current = data.url;
+                setPreviewUrl(data.url);
+                // A check_server poll only reveals the panel the first time this URL
+                // becomes ready, so closing the preview does not fight the user.
+                if (firstReady || action.type !== "check_server") {
+                  revealBrowserPanel(false);
+                  data.preview = await inspectPreview(data.url);
+                }
+              }
+              if (ok && Array.isArray(data.diffRows)) {
+                node.diffRows = data.diffRows;
+                node.diffFile = action.path || data.path;
+                node.add = data.diffRows.filter((row: { type: string }) => row.type === "add").length;
+                node.del = data.diffRows.filter((row: { type: string }) => row.type === "del").length;
+              }
               if (isTerminal) {
                 // run_command returns exitCode; git/run routes return output string
                 node.exitCode = data.exitCode ?? (data.ok ? 0 : 1);
                 node.output = data.output || data.error || "";
+              } else if (action.type === "read_page" && typeof data.text === "string") {
+                const links = Array.isArray(data.links) ? data.links.map((link: any) => `- ${link.text || "(link)"}: ${link.href}`).join("\n") : "";
+                node.output = `${data.title || ""}\n${data.url || ""}\n\n${data.text}${links ? `\n\nLinks:\n${links}` : ""}`.trim();
+              } else if (action.type === "search_documentation" && data.url) {
+                node.type = "search";
+                node.sources = [{ name: String(action.url), url: String(data.url) }];
+                node.output = `${data.url}\n\n${data.content}`;
               } else if (data.content !== undefined) {
                 node.output = data.content;
+                node.codeSnippet = String(data.content);
+              } else if (action.type === "web_search" && Array.isArray(data.results)) {
+                // Every chip below is a URL the engine actually returned, so the user can check
+                // the citation instead of trusting the model's summary of it.
+                node.type = "search";
+                node.sources = data.results.map((item: { title: string; url: string }) => ({ name: item.title, url: item.url }));
+                node.output = [
+                  `${data.engine || "Search"} returned ${data.results.length} result${data.results.length === 1 ? "" : "s"} for "${data.query}".`,
+                  ...data.results.map((item: { title: string; url: string; snippet: string }) => `- ${item.title}\n  ${item.url}${item.snippet ? `\n  ${item.snippet}` : ""}`),
+                ].join("\n");
               } else if (Array.isArray(data.results)) {
                 // search_files: array of { file, line, text }
                 node.output = data.results.map((r: { file: string; line: number; text: string }) => `${r.file}:${r.line}: ${r.text}`).join("\n");
@@ -787,71 +1357,268 @@ IMPORTANT RULES:
                 // find_files: array of file path strings
                 node.output = data.files.join("\n");
               } else if (Array.isArray(data.entries)) {
-                node.output = data.entries.map((entry: { name: string; type: string }) => `${entry.type}: ${entry.name}`).join("\n");
+                node.output = data.entries.map((entry: { name?: string; path?: string; type: string }) => `${entry.type}: ${entry.path || entry.name}`).join("\n");
+              } else if (action.type === "check_preview") {
+                node.output = node.output || data.error || JSON.stringify(data);
+              } else if (action.type === "compare_to_reference") {
+                node.output = data.error || (data.fidelity ? fidelityNote(data.fidelity) : JSON.stringify(data));
               } else {
                 node.output = data.error || JSON.stringify(data);
               }
-              feedback.push({ action, ok, result: data });
+              if (action.type !== "check_preview" && Array.isArray(data.consoleErrors) && data.consoleErrors.length) {
+                node.output = `${node.output ? `${node.output}\n\n` : ""}Browser console errors:\n${data.consoleErrors.map((item: string) => `- ${item}`).join("\n")}`;
+              }
               publish();
+              return { action, ok, result: data };
             } catch (error) {
               node.status = "failed";
               node.durationMs = Date.now() - started;
+              recordTerminalResult(isTerminal, false);
               node.output = controller.signal.aborted ? "Stopped waiting for this action. A command already started on the server may still run." : error instanceof Error ? error.message : "Action failed.";
-              if (!controller.signal.aborted) { feedback.push({ action, ok: false, result: { error: node.output } }); publish(); }
+              if (!controller.signal.aborted) { publish(); return { action, ok: false, result: { error: node.output } }; }
               else throw error;
             }
-          }
-          return feedback;
+          }, controller.signal);
         },
       });
       if (abortControllerRef.current !== controller) return;
-      if (outcome.plan) setActivePlan({ title: "Implementation Plan", content: outcome.plan, messageId: msgId });
-      if (outcome.message) phases.push({ trace: [], message: outcome.message });
-      setMessages((previous) => previous.map((message) => message.id === msgId ? { ...message, phases, done: true, status: outcome.status, ...(outcome.error ? { error: outcome.error } : {}), endedAt: Date.now() } : message));
+      // outcome.message is already handled by onPhaseComplete — don't add duplicate phase here
+      setMessages((previous) => previous.map((message) => message.id === msgId ? { ...message, phases, done: true, status: outcome.status, subagents: [...subagentLogRef.current.values()].filter((job) => (job.startedAt ?? 0) >= msgId), ...(outcome.error ? { error: outcome.error } : {}), endedAt: Date.now() } : message));
+      // Persist a compact receipt so later turns know what was actually verified.
+      if (activePath && !controller.signal.aborted && outcome.status !== "stopped" && (intent.requiresTools || phases.some((phase) => phase.trace.length))) {
+        const actionLines = phases.flatMap((phase) => phase.trace.map((node) => `${node.status === "completed" ? "ok" : "FAILED"} ${node.primary} — ${String(node.secondary || "").slice(0, 180)}`));
+        const lastMessage = [...phases].reverse().find((phase) => phase.message?.trim())?.message || "";
+        const entry = [
+          `**Request:** ${(text || "(attachment)").slice(0, 600)}`,
+          `**Outcome:** ${outcome.status}${outcome.error ? ` — ${outcome.error.slice(0, 400)}` : ""}`,
+          ...(actionLines.length ? ["**Actions:**", ...actionLines.slice(-25)] : []),
+          ...(lastMessage ? [`**Final message:** ${lastMessage.slice(0, 600)}`] : []),
+        ].join("\n");
+        void fetch("/api/agent/journal", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectPath: activePath, text: entry }) }).catch(() => {});
+      }
       setIsLoading(false);
       abortControllerRef.current = null;
+      recordUsage("task", `${outcome.status}: ${(text || "(attachment)").slice(0, 60)}${activePath ? ` in ${activePath.split(/[\\/]/).pop()}` : ""}`);
+      if (outcome.status === "finished" || outcome.status === "blocked") playCompletionChimeWhenUnfocused();
+      if (firstEncounter && activePath && outcome.status === "finished") {
+        try {
+          const list = JSON.parse(localStorage.getItem("calvras_seen_workspaces") || "[]") as string[];
+          if (!list.includes(activePath)) {
+            list.push(activePath);
+            localStorage.setItem("calvras_seen_workspaces", JSON.stringify(list.slice(-50)));
+          }
+        } catch { /* storage unavailable */ }
+      }
+      if (outcome.status === "finished") void (runtimeRef.current as RuntimeClient | null)?.update({ finished: true });
     },
-    [projectPath, projectName, isLoading, addProject, addRecent, getProjectContextString, messages]
+    [projectPath, projectName, isLoading, addProject, addRecent, messages, ensureRuntime, writeQueue]
   );
-  // ── Open / Switch Project Folder — uses native file system picker ──────────
-  const handleOpenProject = useCallback(() => {
-    if (messages.length > 0) return;
-    const input = document.createElement("input");
-    input.type = "file";
-    input.setAttribute("webkitdirectory", "");
-    input.onchange = () => {
-      const files = Array.from(input.files || []).filter((file) =>
-        !file.webkitRelativePath.split("/").some((part) => ["node_modules", ".git", ".env"].includes(part) || part.startsWith(".env."))
-      );
-      setFolderError("");
-      if (files.length) setPendingFolder(files);
-    };
-    input.click();
-  }, [messages.length]);
+  const handleSubmitRef = useRef(handleSubmit);
+  handleSubmitRef.current = handleSubmit;
 
-  const confirmFolder = async () => {
-    if (!pendingFolder || importing) return;
+  // A task finishing releases exactly one queued message, so six of them go out one
+  // after each completed task rather than all at once.
+  useEffect(() => {
+    if (isLoading) return;
+    const next = queuedRef.current[0];
+    if (!next) return;
+    writeQueue(queuedRef.current.slice(1));
+    void handleSubmitRef.current(next.text, next.files, next.effort, next.directive);
+  }, [isLoading, writeQueue]);
+
+  // Scheduled work is claimed only when the conversation is genuinely idle, so a run that comes
+  // due mid-task waits for the next poll instead of cutting into what the user is watching.
+  useEffect(() => {
+    if (!projectPath) { setScheduled([]); return; }
+    let active = true;
+    const read = async () => {
+      try {
+        const result = await (await fetch(`/api/agent/schedule?projectPath=${encodeURIComponent(projectPath)}`)).json();
+        if (active && result?.ok) setScheduled(result.entries || []);
+      } catch { /* the folder may be closing; the next poll tries again */ }
+    };
+    const poll = async () => {
+      if (!active || isLoadingRef.current || queuedRef.current.length || pendingScheduledRef.current) return;
+      try {
+        const result = await (await fetch("/api/agent/schedule", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "claim", projectPath }) })).json();
+        if (!active || !result?.ok) return;
+        setScheduled(result.entries || []);
+        const run = (result.due || [])[0] as ScheduledRunView | undefined;
+        if (!run) return;
+        // It enters through the same path as a typed message, so intent, permissions and the
+        // verification gates apply to work started by a clock exactly as to work started by hand.
+        pendingScheduledRef.current = run;
+        void handleSubmitRef.current(run.prompt);
+      } catch { /* a schedule the server cannot read is left untouched */ }
+    };
+    void read();
+    const timer = setInterval(() => void poll(), 15_000);
+    return () => { active = false; clearInterval(timer); };
+  }, [projectPath]);
+
+  // A scheduled turn is closed out with the status its own turn actually reached, so the ledger
+  // records a stopped or blocked run instead of assuming the appointment was kept.
+  useEffect(() => {
+    if (isLoading || !projectPath) return;
+    const run = pendingScheduledRef.current;
+    if (!run) return;
+    const turn = messages[messages.length - 1];
+    if (!turn?.done || String(turn.text || "") !== run.prompt) return;
+    pendingScheduledRef.current = null;
+    const note = [...(turn.phases || [])].reverse().find((phase) => phase.message?.trim())?.message || turn.error || "";
+    void fetch("/api/agent/schedule", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "report", projectPath, id: run.id, status: turn.status || "finished", note }) })
+      .then(async (response) => { const result = await response.json(); if (result?.ok) setScheduled(result.entries || []); })
+      .catch(() => { /* the run stays recorded as started and the panel shows that */ });
+  }, [isLoading, messages, projectPath]);
+
+  const sendQueuedNow = useCallback((id: string) => {
+    const next = queuedRef.current.find((item) => item.id === id);
+    if (!next) return;
+    writeQueue(queuedRef.current.filter((item) => item.id !== id));
+    if (isLoading) {
+      steeringRef.current.push(next.text);
+      setMessages((previous) => [...previous, { id: Date.now(), text: next.text, phases: [], done: true, role: "user", status: "finished" }]);
+      return;
+    }
+    void handleSubmitRef.current(next.text, next.files, next.effort, next.directive);
+  }, [isLoading, writeQueue]);
+
+  // Pausing, resuming and cancelling are writes to the same ledger the agent's own scheduling
+  // tools use, so the panel and the model can never disagree about what is appointed.
+  const changeSchedule = useCallback(async (id: string, action: "pause" | "resume" | "cancel") => {
+    if (!projectPath) return;
+    const body = action === "cancel" ? { action: "remove", projectPath, id } : { action: "enable", projectPath, id, enabled: action === "resume" };
+    const result = await (await fetch("/api/agent/schedule", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json();
+    if (!result?.ok) throw new Error(result?.error || "The scheduled run is still stored as it was.");
+    setScheduled(result.entries || []);
+  }, [projectPath]);
+
+  const discardQueued = useCallback((id: string) => {
+    writeQueue(queuedRef.current.filter((item) => item.id !== id));
+  }, [writeQueue]);
+  // ── Folder import: the picker lives in the composer, not the header ────────
+  const adoptProject = useCallback((data: { name: string; projectPath: string }) => {
+    const project = { name: data.name, path: data.projectPath };
+    setProjectPath(project.path);
+    setProjectName(project.name);
+    setActiveProject(project);
+    addProject(project);
+    runtimeRef.current = null;
+  }, [addProject, setActiveProject]);
+
+  const importFolderFiles = useCallback(async (files: File[]) => {
+    if (importing) return;
+    if (!files.length) { setFolderError("That folder has no files in it yet, so there is nothing to bring in."); return; }
+    const usable = files.filter((file) => !(file.webkitRelativePath || file.name).split(/[\\/]/).some((part) => ["node_modules", ".git", ".env"].includes(part) || part.startsWith(".env.")));
+    if (!usable.length) { setFolderError("That folder only holds dependencies and hidden files, which Calvras does not copy."); return; }
+    if (usable.length > 2000 || usable.reduce((total, file) => total + file.size, 0) > 50 * 1024 * 1024) { setFolderError("Choose a folder with up to 2,000 files and 50 MB."); return; }
     setImporting(true);
     setFolderError("");
     try {
-      if (pendingFolder.length > 2000 || pendingFolder.reduce((total, file) => total + file.size, 0) > 50 * 1024 * 1024) throw new Error("Choose a folder with up to 2,000 files and 50 MB.");
       const form = new FormData();
-      form.append("name", pendingFolder[0]?.webkitRelativePath.split("/")[0] || "project");
-      pendingFolder.forEach((file) => form.append("files", file, file.webkitRelativePath));
-      const response = await fetch("/api/fs/import", { method: "POST", body: form });
-      const data = await response.json();
-      if (!response.ok || !data.ok) throw new Error(data.error || "Unable to import folder.");
-      const project = { name: data.name, path: data.projectPath };
-      setProjectPath(project.path);
-      setProjectName(project.name);
-      setActiveProject(project);
-      addProject(project);
-      setPendingFolder(null);
+      form.append("name", usable[0]?.webkitRelativePath.split("/")[0] || "project");
+      usable.forEach((file) => form.append("files", file, file.webkitRelativePath || file.name));
+      adoptProject(await requestImport("/api/fs/import", form));
     } catch (error) {
       setFolderError(error instanceof Error ? error.message : "Unable to import folder.");
-    } finally { setImporting(false); }
-  };
+    } finally {
+      setImporting(false);
+    }
+  }, [importing, adoptProject]);
+
+  /** The native picker is the only way to choose a folder that is still empty, so on the
+   *  desktop it replaces the browser's directory input; the server copies the tree itself. */
+  const pickProjectFolder = useCallback(async () => {
+    if (importing) return;
+    let picked: string | null = null;
+    try { picked = await (window as any).__electron?.pickFolder?.() ?? null; } catch { return; }
+    if (!picked) return;
+    setImporting(true);
+    setFolderError("");
+    try {
+      adoptProject(await requestImport("/api/fs/import-path", JSON.stringify({ path: picked }), { "content-type": "application/json" }));
+    } catch (error) {
+      setFolderError(error instanceof Error ? error.message : "Unable to import folder.");
+    } finally {
+      setImporting(false);
+    }
+  }, [importing, adoptProject]);
+
+  const clearFolder = useCallback(() => {
+    setActiveProject(null);
+    setProjectPath(null);
+    setProjectName(null);
+    runtimeRef.current = null;
+    setFolderError("");
+  }, [setActiveProject]);
+
+  const resetConversation = useCallback(() => {
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    void runtimeRef.current?.stop();
+    runtimeRef.current = null;
+    setApprovalQueue([]);
+    setIsLoading(false);
+    setMessages([]);
+    writeQueue([]);
+    writeSessionMemory({ summary: "", covered: 0 });
+    try { localStorage.removeItem("calvras_chat_messages"); } catch { /* storage unavailable */ }
+  }, [writeQueue]);
+
+  const handleSlashAction = useCallback((id: string) => {
+    if (id === "new-chat") { resetConversation(); return; }
+    if (id === "tasks") { setTasksOpen(true); setSidechatOpen(false); return; }
+    if (id === "sidechat") { setSidechatOpen(true); setTasksOpen(false); return; }
+    if (id === "terminal") { setTerminalOpen(true); return; }
+    if (id === "browser") {
+      if (browserAvailable) revealBrowserPanel(false);
+      else setFolderError("The browser panel is only available in the desktop app.");
+    }
+  }, [browserAvailable, resetConversation]);
+
+  const latestSteps: TaskStep[] = (() => {
+    const withTrace = [...messages].reverse().find((message) => message.phases.some((phase) => phase.trace.length));
+    const trace = withTrace?.phases.flatMap((phase) => phase.trace).slice(-14) || [];
+    return trace.map((node, index) => ({
+      id: node.id || `step-${index}`,
+      label: node.primary || node.toolName || node.type,
+      ...(node.secondary ? { detail: node.secondary } : {}),
+      status: node.status || "pending",
+    }));
+  })();
   // ── Build ChapterScrubber chapters from message history ───────────────────
+  const getProgress = useCallback(() => {
+    const active = [...messages].reverse().find((message) => !message.done);
+    const completedChats = messages.filter((message) => message.done).length;
+    if (!isLoading && !active) {
+      return `No task is currently running. Completed requests this session: ${completedChats}. ${projectName ? `Working folder: ${projectName}.` : "No folder selected."}`;
+    }
+    const phases = active?.phases ?? [];
+    const trace = phases.flatMap((phase) => phase.trace.filter((node) => !["reasoning", "step"].includes(node.type)));
+    const completed = trace.filter((node) => node.status === "completed").length;
+    const failed = trace.filter((node) => node.status === "failed").length;
+    const running = trace.filter((node) => node.status === "running" || node.status === "pending").map((node) => `${node.primary}${node.secondary ? ` (${node.secondary})` : ""}`);
+    const lastUpdate = [...phases].reverse().find((phase) => phase.message?.trim())?.message?.trim() || "";
+    const elapsed = active?.startedAt ? Math.max(1, Math.round((Date.now() - active.startedAt) / 1000)) : 0;
+    // The pool reports a group per role with its own jobs, so the sidechat is given the job
+    // statuses rather than a field that does not exist on the group.
+    const workers = JSON.stringify((runtimeState.agents || []).map((group: any) => ({
+      role: group.role,
+      running: group.active ? String(group.active.task || "").slice(0, 120) : null,
+      queued: group.queued ?? 0,
+      last: group.jobs?.length ? { status: group.jobs.at(-1)?.status, task: String(group.jobs.at(-1)?.task || "").slice(0, 120) } : null,
+    })));
+    return [
+      `Status: the agent is actively working (about ${elapsed}s elapsed on this request).`,
+      `Folder: ${projectName || "none"}.`,
+      `Tool actions so far: ${trace.length} total, ${completed} completed, ${failed} failed.`,
+      running.length ? `Currently running: ${running.join(", ")}` : "Currently between actions (thinking).",
+      trace.length ? `Recent sequence: ${trace.slice(-10).map((node) => `${node.status}:${node.primary}`).join(" → ")}` : "",
+      lastUpdate ? `Latest update shown to the user: ${lastUpdate.slice(0, 500)}` : "",
+      workers !== "[]" ? `Workers: ${workers}` : "",
+    ].filter(Boolean).join("\n");
+  }, [messages, isLoading, projectName, runtimeState]);
+
   const scrubberChapters: Chapter[] = messages
     .filter((m) => m.done)
     .map((m, i) => ({
@@ -866,6 +1633,7 @@ IMPORTANT RULES:
   return (
     <main
       className="chat-page antialiased"
+      data-browser={dockOpen ? "open" : "closed"}
       style={{ overflow: "hidden", height: "100dvh" }}
     >
       {/* ── Hide global scrollbar, use inner scroll only ────────────────── */}
@@ -876,108 +1644,10 @@ IMPORTANT RULES:
         .chat-scroll-area::-webkit-scrollbar { display: none; }
       ` }} />
 
-      <Dialog open={!!pendingFolder} onOpenChange={(open) => { if (!open && !importing) setPendingFolder(null); }}>
-        <DialogContent className="max-w-[440px] rounded-2xl bg-card p-7">
-          <DialogTitle className="text-center text-xl">Bring this folder into Calvras?</DialogTitle>
-          <DialogDescription className="text-center leading-6">Calvras will work with an uploaded copy of your project. Your original folder stays on your computer.</DialogDescription>
-          <div className="rounded-lg border bg-background px-4 py-3 text-center text-sm">{pendingFolder?.[0]?.webkitRelativePath.split("/")[0]}<span className="mt-1 block text-xs text-muted-foreground">{pendingFolder?.length} files · dependencies, Git data, and environment secrets excluded</span></div>
-          <p className="text-center text-xs leading-5 text-muted-foreground">Only import projects you trust. Review generated commands before running them.</p>
-          {folderError && <p role="alert" className="text-sm text-red-400">{folderError}</p>}
-          <button disabled={importing} onClick={confirmFolder} className="auth-primary disabled:opacity-50">{importing ? "Importing folder…" : "Import and continue"}</button>
-          <button disabled={importing} onClick={() => setPendingFolder(null)} className="rounded-lg border py-2.5 text-sm text-muted-foreground">Cancel</button>
-        </DialogContent>
-      </Dialog>
-      {/* ── Top-right project badge & switcher ─────────────────────────── */}
-      <div
-        data-project-badge-wrapper=""
-        className="fixed top-[32px] right-4 z-20 flex items-center gap-2"
-      >
-        {updateInfo && (
-          <a
-            href={updateInfo.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            title={`A new update is available: Calvras v${updateInfo.version}. Click to download.`}
-            className="flex items-center rounded-lg border border-border/80 bg-[#2A2A2A] hover:bg-[#333333] px-3 py-1.5 text-xs font-semibold text-white backdrop-blur-md transition-all shadow-xs cursor-pointer select-none"
-          >
-            Update
-          </a>
-        )}
-        <button
-          ref={projectBadgeRef}
-          type="button"
-          onClick={() => {
-            if (messages.length > 0) return;
-            setProjectDropdownOpen(prev => !prev);
-          }}
-          title={
-            messages.length > 0
-              ? `Active Project: ${projectName || "Workspace"} — start a New chat to switch`
-              : projectName
-              ? `Active Desktop Project: ${projectName} (${projectPath})`
-              : "Upload a folder"
-          }
-          className={cn(
-            "flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium backdrop-blur-md transition-all shadow-xs",
-            messages.length > 0
-              ? "border-border/60 bg-card/60 text-muted-foreground/80 cursor-default"
-              : "border-border bg-card/90 text-muted-foreground hover:bg-card hover:text-foreground cursor-pointer"
-          )}
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 14 14"
-            fill="none"
-            aria-hidden="true"
-            className="shrink-0"
-          >
-            <path
-              d="M1.5 4.5C1.5 3.67 2.17 3 3 3h2.38c.28 0 .55.1.74.3l.88.88H11c.83 0 1.5.67 1.5 1.5v5c0 .83-.67 1.5-1.5 1.5H3c-.83 0-1.5-.67-1.5-1.5v-6Z"
-              stroke="currentColor"
-              strokeWidth="1.3"
-              strokeLinejoin="round"
-            />
-          </svg>
-          {projectName ? (
-            <span className="max-w-[160px] truncate text-foreground font-semibold">
-              {projectName}
-            </span>
-          ) : (
-            <span>Upload a folder</span>
-          )}
-        </button>
-
-        {projectDropdownOpen && messages.length === 0 && (
-          <div
-            className="absolute right-0 top-full mt-1 z-30 w-52 rounded-lg border border-border bg-card shadow-lg py-1"
-            onClick={e => e.stopPropagation()}
-          >
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors"
-              onClick={() => { handleOpenProject(); setProjectDropdownOpen(false); }}
-            >
-              Open project folder
-            </button>
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-              onClick={() => {
-                setActiveProject(null);
-                setProjectPath(null);
-                setProjectName(null);
-                setProjectDropdownOpen(false);
-              }}
-            >
-              Don&#39;t work in a project
-            </button>
-          </div>
-        )}
-      </div>
+      <header className="workspace-header">{isLoading && <span role="status" className="workspace-run-state"><span className="is-working" aria-hidden="true" /><span className="run-state-text">Working</span></span>}</header>
 
       {/* ── ChapterScrubber — right side, vertically centered ──────────── */}
-      {scrubberChapters.length > 0 && (
+      {scrubberChapters.length > 0 && !dockOpen && (
         <div
           className="fixed right-4 top-1/2 -translate-y-1/2 z-10"
           style={{ top: "50%", transform: "translateY(-50%)" }}
@@ -997,6 +1667,62 @@ IMPORTANT RULES:
         </div>
       )}
 
+      <div className="workspace-actions" role="toolbar" aria-label="Workspace tools">
+        <UpdatePill />
+        <button
+          type="button"
+          aria-label="Workspace files"
+          title="Workspace files"
+          aria-pressed={dockOpen}
+          onClick={() => { if (dockOpen) setDockOpen(false); else { setTasksOpen(false); openDock(dockMountedRef.current ? dockTab : "files"); } }}
+          className={cn("shell-icon-button", dockOpen && "is-selected")}
+        >
+          <PanelRight className="size-4" />
+        </button>
+        <button
+          type="button"
+          aria-label="Tasks"
+          title="Tasks"
+          aria-pressed={tasksOpen}
+          onClick={() => { const next = !tasksOpen; setTasksOpen(next); if (next) { setSidechatOpen(false); setDockOpen(false); } }}
+          className={cn("shell-icon-button", tasksOpen && "is-selected")}
+        >
+          <ListTodo className="size-4" />
+        </button>
+        <button
+          type="button"
+          aria-label="Terminal"
+          title="Terminal"
+          aria-pressed={terminalOpen}
+          onClick={() => setTerminalOpen((open) => !open)}
+          className={cn("shell-icon-button", terminalOpen && "is-selected")}
+        >
+          <SquareTerminal className="size-4" />
+        </button>
+      </div>
+
+      {tasksOpen && (
+        <TasksPanel
+          projectPath={projectPath}
+          projectName={projectName}
+          accessMode={accessMode}
+          tasks={runtimeState.tasks || []}
+          agents={runtimeState.agents || []}
+          steps={latestSteps}
+          previewUrl={serverPreviewUrlRef.current}
+          scheduled={scheduled}
+          routing={runtimeState.routing || {}}
+          onScheduleChange={changeSchedule}
+          execute={workspaceExecute}
+          onClose={() => setTasksOpen(false)}
+        />
+      )}
+      {terminalOpen && (
+        <TerminalDock projectPath={projectPath} projectName={projectName} onClose={() => setTerminalOpen(false)} />
+      )}
+      {sidechatOpen && (
+        <SideChat onClose={() => setSidechatOpen(false)} getProgress={getProgress} agentBusy={isLoading} />
+      )}
       {/* ── Inner scrollable area (no scrollbar) ───────────────────────── */}
       <div
         ref={scrollAreaRef}
@@ -1044,30 +1770,8 @@ IMPORTANT RULES:
               </div>
 
               {/* Agent Trace & Response */}
-              <AgentActivity phases={message.phases} done={message.done} startedAt={message.startedAt} endedAt={message.endedAt} status={message.status} error={message.error} />
+              <AgentActivity phases={message.phases} done={message.done} startedAt={message.startedAt} endedAt={message.endedAt} status={message.status} error={message.error} rating={message.rating} subagents={message.subagents ?? (message.done ? undefined : [...subagentLogRef.current.values()].filter((job) => (job.startedAt ?? 0) >= (message.startedAt ?? 0)))} onRate={(value) => setMessages((previous) => previous.map((item) => item.id === message.id ? { ...item, rating: value ?? undefined } : item))} onResume={index === messages.length - 1 ? () => void handleSubmit(message.text) : undefined} onUndo={async (checkpointId) => { const result = await workspaceExecute({ type: "undo_edit", checkpointId }, { userInitiated: true }); if (!result.ok) throw new Error(result.error); }} onResolve={async (id, choice) => { const result = await workspaceExecute({ type: "resolve_worker", id, action: choice }, { userInitiated: true }); if (!result.ok) throw new Error(result.error || "That subagent's checkout could not be resolved."); }} />
 
-              {/* Compact plan card — shown when this message has an associated plan */}
-              {message.done && activePlan && activePlan.messageId === message.id && (
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => setPlanPanelOpen(true)}
-                  onKeyDown={(e) => e.key === 'Enter' && setPlanPanelOpen(true)}
-                  className="mt-2 max-h-[100px] overflow-hidden rounded-xl border border-border bg-card/60 px-4 py-3 cursor-pointer hover:bg-card transition-colors relative group"
-                  aria-label="View implementation plan"
-                >
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" className="text-primary shrink-0">
-                      <rect x="1.5" y="1.5" width="11" height="11" rx="2.5" stroke="currentColor" strokeWidth="1.3"/>
-                      <path d="M4 4.5h6M4 7h6M4 9.5h3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-                    </svg>
-                    <span className="text-xs font-semibold text-foreground">Implementation Plan</span>
-                    <span className="ml-auto text-[10px] text-muted-foreground/60 group-hover:text-primary transition-colors">Click to expand →</span>
-                  </div>
-                  <p className="text-[11.5px] text-muted-foreground leading-relaxed line-clamp-3">{activePlan.content.slice(0, 200)}</p>
-                  <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-card/80 to-transparent rounded-b-xl" />
-                </div>
-              )}
             </div>
           ))}
         </div>
@@ -1077,83 +1781,46 @@ IMPORTANT RULES:
       </div>
 
       {/* ── Chat Composer ────────────────────────────────────────────────── */}
-      <div className="chat-composer">
+      <div className="chat-composer" data-approval={approvalQueue.length > 0}>
         <PromptInput
-          onSubmit={(value, meta) => handleSubmit(value, meta?.files)}
+          onSubmit={(value, meta) => handleSubmit(value, meta?.files, meta?.effort, meta?.directive)}
           isThinking={isLoading}
           onStop={handleStop}
-          placeholder="Describe a task or /command..."
+          {...(browserAvailable ? { onCaptureScreen: handleCaptureScreen } : {})}
+          accessMode={accessMode} onAccessModeChange={changeAccess}
+          approval={approvalQueue[0]} onApprovalDecision={(choice) => void decideApproval(choice)}
+          projectName={projectName} projectPath={projectPath}
+          folderBusy={importing} folderError={folderError}
+          folderLocked={messages.length > 0}
+          queued={queued} onSendQueuedNow={sendQueuedNow} onRemoveQueued={discardQueued}
+          onFolderFiles={(files) => void importFolderFiles(files)}
+          {...(typeof window !== "undefined" && (window as any).__electron?.pickFolder ? { onPickFolder: () => void pickProjectFolder() } : {})}
+          onNewChatWithFolder={resetConversation}
+          onClearFolder={clearFolder}
+          onSlashAction={handleSlashAction}
+          placeholder="Ask anything or describe a task..."
         />
       </div>
 
-      {/* ── Implementation Plan slide-out panel ──────────────────────────── */}
-      {/* Backdrop */}
-      {planPanelOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-transparent pointer-events-auto"
-          onClick={() => setPlanPanelOpen(false)}
-          aria-hidden="true"
+      {dockMounted && (
+        <RightDock
+          open={dockOpen}
+          tab={dockTab}
+          onTabChange={setDockTab}
+          onClose={() => setDockOpen(false)}
+          projectPath={projectPath}
+          projectName={projectName}
+          previewUrl={previewUrl}
+          {...(typeof window !== "undefined" && (window as any).__electron?.pickFolder ? { onPickFolder: () => void pickProjectFolder() } : {})}
+          showBrowser={browserEverUsed}
+          showAgents={(runtimeState.agents || []).some((group: any) => Array.isArray(group.jobs) && group.jobs.length > 0)}
+          browserActive={browserActive}
+          agents={runtimeState.agents || []}
+          jobs={[...subagentLogRef.current.values()].sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0))}
+          execute={workspaceExecute}
         />
       )}
-      {/* Panel */}
-      <div
-        className={cn(
-          "fixed top-0 right-0 z-50 h-full w-full max-w-[520px] bg-card border-l border-border shadow-2xl flex flex-col",
-          "transition-transform duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
-          planPanelOpen ? "translate-x-0" : "translate-x-full"
-        )}
-        aria-modal="true"
-        role="dialog"
-        aria-label="Implementation Plan"
-      >
-        {/* Panel header */}
-        <div className="flex items-center justify-between border-b border-border px-5 py-4 shrink-0">
-          <div className="flex items-center gap-2.5">
-            <svg width="16" height="16" viewBox="0 0 14 14" fill="none" aria-hidden="true" className="text-primary">
-              <rect x="2" y="2" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.4"/>
-              <path d="M4.5 5h5M4.5 7h5M4.5 9h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-            </svg>
-            <span className="text-sm font-semibold text-foreground">
-              {activePlan?.title || "Implementation Plan"}
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setPlanPanelOpen(false)}
-            className="flex size-7 items-center justify-center rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-muted/60 active:scale-[0.92] transition-colors"
-            aria-label="Close plan panel"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
 
-        {/* Plan content */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 text-[13.5px] leading-relaxed text-foreground/90 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {activePlan?.content ? (
-            <PlanPanelContent content={activePlan.content} />
-          ) : (
-            <p className="text-muted-foreground italic">No plan available.</p>
-          )}
-        </div>
-
-        {/* Footer: Proceed button */}
-        <div className="shrink-0 border-t border-border px-5 py-4 flex items-center justify-between gap-3">
-          <p className="text-[11.5px] text-muted-foreground">
-            Tell Calvras to proceed when you're ready.
-          </p>
-          <button
-            type="button"
-            onClick={() => {
-              setPlanPanelOpen(false);
-              // Submit "Proceed with the implementation plan" as the next message
-              handleSubmit("Proceed with the implementation plan as outlined. Follow it exactly step by step.");
-            }}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-[13px] font-semibold text-primary-foreground shadow-xs hover:bg-primary/90 active:scale-[0.97] transition-all duration-150 cursor-pointer"
-          >
-            Proceed
-          </button>
-        </div>
-      </div>
     </main>
   );
 }

@@ -1,14 +1,15 @@
-const REPO = "SHIKARI-hey/Calvras";
-const RELEASE_TAG = "v10.0.3";
+import { RELEASE_VERSION, UPDATE_FEED_URL, releaseArtifacts } from "./release";
+
+const artifacts = releaseArtifacts(RELEASE_VERSION);
 
 export const DOWNLOAD = {
-  version: "10.0.3",
+  version: artifacts.version,
   platform: "Windows 10 / 11",
   architecture: "x64 (64-bit Intel or AMD)",
   installerSize: "105 MB",
   portableSize: "145 MB",
-  installer: `https://github.com/${REPO}/releases/download/${RELEASE_TAG}/Calvras-Setup-win-x64.exe`,
-  portable: `https://github.com/${REPO}/releases/download/${RELEASE_TAG}/Calvras-10.0.3-win.zip`,
-  release: `https://github.com/${REPO}/releases/tag/${RELEASE_TAG}`,
-  releaseApi: `https://api.github.com/repos/${REPO}/releases/latest`,
+  installer: artifacts.installer,
+  portable: artifacts.portable,
+  release: artifacts.release,
+  feed: UPDATE_FEED_URL,
 };

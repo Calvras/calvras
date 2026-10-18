@@ -5,12 +5,14 @@
 
 const {
   app, BrowserWindow, shell, dialog, ipcMain, Tray, Menu,
-  globalShortcut, nativeImage, screen, safeStorage, utilityProcess,
+  globalShortcut, nativeImage, screen, safeStorage, utilityProcess, webContents, desktopCapturer, powerSaveBlocker,
 } = require('electron');
 const path = require('path');
 const http = require('http');
 const net  = require('net');
+const os   = require('os');
 const fs   = require('fs');
+const { signInWithGoogle } = require('./google-oauth.cjs');
 
 // ─── Single-instance lock ─────────────────────────────────────────────────────
 if (!app.requestSingleInstanceLock()) {
@@ -29,6 +31,30 @@ const SERVER_ENTRY = IS_DEV
 
 const BOUNDS_FILE = path.join(app.getPath('userData'), 'window-bounds.json');
 const KEY_FILE    = path.join(app.getPath('userData'), 'secure.bin');
+// Settings the renderer cannot apply by itself: which address the local server binds
+// to, and whether the app lives in the menu bar. Read once at boot, written live.
+const APP_SETTINGS_FILE = path.join(app.getPath('userData'), 'app-settings.json');
+
+function readAppSettings() {
+  try { return JSON.parse(fs.readFileSync(APP_SETTINGS_FILE, 'utf8')); } catch { return {}; }
+}
+function writeAppSettings(patch) {
+  const next = { ...readAppSettings(), ...patch };
+  try {
+    fs.mkdirSync(path.dirname(APP_SETTINGS_FILE), { recursive: true });
+    fs.writeFileSync(APP_SETTINGS_FILE + '.tmp', JSON.stringify(next));
+    fs.renameSync(APP_SETTINGS_FILE + '.tmp', APP_SETTINGS_FILE);
+  } catch (error) { console.error('[MAIN] Could not persist app settings:', error.message); }
+  return next;
+}
+function lanAddress() {
+  for (const addresses of Object.values(os.networkInterfaces())) {
+    for (const entry of addresses || []) {
+      if (entry.family === 'IPv4' && !entry.internal) return entry.address;
+    }
+  }
+  return '';
+}
 
 // ─── State ───────────────────────────────────────────────────────────────────
 let mainWindow    = null;
@@ -58,20 +84,31 @@ function findFreePort(preferred = 3344) {
 // ─── Server health poll ───────────────────────────────────────────────────────
 function waitForServer(port, retries = 80, delayMs = 500) {
   return new Promise((resolve, reject) => {
+    let settled = false;
     const attempt = (remaining) => {
-      const req = http.get(`http://127.0.0.1:${port}`, (res) => {
+      if (settled) return;
+      let retried = false;
+      const retryOnce = () => {
+        if (settled || retried) return;
+        retried = true;
+        retry(remaining);
+      };
+      const req = http.get(`http://127.0.0.1:${port}/api/agent/providers`, (res) => {
+        req.setTimeout(0);
+        res.resume();
         if (res.statusCode < 500) {
+          settled = true;
           resolve();
         } else {
-          res.resume();
-          retry(remaining);
+          retryOnce();
         }
       });
-      req.on('error', () => retry(remaining));
-      req.setTimeout(800, () => { req.destroy(); retry(remaining); });
+      req.on('error', retryOnce);
+      req.setTimeout(800, () => { req.destroy(); retryOnce(); });
     };
     const retry = (remaining) => {
-      if (remaining <= 0) return reject(new Error('Nitro server did not start in time'));
+      if (settled) return;
+      if (remaining <= 0) { settled = true; return reject(new Error('Nitro server did not start in time')); }
       setTimeout(() => attempt(remaining - 1), delayMs);
     };
     attempt(retries);
@@ -90,7 +127,9 @@ function startServer(port) {
     env: {
       ...process.env,
       PORT:          String(port),
-      HOST:          '127.0.0.1',
+      // Remote control is the only reason to answer on the LAN; everything else stays loopback.
+      HOST:          readAppSettings().remoteControl ? '0.0.0.0' : '127.0.0.1',
+      CALVRAS_REMOTE: readAppSettings().remoteControl ? '1' : '0',
       NODE_ENV:      'production',
       NITRO_PRESET:  'node-server',
     },
@@ -152,16 +191,13 @@ function saveBounds(win) {
 function createMainWindow(port) {
   const savedBounds = loadBounds();
   const windowOptions = {
-    width:    Math.max(savedBounds?.width  ?? 1280, 980),
-    height:   Math.max(savedBounds?.height ?? 820,  620),
-    x: savedBounds?.x,
-    y: savedBounds?.y,
-    minWidth:  980,
-    minHeight: 620,
+    width:    1280,
+    height:   820,
+    center:   true,
     frame:         false,
     titleBarStyle: 'hidden',
     backgroundColor: '#0d0d0d',
-    show: false,
+    show: true,
     icon: path.join(ROOT, 'public', 'calvras-logo.png'),
     webPreferences: {
       preload:         path.join(__dirname, 'preload.js'),
@@ -170,6 +206,7 @@ function createMainWindow(port) {
       sandbox:          true,
       devTools:         IS_DEV,
       webSecurity:      true,
+      webviewTag:       true,
       allowRunningInsecureContent: false,
     },
   };
@@ -177,10 +214,22 @@ function createMainWindow(port) {
   mainWindow = new BrowserWindow(windowOptions);
   mainWindow.loadURL(`http://127.0.0.1:${port}/app`);
 
-  mainWindow.once('ready-to-show', () => {
-    if (savedBounds?.maximized) mainWindow.maximize();
+  mainWindow.show();
+  mainWindow.restore();
+  mainWindow.focus();
+  mainWindow.setAlwaysOnTop(true);
+  setTimeout(() => {
+    if (mainWindow) mainWindow.setAlwaysOnTop(false);
+  }, 1000);
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    console.log('[MAIN] Window finished loading /app');
     mainWindow.show();
     mainWindow.focus();
+  });
+
+  mainWindow.webContents.on('did-fail-load', (e, code, desc) => {
+    console.error('[MAIN] Window failed to load:', code, desc);
   });
 
   mainWindow.on('close', () => {
@@ -196,13 +245,35 @@ function createMainWindow(port) {
     }
   });
 
+  // In-app browser: never let a page attach a preload or Node privileges.
+  mainWindow.webContents.on('will-attach-webview', (event, webPreferences, params) => {
+    delete webPreferences.preload;
+    webPreferences.nodeIntegration = false;
+    webPreferences.contextIsolation = true;
+    webPreferences.sandbox = true;
+    if (params.src && !/^(https?:|about:blank)/i.test(params.src)) event.preventDefault();
+  });
+
+  // Links that request a new window open in the same agent browser tab instead.
+  app.on('web-contents-created', (_event, contents) => {
+    if (contents.getType() !== 'webview') return;
+    contents.setWindowOpenHandler(({ url }) => {
+      if (/^https?:/i.test(url)) void contents.loadURL(url).catch(() => {});
+      return { action: 'deny' };
+    });
+  });
+
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: 'deny' };
   });
 
-  // Content Security Policy
+  // Content Security Policy — only the Calvras app needs it. External pages inside
+  // the agent browser must keep their own headers or they will not load.
   mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+    let appOrigin = false;
+    try { appOrigin = new URL(details.url).origin === `http://127.0.0.1:${port}`; } catch {}
+    if (!appOrigin) return callback({ responseHeaders: details.responseHeaders });
     callback({
       responseHeaders: {
         ...details.responseHeaders,
@@ -212,7 +283,8 @@ function createMainWindow(port) {
           `style-src 'self' 'unsafe-inline';` +
           `img-src 'self' data: blob: https: http://127.0.0.1:${port};` +
           `connect-src 'self' http://127.0.0.1:${port} https:;` +
-          `font-src 'self' data:;`,
+          `font-src 'self' data:;` +
+          `frame-src https: http:;`,
         ],
       },
     });
@@ -222,14 +294,19 @@ function createMainWindow(port) {
 }
 
 // ─── System Tray ─────────────────────────────────────────────────────────────
+function trayLabel() {
+  const name = String(readAppSettings().deviceName || '').trim();
+  return name ? `Calvras — ${name}` : 'Calvras';
+}
 function createTray() {
+  if (tray) return;
   const iconPath = path.join(ROOT, 'public', 'calvras-logo.png');
   const icon = fs.existsSync(iconPath)
     ? nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 })
     : nativeImage.createEmpty();
 
   tray = new Tray(icon);
-  tray.setToolTip('Calvras');
+  tray.setToolTip(trayLabel());
   tray.setContextMenu(Menu.buildFromTemplate([
     {
       label: 'Open Calvras',
@@ -245,6 +322,12 @@ function createTray() {
   tray.on('double-click', () => {
     if (mainWindow) { mainWindow.show(); mainWindow.focus(); }
   });
+}
+
+function destroyTray() {
+  if (!tray) return;
+  tray.destroy();
+  tray = null;
 }
 
 // ─── IPC: Window controls ─────────────────────────────────────────────────────
@@ -290,9 +373,293 @@ ipcMain.handle('pick-folder', async () => {
   return result.canceled ? null : result.filePaths[0];
 });
 
+// ─── IPC: Google sign-in ──────────────────────────────────────────────────────
+// Both values live beside the provider keys rather than in the bundle, so the same install
+// can be repointed at another Google project without a rebuild. Google issues a secret for
+// desktop clients and its token endpoint insists on it; PKCE remains the real proof that the
+// browser and this process are the same app.
+const googleOAuthConfig = () => {
+  try {
+    const dir = path.join(process.env['LOCALAPPDATA'] || path.join(os.homedir(), '.local', 'share'), 'Calvras');
+    const stored = JSON.parse(fs.readFileSync(path.join(dir, 'google-oauth.json'), 'utf8'));
+    return { clientId: stored.clientId || null, clientSecret: stored.clientSecret || undefined };
+  } catch { return { clientId: null }; }
+};
+
+/** Chrome holds the foreground after the redirect, so a plain focus() can be ignored by
+ *  Windows. Bouncing always-on-top is what actually drags the window back over the browser. */
+const raiseMainWindow = () => {
+  if (!mainWindow) return;
+  mainWindow.show();
+  mainWindow.setAlwaysOnTop(true);
+  mainWindow.focus();
+  mainWindow.setAlwaysOnTop(false);
+};
+
+ipcMain.handle('google-sign-in', async () => {
+  try {
+    const { clientId, clientSecret } = googleOAuthConfig();
+    const profile = await signInWithGoogle({
+      clientId,
+      ...(clientSecret ? { clientSecret } : {}),
+      openBrowser: (url) => shell.openExternal(url),
+      // Come back the moment Google answers, not only on success — otherwise a cancelled or
+      // failed sign-in leaves the user stranded in the browser with no window to return to.
+      onReturn: raiseMainWindow,
+    });
+    raiseMainWindow();
+    return { ok: true, ...profile };
+  } catch (error) {
+    raiseMainWindow();
+    return { ok: false, error: error instanceof Error ? error.message : 'Google sign-in failed.' };
+  }
+});
+
+// ─── IPC: Agent browser ───────────────────────────────────────────────────────
+const MIME_BY_EXT = {
+  '.pdf': 'application/pdf', '.txt': 'text/plain', '.md': 'text/markdown',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
+};
+
+/**
+ * Resolves a document the user pointed at into something the workspace can attach.
+ * A path already inside the project is used as-is; anything else needs the user's
+ * explicit approval in a native dialog, then is copied in. The page never receives a
+ * path the user did not confirm, so a hostile site cannot have Calvras read their disk.
+ */
+async function importUserFile(projectRoot, sourcePath) {
+  let root;
+  try { root = await fs.promises.realpath(projectRoot); } catch { throw new Error('The workspace folder is not available.'); }
+  const requested = path.isAbsolute(sourcePath) ? sourcePath : path.resolve(root, sourcePath);
+  let source;
+  try { source = await fs.promises.realpath(requested); } catch {
+    throw new Error(`Nothing exists at "${requested}". Re-check the path with the user, or ask them to drop the file into the project.`);
+  }
+  const stat = fs.statSync(source);
+  if (!stat.isFile()) throw new Error(`"${source}" is a folder, not a file.`);
+  if (stat.size > 25 * 1024 * 1024) throw new Error('That file is larger than 25 MB.');
+  const inside = path.relative(root, source);
+  if (inside && !inside.startsWith('..') && !path.isAbsolute(inside)) {
+    return { source, relativePath: inside.split(path.sep).join('/'), copied: false, size: stat.size };
+  }
+  const choice = await dialog.showMessageBox(mainWindow, {
+    type: 'question',
+    buttons: ['Allow', 'Don\'t allow'],
+    defaultId: 0,
+    cancelId: 1,
+    title: 'Calvras wants to use a file',
+    message: 'Allow Calvras to use this file for the task?',
+    detail: `${source}\n\nCalvras copies it into the project so the page can receive it. It is not sent anywhere except the page you are looking at.`,
+  });
+  if (choice.response !== 0) throw new Error(`The user did not allow "${path.basename(source)}". Ask them which file to use instead.`);
+  const staged = path.join(root, '.calvras', 'uploads', path.basename(source));
+  await fs.promises.mkdir(path.dirname(staged), { recursive: true });
+  await fs.promises.copyFile(source, staged);
+  return { source: await fs.promises.realpath(staged), relativePath: `.calvras/uploads/${path.basename(source)}`, copied: true, size: (await fs.promises.stat(staged)).size };
+}
+
+ipcMain.handle('import-user-file', async (_e, projectRoot, sourcePath) => {
+  if (typeof projectRoot !== 'string' || !projectRoot.trim()) throw new Error('Select a workspace folder first.');
+  if (typeof sourcePath !== 'string' || !sourcePath.trim()) throw new Error('Give the file to import.');
+  const result = await importUserFile(projectRoot, sourcePath);
+  return { ok: true, ...result };
+});
+
+/** Reads a file already inside the workspace back as a data URL so the renderer can
+ *  run its existing PDF/text extraction on a document the user pointed at on disk. */
+ipcMain.handle('read-workspace-file', async (_e, projectRoot, relativePath) => {
+  if (typeof projectRoot !== 'string' || typeof relativePath !== 'string' || !relativePath.trim()) throw new Error('Provide the workspace folder and the file to read.');
+  const root = await fs.promises.realpath(projectRoot).catch(() => { throw new Error('The workspace folder is not available.'); });
+  const file = await fs.promises.realpath(path.resolve(root, relativePath)).catch(() => { throw new Error(`Nothing exists at "${relativePath}" inside the workspace.`); });
+  const inside = path.relative(root, file);
+  if (!inside || inside.startsWith('..') || path.isAbsolute(inside)) throw new Error('Only files inside the workspace can be read this way.');
+  const stat = await fs.promises.stat(file);
+  if (!stat.isFile()) throw new Error('That path is not a file.');
+  if (stat.size > 25 * 1024 * 1024) throw new Error('That file is larger than 25 MB.');
+  const mime = MIME_BY_EXT[path.extname(file).toLowerCase()] || 'application/octet-stream';
+  return { ok: true, dataUrl: `data:${mime};base64,${(await fs.promises.readFile(file)).toString('base64')}`, name: path.basename(file), size: stat.size };
+});
+
+ipcMain.handle('browser-set-file-input', async (_e, id, selector, projectRoot, relativePath) => {
+  if (!Number.isInteger(id) || typeof selector !== 'string' || !selector.trim() || selector.length > 2000) throw new Error('Invalid browser upload request.');
+  const target = webContents.fromId(id);
+  if (!target || target.isDestroyed()) throw new Error('The in-app browser is not open.');
+  if (typeof projectRoot !== 'string' || typeof relativePath !== 'string' || !relativePath.trim()) throw new Error('Provide the workspace folder and the file to upload.');
+  const { source: resolved, relativePath: attached } = await importUserFile(projectRoot, relativePath);
+  const dbg = target.debugger;
+  try {
+    if (!dbg.isAttached()) dbg.attach('1.3');
+    await dbg.sendCommand('DOM.enable');
+    const { root: document } = await dbg.sendCommand('DOM.getDocument');
+    const { nodeId } = await dbg.sendCommand('DOM.querySelector', { nodeId: document.nodeId, selector });
+    if (!nodeId) throw new Error('No file input matched that selector.');
+    await dbg.sendCommand('DOM.setFileInputFiles', { nodeId, files: [resolved] });
+    return { ok: true, path: attached };
+  } finally {
+    // detach() is synchronous in this Electron version — it returns void, so .catch() on it
+    // threw a TypeError that replaced whatever the upload had just done.
+    if (dbg.isAttached()) dbg.detach();
+  }
+});
+
+ipcMain.handle('browser-capture-page', async (_e, id, fullPage = false) => {
+  if (!Number.isInteger(id)) throw new Error('Invalid browser capture request.');
+  const target = webContents.fromId(id);
+  if (!target || target.isDestroyed()) throw new Error('The in-app browser is not open.');
+  if (fullPage) {
+    const dbg = target.debugger;
+    try {
+      if (!dbg.isAttached()) dbg.attach('1.3');
+      await dbg.sendCommand('Page.enable');
+      const shot = await dbg.sendCommand('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
+      return { image: `data:image/png;base64,${shot.data}` };
+    } catch { /* fall back to a viewport capture below */ }
+    finally { if (dbg.isAttached()) dbg.detach(); }
+  }
+  const image = await target.capturePage();
+  const size = image.getSize();
+  return { image: image.toDataURL(), width: size.width, height: size.height };
+});
+
+// ─── IPC: Screen capture for "Look at my screen" ─────────────────────────────
+ipcMain.handle('capture-screen', async () => {
+  const primary = screen.getPrimaryDisplay();
+  const sources = await desktopCapturer.getSources({
+    types: ['screen'],
+    thumbnailSize: { width: Math.round(primary.size.width * primary.scaleFactor), height: Math.round(primary.size.height * primary.scaleFactor) },
+  });
+  if (!sources.length) throw new Error('No screen is available to capture.');
+  const source = sources.find((item) => String(item.display_id) === String(primary.id)) || sources[0];
+  const image = source.thumbnail;
+  const size = image.getSize();
+  if (!size.width || !size.height) throw new Error('The screen capture came back empty.');
+  return { image: image.toDataURL(), width: size.width, height: size.height };
+});
+
 // ─── IPC: Misc ────────────────────────────────────────────────────────────────
 ipcMain.handle('get-server-url', () => `http://127.0.0.1:${serverPort}`);
+
+// ─── IPC: Settings that only the main process can apply ──────────────────────
+let sleepBlockerId = null;
+function applyPreventSleep(on) {
+  if (on) {
+    if (sleepBlockerId === null || !powerSaveBlocker.isStarted(sleepBlockerId)) sleepBlockerId = powerSaveBlocker.start('prevent-app-suspension');
+  } else if (sleepBlockerId !== null) {
+    powerSaveBlocker.stop(sleepBlockerId);
+    sleepBlockerId = null;
+  }
+  return sleepBlockerId !== null;
+}
+ipcMain.handle('app-set-prevent-sleep', (_event, on) => {
+  writeAppSettings({ preventSleep: Boolean(on) });
+  return applyPreventSleep(Boolean(on));
+});
+
+ipcMain.handle('app-set-tray', (_event, on) => {
+  writeAppSettings({ keepInMenuBar: Boolean(on) });
+  if (on) createTray(); else destroyTray();
+  return Boolean(tray);
+});
+
+/** The device name is the label the menu-bar icon carries, so the main process owns it. */
+ipcMain.handle('app-set-device-name', (_event, name) => {
+  writeAppSettings({ deviceName: String(name || '').slice(0, 64) });
+  tray?.setToolTip(trayLabel());
+  return { label: trayLabel(), inMenuBar: Boolean(tray) };
+});
+
+/** Binding the LAN address happens when the server process is spawned, so the renderer
+ * reports honestly that a restart is what applies it. */
+ipcMain.handle('app-set-remote-control', (_event, on) => {
+  writeAppSettings({ remoteControl: Boolean(on) });
+  return { saved: readAppSettings().remoteControl === true, lanUrl: `http://${lanAddress() || 'this-computer'}:${serverPort}/app`, needsRestart: true };
+});
+
+ipcMain.handle('app-network-info', () => ({ lanAddress: lanAddress(), port: serverPort, remoteControl: readAppSettings().remoteControl === true }));
+
+ipcMain.handle('app-open-system-notifications', async () => {
+  const target = process.platform === 'win32' ? 'ms-settings:notifications'
+    : process.platform === 'darwin' ? 'x-apple.systempreferences:com.apple.preference.notifications' : '';
+  if (!target) return { ok: false, message: 'This platform has no notification panel to open.' };
+  try { await shell.openExternal(target); return { ok: true }; }
+  catch (error) { return { ok: false, message: error.message }; }
+});
+
+ipcMain.handle('app-open-url', async (_event, url) => {
+  let parsed;
+  try { parsed = new URL(String(url)); } catch { return { ok: false, message: 'Not a valid URL.' }; }
+  if (!['http:', 'https:', 'mailto:'].includes(parsed.protocol)) return { ok: false, message: 'Only web and mail links can be opened.' };
+  try { await shell.openExternal(parsed.toString()); return { ok: true }; }
+  catch (error) { return { ok: false, message: error.message }; }
+});
 ipcMain.handle('is-maximized',   () => mainWindow?.isMaximized() ?? false);
+
+// ─── Updates ──────────────────────────────────────────────────────────────────
+// The page reads the published feed at calvras.com/update.json and decides whether a newer build
+// exists. This process carries only the two steps a sandboxed page cannot do: write the installer
+// to disk, then start it. The feed's answer is never trusted — a download has to come back as a
+// Windows program, and the only file that may be launched is one written into the updates folder.
+const { spawn: spawnUpdate } = require('child_process');
+const { downloadInstaller } = require('./update-core.cjs');
+const UPDATE_DIR = path.join(app.getPath('userData'), 'updates');
+const sendUpdateState = (payload) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('update-state', payload); };
+
+ipcMain.handle('app-version', () => app.getVersion());
+
+// Two downloads of the same file write over each other: the second opens the half-written
+// installer again, the first can no longer read back its own magic bytes, and the page is left
+// showing a percentage nobody is finishing. One installer download is allowed at a time, and a
+// repeated request joins the one already running.
+let activeDownload = null;
+
+async function runUpdateDownload(url, destination) {
+  // A streamed installer arrives in 16 KB pieces, so the byte-level progress is reported far more
+  // often than the bar can show. Only a changed percentage crosses IPC.
+  let lastPercent = -1;
+  try {
+    const { file, bytes } = await downloadInstaller(url, destination, {
+      onProgress: (progress) => {
+        if (progress.percent === lastPercent) return;
+        lastPercent = progress.percent;
+        sendUpdateState({ state: 'downloading', ...progress });
+      },
+    });
+    sendUpdateState({ state: 'ready', file, bytes });
+    return { ok: true, file, bytes };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'The update could not be downloaded.';
+    sendUpdateState({ state: 'failed', error: message });
+    return { ok: false, error: message };
+  }
+}
+
+ipcMain.handle('update-download', async (_event, payload) => {
+  const url = String((payload && payload.url) || '');
+  const version = String((payload && payload.version) || '').replace(/[^\d.]/g, '');
+  if (!/^https:\/\//i.test(url)) return { ok: false, error: 'The published download link is not a secure address.' };
+  const destination = path.join(UPDATE_DIR, `Calvras-Setup-${version || 'new'}.exe`);
+  if (activeDownload && activeDownload.destination === destination) return activeDownload.promise;
+  const promise = runUpdateDownload(url, destination).finally(() => {
+    if (activeDownload && activeDownload.promise === promise) activeDownload = null;
+  });
+  activeDownload = { destination, promise };
+  return promise;
+});
+ipcMain.handle('update-install', async (_event, file) => {
+  const resolved = path.resolve(String(file || ''));
+  if (path.dirname(resolved) !== UPDATE_DIR || !/\.exe$/i.test(resolved)) return { ok: false, error: 'That is not a Calvras update file.' };
+  if (!fs.existsSync(resolved)) return { ok: false, error: 'The downloaded update is no longer on this disk.' };
+  try {
+    const child = spawnUpdate(resolved, [], { detached: true, stdio: 'ignore' });
+    child.unref();
+  } catch (error) {
+    return { ok: false, error: `The installer could not start: ${error.message}` };
+  }
+  // The installer replaces these files, so this process has to get out of the way.
+  app.quit();
+  return { ok: true };
+});
 
 // ─── App lifecycle ────────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
@@ -301,9 +668,13 @@ app.whenReady().then(async () => {
 
   try {
     serverPort = await findFreePort(3344);
+    console.log('[MAIN] Starting server on port', serverPort);
     startServer(serverPort);
+    console.log('[MAIN] Waiting for server...');
     await waitForServer(serverPort, 80, 500);
+    console.log('[MAIN] Server ready!');
   } catch (err) {
+    console.error('[MAIN] Server failed:', err);
     dialog.showErrorBox(
       'Calvras — Server Error',
       'The local server failed to start.\n\n' + err.message
@@ -312,8 +683,13 @@ app.whenReady().then(async () => {
     return;
   }
 
-  createTray();
+  console.log('[MAIN] Creating tray and main window...');
+  if (readAppSettings().keepInMenuBar) createTray();
+  // The renderer keeps its switch state in localStorage, so the main process has to re-apply
+  // the sleep blocker here or the setting only works until the next restart.
+  applyPreventSleep(readAppSettings().preventSleep === true);
   createMainWindow(serverPort);
+  console.log('[MAIN] createMainWindow completed.');
 
   // Global shortcuts
   globalShortcut.register('CommandOrControl+N', () => {

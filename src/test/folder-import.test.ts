@@ -20,6 +20,12 @@ describe("folder imports", () => {
     expect(response.status).toBe(200);
     expect(fs.writeFileSync).toHaveBeenCalledWith(path.join(data.projectPath, "src", "app.txt"), Buffer.from("hello"));
   });
+  it("imports a flat file that arrives without its folder prefix", async () => {
+    const response = await importFolder(upload("app.txt"));
+    const data = await response.json();
+    expect(response.status).toBe(200);
+    expect(fs.writeFileSync).toHaveBeenCalledWith(path.join(data.projectPath, "app.txt"), Buffer.from("hello"));
+  });
   it("rejects paths escaping the workspace", async () => {
     expect((await importFolder(upload("sample/../outside.txt"))).status).toBe(400);
   });

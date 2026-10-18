@@ -8,12 +8,13 @@ import {
   Scripts,
   type ErrorComponentProps,
 } from "@tanstack/react-router";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { CalvrasSidebar } from "../components/CalvrasSidebar";
 import { ProjectProvider, useProjects } from "../lib/project-context";
+import { TitleBar } from "../components/TitleBar";
 
 function NotFoundComponent() {
   return (
@@ -123,7 +124,7 @@ function SidebarWithProjects() {
 
   return (
     <CalvrasSidebar
-      projects={projects.map((p) => ({ id: p.path, path: p.path, name: p.name, tasks: p.tasks }))}
+      projects={projects.map((p) => ({ id: p.path, path: p.path, name: p.name, ...(p.tasks ? { tasks: p.tasks } : {}) }))}
       recents={recents}
       onNewChat={() => {
         triggerNewChat();
@@ -133,7 +134,7 @@ function SidebarWithProjects() {
       }}
       onSelectProject={(project) => {
         if (project.path) {
-          setActiveProject({ name: project.name, path: project.path, tasks: project.tasks });
+          setActiveProject({ name: project.name, path: project.path, ...(project.tasks ? { tasks: project.tasks } : {}) });
         }
         if (router.state.location.pathname !== "/app") {
           router.navigate({ to: "/app" });
@@ -151,16 +152,9 @@ function SidebarWithProjects() {
         if (item.id) deleteRecent(item.id);
         if (item.label) deleteRecent(item.label);
       }}
-      onDeleteProject={async (project) => {
-        if (project.path) {
-          try {
-            await fetch('/api/fs/delete-project', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ projectPath: project.path }),
-            });
-          } catch {}
-        }
+      onDeleteProject={(project) => {
+        // Removing a project from the sidebar forgets it locally only. The workspace folder,
+        // its checkpoints and its history stay on disk — no endpoint here deletes user files.
         deleteProject(project.path || project.name);
       }}
       onRenameRecent={(item, newLabel) => renameRecent(item.id || item.label, newLabel)}
@@ -172,6 +166,7 @@ function SidebarWithProjects() {
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const router = useRouter();
+  const [isElectron, setIsElectron] = useState(false);
   const isExcludedPage =
     router.state.location.pathname === "/" ||
     router.state.location.pathname === "/signin" ||
@@ -179,9 +174,23 @@ function RootComponent() {
     router.state.location.pathname === "/landing" ||
     ["/terms", "/privacy", "/about", "/partner", "/changelog", "/docs", "/support", "/capabilities"].includes(router.state.location.pathname);
 
+  // Detected after hydration so the server-rendered markup and the first client
+  // render match; Electron-only chrome must not appear during hydration.
+  useEffect(() => {
+    setIsElectron(Boolean((window as any).__electron));
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <ProjectProvider>
+        {isElectron && <TitleBar />}
+        {isElectron && (
+          <style dangerouslySetInnerHTML={{ __html: `
+            :root { --app-title-height: 34px; }
+            body { padding-top: 34px !important; }
+            .chat-page { padding-top: 0 !important; }
+          ` }} />
+        )}
         {!isExcludedPage && <SidebarWithProjects />}
         {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
         <Outlet />
