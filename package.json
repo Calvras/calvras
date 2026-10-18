@@ -31,12 +31,17 @@
     "files": [
       "electron/**/*",
       ".output/**/*",
-      "public/**/*"
+      "public/**/*",
+      "!**/node_modules/electron/**"
     ],
     "extraResources": [
       {
         "from": ".output/server",
-        "to": "server"
+        "to": "server",
+        "filter": [
+          "**/*",
+          "!node_modules/electron/**"
+        ]
       },
       {
         "from": ".output/public",
@@ -59,9 +64,7 @@
         }
       ],
       "icon": "installer/calvras-logo.ico",
-      "zip": {
-        "artifactName": "Calvras-${version}-win.zip"
-      }
+      "artifactName": "Calvras-${version}-win.${ext}"
     },
     "nsis": {
       "oneClick": false,

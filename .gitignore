@@ -48,6 +48,7 @@ archive/CalvrasDesktop-avalonia/**/obj/
 
 # Electron build output
 electron-dist/
+release-*/
 .build-*/
 centering-chat-companion/
 public/*.exe

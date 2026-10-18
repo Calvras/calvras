@@ -57,9 +57,10 @@ describe("the published release", () => {
     expect(artifacts.tag).toBe("v10.4.0");
     expect(artifacts.installer).toBe("https://github.com/Calvras/calvras/releases/download/v10.4.0/Calvras-Setup-10.4.0.exe");
     expect(artifacts.portable).toBe("https://github.com/Calvras/calvras/releases/download/v10.4.0/Calvras-10.4.0-win.zip");
-    const builder = JSON.parse(require("node:fs").readFileSync(path.resolve(process.cwd(), "package.json"), "utf8")) as { build: { nsis: { artifactName: string }; win: { zip: { artifactName: string } } } };
-    expect(builder.build.nsis.artifactName).toBe("Calvras-Setup-${version}.exe");
-    expect(builder.build.win.zip.artifactName).toBe("Calvras-${version}-win.zip");
+    const builder = JSON.parse(require("node:fs").readFileSync(path.resolve(process.cwd(), "package.json"), "utf8")) as { build: { nsis: { artifactName: string }; win: { artifactName: string } } };
+    const rendered = (pattern: string, ext: string) => pattern.replace("${version}", "10.4.0").replace("${ext}", ext);
+    expect(rendered(builder.build.nsis.artifactName, "exe")).toBe(artifacts.installer.split("/").pop());
+    expect(rendered(builder.build.win.artifactName, "zip")).toBe(artifacts.portable.split("/").pop());
   });
 });
 
