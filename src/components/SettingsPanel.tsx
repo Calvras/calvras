@@ -8,6 +8,7 @@ import {
 } from "@/lib/preferences";
 import { clearUsage, readUsage } from "@/lib/telemetry";
 import { version } from "../../package.json";
+import { checkoutFor, paidPlans } from "@/lib/plans";
 import { Dialog, DialogContent, DialogTitle } from "./ui/dialog";
 import { cn } from "@/lib/utils";
 
@@ -20,7 +21,6 @@ type Route = { page: Page; project?: string };
 /** Mirrors the JSON the local server answers; typed here so the window never imports the node module. */
 type UsageSnapshot = { available: boolean; projects: number; toolCalls: number; failures: number; byTool: { tool: string; calls: number; failures: number }[]; tasksDone: number; tasksOpen: number; firstAt: number; lastAt: number; capped: boolean };
 type StoreStatus = { hasKey: boolean; live: boolean; keyHint: string; merchantId: string };
-type StorePlan = { planId: string; planName: string; productName: string; amount: number; currency: string; interval: string; checkoutUrl: string };
 
 /** Only the desktop shell can block sleep, own the menu bar, or rebind the server. */
 type Desktop = {
@@ -61,8 +61,6 @@ const SHORTCUTS = [
 function readJson<T>(key: string, fallback: T): T {
   try { const raw = window.localStorage.getItem(key); return raw ? JSON.parse(raw) as T : fallback; } catch { return fallback; }
 }
-
-const money = (plan: StorePlan) => `${plan.currency === "usd" ? "$" : `${plan.currency.toUpperCase()} `}${plan.amount.toFixed(2)} per ${plan.interval}`;
 
 /** Stable per-install label, generated once and kept so the name never shifts under the user. */
 function defaultDeviceName(): string {
@@ -213,10 +211,6 @@ export function SettingsPanel({ open, onOpenChange }: { open: boolean; onOpenCha
   const [replyEvents, setReplyEvents] = useState(0);
   const [stats, setStats] = useState<UsageSnapshot | null>(null);
   const [store, setStore] = useState<StoreStatus>({ hasKey: false, live: false, keyHint: "", merchantId: "" });
-  const [merchantDraft, setMerchantDraft] = useState("");
-  const [plans, setPlans] = useState<StorePlan[]>([]);
-  const [storeNote, setStoreNote] = useState("");
-  const [checking, setChecking] = useState(false);
 
   const refresh = useCallback(() => {
     setPolicies(readPolicies());
@@ -230,41 +224,24 @@ export function SettingsPanel({ open, onOpenChange }: { open: boolean; onOpenCha
     try { setProfile(readJson<Profile>(USER_KEY, {})); } catch { setProfile({}); }
   }, []);
 
-  // Usage and the plan catalogue come from the local server, so a window that cannot reach it
+  // Usage and the store credential come from the local server, so a window that cannot reach it
   // shows nothing rather than a number invented on the client.
   useEffect(() => {
     if (!open) return;
     let alive = true;
     const read = async (path: string) => { try { const response = await fetch(path); return response.ok ? await response.json() : null; } catch { return null; } };
-    void Promise.all([read("/api/agent/usage"), read("/api/agent/payments"), read("/api/agent/payments/catalog")]).then(([usageBody, statusBody, catalogBody]) => {
+    void Promise.all([read("/api/agent/usage"), read("/api/agent/payments")]).then(([usageBody, statusBody]) => {
       if (!alive) return;
       if (usageBody && typeof usageBody.toolCalls === "number") setStats(usageBody as UsageSnapshot);
-      if (statusBody && typeof statusBody.hasKey === "boolean") { setStore(statusBody as StoreStatus); setMerchantDraft(String((statusBody as StoreStatus).merchantId || "")); }
-      if (catalogBody && Array.isArray(catalogBody.plans)) { setPlans(catalogBody.plans as StorePlan[]); setStoreNote(catalogBody.ok ? "" : String(catalogBody.error || "")); }
+      if (statusBody && typeof statusBody.hasKey === "boolean") setStore(statusBody as StoreStatus);
     });
     return () => { alive = false; };
   }, [open]);
 
-  const checkStore = async () => {
-    setChecking(true); setStoreNote("");
-    try {
-      const saved = await fetch("/api/agent/payments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ merchantId: merchantDraft }) });
-      const status = await saved.json().catch(() => null);
-      if (!saved.ok) throw new Error(String(status?.error || "The merchant id was not accepted."));
-      if (status && typeof status.hasKey === "boolean") setStore(status as StoreStatus);
-      const catalog = await (await fetch("/api/agent/payments/catalog")).json().catch(() => null);
-      const list = Array.isArray(catalog?.plans) ? catalog.plans as StorePlan[] : [];
-      setPlans(list);
-      setStoreNote(catalog?.ok ? (list.length ? `${list.length} plan${list.length === 1 ? "" : "s"} read from the store.` : "The store answered, but this merchant has no plans in its catalogue yet.") : String(catalog?.error || "The store did not answer."));
-    } catch (error) {
-      setStoreNote(error instanceof Error ? error.message : "Could not reach the payments store from this computer.");
-    } finally { setChecking(false); }
-  };
-
-  // Plans are priced from this computer: the store credential lives here, so the page has to be the
-  // one this server answers, not the public site, which has no catalogue to read.
-  const openPricing = () => { const bridge = desktop(); onOpenChange(false); const target = new URL("/pricing", window.location.href).href; if (bridge?.openExternal) void bridge.openExternal(target); else window.location.href = "/pricing"; };
-  const openCheckout = (plan: StorePlan) => { const bridge = desktop(); if (bridge?.openExternal) void bridge.openExternal(plan.checkoutUrl); else window.location.href = plan.checkoutUrl; };
+  // Payment belongs to the website, not to this window: the pill hands the buyer to the pricing page
+  // in their browser, where Upgrade opens the Payments AI checkout.
+  const openPricing = () => { const bridge = desktop(); onOpenChange(false); if (bridge?.openExternal) void bridge.openExternal("https://calvras.com/pricing"); else window.location.href = "https://calvras.com/pricing"; };
+  const openCheckout = (url: string) => { const bridge = desktop(); if (bridge?.openExternal) void bridge.openExternal(url); else window.location.href = url; };
 
   useEffect(() => {
     if (!open) return;
@@ -563,11 +540,11 @@ export function SettingsPanel({ open, onOpenChange }: { open: boolean; onOpenCha
                 <Row title="Your plan: Calvras Local" description="This install runs on this computer. Paid tiers are sold by Payments AI, which acts as the merchant of record for the card.">
                   <button type="button" className="settings-milk" onClick={openPricing}>Upgrade plan</button>
                 </Row>
-                {plans.map((plan) => (
-                  <Row key={plan.planId} title={`${plan.productName} — ${plan.planName}`} description={`${money(plan)} · sold by Payments AI. Opening checkout does not charge you.`}>
-                    <button type="button" className="settings-control" onClick={() => openCheckout(plan)}>Open checkout</button>
+                {paidPlans.map((plan) => { const checkout = checkoutFor(plan.name); return (
+                  <Row key={plan.name} title={plan.name} description={checkout ? "Sold by Payments AI. Opening checkout does not charge you." : "Not in the Payments AI store yet."}>
+                    {checkout ? <button type="button" className="settings-control" onClick={() => openCheckout(checkout)}>Open checkout</button> : null}
                   </Row>
-                ))}
+                ); })}
               </Card>
             </Group>
 
@@ -597,14 +574,7 @@ export function SettingsPanel({ open, onOpenChange }: { open: boolean; onOpenCha
 
             <Group label="Payments store">
               <Card>
-                <Row title="Merchant id" description="The id shown in the Payments AI dashboard. Calvras reads its live plan catalogue with it.">
-                  <span className="settings-row-control flex items-center gap-2">
-                    <input aria-label="Merchant id" className="settings-control w-[290px]" placeholder="paste the merchant id" value={merchantDraft} onChange={(event) => setMerchantDraft(event.target.value)} />
-                    <button type="button" className="settings-control" disabled={checking} onClick={() => void checkStore()}>{checking ? "Checking" : "Check"}</button>
-                  </span>
-                </Row>
                 <Row title="Store credential" description={store.hasKey ? `Saved on this computer ${store.live ? "for live payments" : "in sandbox"} · ends ${store.keyHint}. It stays in the app's own folder and is never sent to this window.` : "No Payments AI credential is saved on this computer."} />
-                {storeNote && <Row title="Store answer" description={storeNote} />}
               </Card>
             </Group>
           </>}

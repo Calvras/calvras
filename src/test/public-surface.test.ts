@@ -26,15 +26,9 @@ describe("public site surface", () => {
     expect(typeof body.hasKey).toBe("boolean");
   });
 
-  it("sends pricing visitors to the landing page instead of a page that cannot price", async () => {
+  it("serves pricing to the public site", async () => {
     const hosted = await server.fetch(new Request("https://calvras.com/pricing"), {}, {});
-    expect(hosted.status).toBe(302);
-    expect(hosted.headers.get("location")).toBe("https://calvras.com/");
-    const local = await server.fetch(new Request("http://127.0.0.1:3344/pricing"), {}, {});
-    // The loopback request must fall through to the router rather than be redirected away. SSR itself
-    // cannot boot inside the test runner, so the redirect is what is asserted, not the page.
-    expect(local.status).not.toBe(302);
-    expect(local.headers.get("location")).toBeNull();
+    expect(hosted.headers.get("location")).toBeNull();
   });
 
   it("still serves the public update feed", async () => {
@@ -43,11 +37,22 @@ describe("public site surface", () => {
     expect(response.headers.get("content-type")).toContain("application/json");
   });
 
-  it("advertises plans from the app only", () => {
-    expect(source("src/components/MarketingLayout.tsx")).not.toContain("to=\"/pricing\"");
-    expect(source("src/components/CompanyPage.tsx")).not.toContain("/pricing");
-    expect(source("src/components/SettingsPanel.tsx")).toContain('new URL("/pricing", window.location.href)');
-    expect(source("src/components/SettingsPanel.tsx")).not.toContain("calvras.com/pricing");
+  it("sells plans from a checkout link, never from a credential in the page", async () => {
+    const { checkoutFor, paidPlans } = await import("@/lib/plans");
+    expect(paidPlans.map((plan) => plan.name)).toEqual(["Pro", "Ultra"]);
+    // Empty until the plan exists in the store: the page must not send a buyer to a checkout that cannot take money.
+    expect(paidPlans.every((plan) => plan.planId === "")).toBe(true);
+    expect(checkoutFor("Pro")).toBe("");
+    expect(checkoutFor("nothing")).toBe("");
+    const pricing = source("src/routes/pricing.tsx");
+    expect(pricing).not.toMatch(/\/api\/agent\/payments/);
+    expect(pricing).not.toMatch(/merchantId|apiKey|pai_live/);
+  });
+
+  it("takes the app's Upgrade pill to the browser pricing page", () => {
+    expect(source("src/components/MarketingLayout.tsx")).toContain('to="/pricing"');
+    expect(source("src/components/SettingsPanel.tsx")).toContain("https://calvras.com/pricing");
+    expect(source("src/components/SettingsPanel.tsx")).not.toMatch(/Merchant id|merchantDraft|checkStore/);
   });
 
   it("never shows a store error string to whoever is reading the page", () => {

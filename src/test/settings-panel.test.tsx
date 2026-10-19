@@ -189,21 +189,19 @@ describe("settings", () => {
       expect(screen.getByText("21 calls · 1 failed")).toBeInTheDocument();
       expect(row("Agent tasks").getByText("5 finished · 1 still open across those folders.")).toBeInTheDocument();
       expect(row("Store credential").getByText(/ends …88ba/)).toBeInTheDocument();
-      expect(row("Store answer").getByText(/no Payments AI merchant id saved yet/)).toBeInTheDocument();
 
       const upgrade = screen.getByRole("button", { name: "Upgrade plan" });
       expect(upgrade).toHaveClass("settings-milk");
       fireEvent.click(upgrade);
-      expect(hrefs).toEqual(["/pricing"]);
+      expect(hrefs).toEqual(["https://calvras.com/pricing"]);
       expect(onOpenChange).toHaveBeenCalledWith(false);
 
-      // Plans are priced from this computer, so the pill opens the page this server answers in the
-      // user's browser and never navigates the app.
+      // Payment belongs to the website: the pill opens the browser pricing page and never navigates the app.
       const openExternal = vi.fn(async () => true);
       Object.defineProperty(window, "__electron", { configurable: true, value: { openExternal } });
       fireEvent.click(screen.getByRole("button", { name: "Upgrade plan" }));
-      await waitFor(() => expect(openExternal).toHaveBeenCalledWith("http://localhost:3000/pricing"));
-      expect(hrefs).toEqual(["/pricing"]);
+      await waitFor(() => expect(openExternal).toHaveBeenCalledWith("https://calvras.com/pricing"));
+      expect(hrefs).toEqual(["https://calvras.com/pricing"]);
       delete (window as unknown as { __electron?: unknown }).__electron;
     } finally {
       if (original) Object.defineProperty(window, "location", original);

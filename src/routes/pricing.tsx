@@ -1,16 +1,13 @@
 import { marketingHead } from "@/lib/marketing-seo";
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { ArrowUpRight, Check, Minus } from "lucide-react";
 import { MarketingHeader, MarketingFooter, DOWNLOAD_URL } from "@/components/MarketingLayout";
+import { checkoutFor } from "@/lib/plans";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
 export const Route = createFileRoute("/pricing")({ head: () => marketingHead("/pricing", "Pricing & Plans — Calvras", "Start with Calvras desktop tools and upgrade to a paid plan, sold by Payments AI as merchant of record."), component: PricingPage });
-
-/** The same shape the local server answers with after reading the merchant's live catalogue. */
-type StorePlan = { planId: string; planName: string; productName: string; amount: number; currency: string; interval: string; checkoutUrl: string };
-type Catalog = { ok: boolean; plans: StorePlan[]; error: string };
 
 const openExternally = (url: string) => {
   const bridge = (window as unknown as { __electron?: { openExternal?: (target: string) => Promise<unknown> } }).__electron;
@@ -35,29 +32,16 @@ const comparison = [
 function PricingPage() {
   const [yearly, setYearly] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
-  const [catalog, setCatalog] = useState<Catalog | null>(null);
   const reducedMotion = useReducedMotion();
 
-  // The offer comes from the payment store, not from this file: whatever the merchant has
-  // published is what the page sells, and nothing is shown as buyable until the store says so.
-  useEffect(() => {
-    let alive = true;
-    void fetch("/api/agent/payments/catalog")
-      .then((response) => response.ok ? response.json() : null)
-      .then((body) => { if (alive && body && Array.isArray(body.plans)) setCatalog({ ok: Boolean(body.ok), plans: body.plans as StorePlan[], error: String(body.error || "") }); })
-      .catch(() => { /* a page without the local server simply has no catalogue to read */ });
-    return () => { alive = false; };
-  }, []);
-
-  const liveFor = (name: string | null) => name ? catalog?.plans.find((plan) => `${plan.productName} ${plan.planName}`.toLowerCase().includes(name.toLowerCase())) || null : null;
-  const shown = (plan: (typeof plans)[number]) => {
-    const live = liveFor(plan.name);
-    if (live) return { amount: `$${live.amount.toFixed(2)}`, period: live.interval === "one-time" ? "one-time" : `per ${live.interval}`, detail: "Sold by Payments AI, the merchant of record" };
-    return { amount: `$${yearly ? plan.yearlyPrice : plan.price}`, period: `/${yearly ? "year" : "month"}`, detail: plan.price === 0 ? "Free to get started" : yearly ? `$${(plan.yearlyPrice / 12).toFixed(2)}/month equivalent` : "Monthly price" };
-  };
+  const shown = (plan: (typeof plans)[number]) => ({
+    amount: `$${yearly ? plan.yearlyPrice : plan.price}`,
+    period: `/${yearly ? "year" : "month"}`,
+    detail: checkoutFor(plan.name) ? "Sold by Payments AI, the merchant of record" : plan.price === 0 ? "Free to get started" : yearly ? `$${(plan.yearlyPrice / 12).toFixed(2)}/month equivalent` : "Monthly price",
+  });
   const choose = (name: string) => {
-    const live = liveFor(name);
-    if (live) { openExternally(live.checkoutUrl); return; }
+    const checkout = checkoutFor(name);
+    if (checkout) { openExternally(checkout); return; }
     setSelectedPlan(name);
   };
   return <div className="calvras-landing pricing-page">
@@ -74,7 +58,7 @@ function PricingPage() {
         </div>
       </motion.div>
       <section className="pricing-cards" aria-label="Available plans">
-        {plans.map((plan, i) => { const live = liveFor(plan.name); const offer = shown(plan); return <motion.article key={plan.name} className={`pricing-card ${i === 1 ? "pricing-card-featured" : ""}`} initial={{ opacity: 0, y: reducedMotion ? 0 : 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: reducedMotion ? 0 : .6, delay: reducedMotion ? 0 : .15 + i * .1 }}>
+        {plans.map((plan, i) => { const live = Boolean(checkoutFor(plan.name)); const offer = shown(plan); return <motion.article key={plan.name} className={`pricing-card ${i === 1 ? "pricing-card-featured" : ""}`} initial={{ opacity: 0, y: reducedMotion ? 0 : 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: reducedMotion ? 0 : .6, delay: reducedMotion ? 0 : .15 + i * .1 }}>
           <div className="pricing-card-heading"><h2>{plan.name}</h2>{i > 0 && <span>{live ? "In the store" : "Not on sale yet"}</span>}</div>
           <p className="pricing-subtitle">{plan.subtitle}</p>
           <div className="pricing-amount" aria-live="polite"><span>{offer.amount}</span><span>{offer.period}</span></div>
@@ -91,13 +75,13 @@ function PricingPage() {
         <div className="pricing-table-scroll"><table><caption className="sr-only">Compare Calvras plan features</caption><thead><tr><th scope="col">Included</th>{plans.map(plan => <th key={plan.name} scope="col">{plan.name}</th>)}</tr></thead><tbody>{comparison.map(([label, ...values]) => <tr key={label}><th scope="row">{label}</th>{values.map((value, i) => <td key={i}>{typeof value === "boolean" ? value ? <><Check size={15} aria-hidden="true" /><span className="sr-only">Included</span></> : <><Minus size={15} aria-hidden="true" /><span className="sr-only">Not included</span></> : value}</td>)}</tr>)}</tbody></table></div>
       </section>
       <section className="pricing-faq"><div className="pricing-section-heading"><span className="landing-eyebrow">GOOD TO KNOW</span><h2>A little clarity.</h2></div><div>
-        <details><summary>How does yearly billing work?</summary><p>Yearly prices cover a full year: $79 for Pro and $179 for Ultra. Monthly equivalents are shown for comparison. Which interval a plan is sold on is set in the Payments AI catalogue, and that is the interval this page displays once it can read the store.</p></details>
+        <details><summary>How does yearly billing work?</summary><p>Yearly prices cover a full year: $79 for Pro and $179 for Ultra. Monthly equivalents are shown for comparison. The billing period you are charged on is the one the Payments AI plan you are sent to was created with.</p></details>
         <details><summary>Can I use Calvras for free?</summary><p>The desktop app is available at $0 with project file actions, local commands, change review, and a multi-step agent workflow. Model access depends on configured providers, which may have their own charges and limits. No two-workspace quota is currently enforced.</p></details>
-        <details><summary>Can I upgrade today?</summary><p>Yes, when this build can read the store. The desktop app keeps the Payments AI credential in its own folder on your computer and asks that service for the live catalogue; choosing a plan that is on sale opens the Payments AI checkout in a separate window, where the card details are entered and never pass through Calvras. If the plan shows as not on sale, no payment can be taken from this page.</p></details>
+        <details><summary>Can I upgrade today?</summary><p>Choosing a plan that is on sale opens the Payments AI checkout in a separate window, where the card details are entered and never pass through Calvras. Payments AI is the merchant of record, so they hold the payment and issue the receipt. If a plan shows as not on sale, no payment can be taken from this page.</p></details>
         <details><summary>Does local mean my prompts stay on my computer?</summary><p>Your desktop projects are local, but AI requests may send prompts and selected project context to external model providers. Read the Privacy Policy before sharing sensitive information.</p></details>
       </div></section>
     </main>
     <MarketingFooter />
-    <Dialog open={selectedPlan !== null} onOpenChange={open => { if (!open) setSelectedPlan(null); }}><DialogContent className="pricing-dialog"><span className="landing-eyebrow">YOUR NEXT STEP</span><DialogTitle>Build more with {selectedPlan}.</DialogTitle><DialogDescription>{liveFor(selectedPlan) ? `Checkout for ${selectedPlan} opens on the Payments AI page, where the card details are entered. Nothing is charged inside this page.` : `The Payments AI catalogue this Calvras reads has no ${selectedPlan} plan on sale yet, so there is nothing to check out. No payment has been taken, and the plan appears here the moment the store publishes it.`}</DialogDescription>{selectedPlan && (() => { const live = liveFor(selectedPlan); return <a className="landing-download" href={live ? live.checkoutUrl : `mailto:calvrasnoreply@gmail.com?subject=${encodeURIComponent(`Plan question: ${selectedPlan}`)}`}>{live ? "Upgrade" : "Ask about billing"} <ArrowUpRight size={16} /></a>; })()}</DialogContent></Dialog>
+    <Dialog open={selectedPlan !== null} onOpenChange={open => { if (!open) setSelectedPlan(null); }}><DialogContent className="pricing-dialog"><span className="landing-eyebrow">YOUR NEXT STEP</span><DialogTitle>Build more with {selectedPlan}.</DialogTitle><DialogDescription>{selectedPlan} is not in the Payments AI store yet, so there is nothing to check out. No payment has been taken, and the Upgrade button appears here the moment the plan is published.</DialogDescription>{selectedPlan && <a className="landing-download" href={`mailto:calvrasnoreply@gmail.com?subject=${encodeURIComponent(`Plan question: ${selectedPlan}`)}`}>Ask about billing <ArrowUpRight size={16} /></a>}</DialogContent></Dialog>
   </div>;
 }

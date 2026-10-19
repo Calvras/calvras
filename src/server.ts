@@ -163,10 +163,6 @@ export default {
     try {
       const apiResponse = await handleApi(request);
       if (apiResponse) return apiResponse;
-      // Plans are sold from the desktop app, where the store credential lives. The public site has no
-      // catalogue to read, so it sends visitors to the landing page instead of a page that cannot price.
-      const page = new URL(request.url);
-      if (!isLocalRuntime(page) && page.pathname === "/pricing") return Response.redirect(new URL("/", request.url).href, 302);
 
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
