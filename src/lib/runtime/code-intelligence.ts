@@ -8,8 +8,13 @@ export const CODE_INTELLIGENCE_TOOLS = ["search_symbols", "go_to_definition", "f
 const excluded = /^(?:node_modules|\.git|\.output|dist|electron-dist|build|coverage|\.next|\.agents|\.cache|\.codex|\.env(?:\..*)?|\.ssh|\.aws|.*\.(?:pem|key|p12|pfx))$/i;
 const codeExtension = /\.(?:[cm]?[jt]sx?)$/i;
 const runtimeRequire = createRequire(import.meta.url);
-// Keep the compiler's CommonJS runtime external: bundling it as ESM breaks __filename.
-const ts: typeof TypeScript = runtimeRequire("typescript");
+// Keep the compiler's CommonJS runtime external: bundling it as ESM breaks __filename, and it only
+// exists in the desktop runtime, where prepare-electron-runtime.mjs ships it beside the server.
+// Requiring it while this module loads kills the hosted Worker on boot, so resolve it on first use.
+let compiler: typeof TypeScript | undefined;
+const ts = new Proxy({} as typeof TypeScript, {
+  get: (_target, property) => ((compiler ??= runtimeRequire("typescript") as typeof TypeScript) as unknown as Record<PropertyKey, unknown>)[property],
+});
 
 /** Compiler code may be bundled separately from its standard-library declarations. */
 export function compilerLibraryRoot(): string {
