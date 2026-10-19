@@ -29,7 +29,7 @@ export function CompanyMenu() {
 export function MarketingHeader() {
   return <header className="landing-nav marketing-nav">
     <Link to="/" className="landing-brand" aria-label="Calvras home"><img src="/calvras-logo.png" alt="" /><span>CALVRAS</span></Link>
-    <nav aria-label="Main navigation"><Link to="/">Home</Link><Link to="/pricing">Pricing</Link><a href={DOWNLOAD_URL} className="landing-nav-download">Download <ArrowUpRight size={15} /></a></nav>
+    <nav aria-label="Main navigation"><Link to="/">Home</Link><a href={DOWNLOAD_URL} className="landing-nav-download">Download <ArrowUpRight size={15} /></a></nav>
   </header>;
 }
 

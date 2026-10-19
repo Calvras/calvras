@@ -197,12 +197,12 @@ describe("settings", () => {
       expect(hrefs).toEqual(["/pricing"]);
       expect(onOpenChange).toHaveBeenCalledWith(false);
 
-      // On the desktop, payment belongs to the website, not to this window: the pill hands the
-      // user to the real pricing page in their browser and never navigates the app.
+      // Plans are priced from this computer, so the pill opens the page this server answers in the
+      // user's browser and never navigates the app.
       const openExternal = vi.fn(async () => true);
       Object.defineProperty(window, "__electron", { configurable: true, value: { openExternal } });
       fireEvent.click(screen.getByRole("button", { name: "Upgrade plan" }));
-      await waitFor(() => expect(openExternal).toHaveBeenCalledWith("https://calvras.com/pricing"));
+      await waitFor(() => expect(openExternal).toHaveBeenCalledWith("http://localhost:3000/pricing"));
       expect(hrefs).toEqual(["/pricing"]);
       delete (window as unknown as { __electron?: unknown }).__electron;
     } finally {

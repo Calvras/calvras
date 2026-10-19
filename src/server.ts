@@ -23,6 +23,17 @@ const getOpenRouterKey = () => providerKeys().openrouter;
 
 export { CALVRAS_SYSTEM_PROMPT } from "./lib/system-prompt";
 import { CALVRAS_SYSTEM_PROMPT } from "./lib/system-prompt";
+
+/**
+ * Only the desktop runtime serves this machine's files, terminal, and store credential, and it must
+ * refuse a request that arrived over the public domain. A client can drop the Origin header to look
+ * same-site, but it cannot change the host it knocked on.
+ */
+export function isLocalRuntime(url: URL) {
+  const host = url.hostname.replace(/^\[|\]$/g, "");
+  return host === "localhost" || host === "::1" || host === "0.0.0.0" || /^127\./.test(host);
+}
+
 import { updateManifest } from "./lib/release";
 import { inferStreaming, PROFILE_MAX_TOKENS } from "./lib/inference";
 
@@ -66,6 +77,11 @@ async function handleChatCompletions(request: Request): Promise<Response> {
 // All agent filesystem, terminal, Git, browser, and worker operations use scoped sessions.
 async function handleApi(request: Request): Promise<Response | null> {
   const url = new URL(request.url);
+  // The desktop workspace, terminal, and payment-store routes exist for the app on this computer.
+  // Off the loopback they answer nothing at all, not even which of them exist.
+  if (!isLocalRuntime(url) && (url.pathname.startsWith("/api/agent") || url.pathname.startsWith("/api/fs") || url.pathname.startsWith("/api/terminal"))) {
+    return Response.json({ ok: false, error: "Not found" }, { status: 404 });
+  }
   const agent = await handleAgentApi(request, async (prompt, onDelta, system, route) => {
     let accumulated = "";
     // A subagent role brings its own engine and effort: the profile picks the chain, the timeout
@@ -147,6 +163,10 @@ export default {
     try {
       const apiResponse = await handleApi(request);
       if (apiResponse) return apiResponse;
+      // Plans are sold from the desktop app, where the store credential lives. The public site has no
+      // catalogue to read, so it sends visitors to the landing page instead of a page that cannot price.
+      const page = new URL(request.url);
+      if (!isLocalRuntime(page) && page.pathname === "/pricing") return Response.redirect(new URL("/", request.url).href, 302);
 
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);

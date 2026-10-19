@@ -49,7 +49,7 @@ function PricingPage() {
     return () => { alive = false; };
   }, []);
 
-  const liveFor = (name: string) => catalog?.plans.find((plan) => `${plan.productName} ${plan.planName}`.toLowerCase().includes(name.toLowerCase())) || null;
+  const liveFor = (name: string | null) => name ? catalog?.plans.find((plan) => `${plan.productName} ${plan.planName}`.toLowerCase().includes(name.toLowerCase())) || null : null;
   const shown = (plan: (typeof plans)[number]) => {
     const live = liveFor(plan.name);
     if (live) return { amount: `$${live.amount.toFixed(2)}`, period: live.interval === "one-time" ? "one-time" : `per ${live.interval}`, detail: "Sold by Payments AI, the merchant of record" };
@@ -98,6 +98,6 @@ function PricingPage() {
       </div></section>
     </main>
     <MarketingFooter />
-    <Dialog open={selectedPlan !== null} onOpenChange={open => { if (!open) setSelectedPlan(null); }}><DialogContent className="pricing-dialog"><span className="landing-eyebrow">YOUR NEXT STEP</span><DialogTitle>Build more with {selectedPlan}.</DialogTitle><DialogDescription>{catalog?.error ? `Calvras asked the Payments AI store for this plan and the store answered: ${catalog.error}. No payment has been taken.` : catalog ? `The Payments AI catalogue this build can read has no ${selectedPlan} plan on sale yet, so there is nothing to check out. No payment has been taken.` : "Checkout runs through Payments AI, and this page could not reach a Calvras server that holds the store credential, so no plan is on offer here. No payment has been taken."} Upgrade below, and nothing is charged inside this page either way.</DialogDescription>{selectedPlan && (() => { const live = liveFor(selectedPlan); return <a className="landing-download" href={live ? live.checkoutUrl : `mailto:calvrasnoreply@gmail.com?subject=${encodeURIComponent(`Upgrade to ${selectedPlan}`)}`}>Upgrade <ArrowUpRight size={16} /></a>; })()}</DialogContent></Dialog>
+    <Dialog open={selectedPlan !== null} onOpenChange={open => { if (!open) setSelectedPlan(null); }}><DialogContent className="pricing-dialog"><span className="landing-eyebrow">YOUR NEXT STEP</span><DialogTitle>Build more with {selectedPlan}.</DialogTitle><DialogDescription>{liveFor(selectedPlan) ? `Checkout for ${selectedPlan} opens on the Payments AI page, where the card details are entered. Nothing is charged inside this page.` : `The Payments AI catalogue this Calvras reads has no ${selectedPlan} plan on sale yet, so there is nothing to check out. No payment has been taken, and the plan appears here the moment the store publishes it.`}</DialogDescription>{selectedPlan && (() => { const live = liveFor(selectedPlan); return <a className="landing-download" href={live ? live.checkoutUrl : `mailto:calvrasnoreply@gmail.com?subject=${encodeURIComponent(`Plan question: ${selectedPlan}`)}`}>{live ? "Upgrade" : "Ask about billing"} <ArrowUpRight size={16} /></a>; })()}</DialogContent></Dialog>
   </div>;
 }

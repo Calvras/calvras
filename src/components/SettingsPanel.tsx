@@ -261,9 +261,9 @@ export function SettingsPanel({ open, onOpenChange }: { open: boolean; onOpenCha
     } finally { setChecking(false); }
   };
 
-  // Payment belongs to the website, not to this window: the pill hands the user to the real
-  // pricing page in their browser. Only a window without the desktop bridge stays inside the app.
-  const openPricing = () => { const bridge = desktop(); onOpenChange(false); if (bridge?.openExternal) void bridge.openExternal("https://calvras.com/pricing"); else window.location.href = "/pricing"; };
+  // Plans are priced from this computer: the store credential lives here, so the page has to be the
+  // one this server answers, not the public site, which has no catalogue to read.
+  const openPricing = () => { const bridge = desktop(); onOpenChange(false); const target = new URL("/pricing", window.location.href).href; if (bridge?.openExternal) void bridge.openExternal(target); else window.location.href = "/pricing"; };
   const openCheckout = (plan: StorePlan) => { const bridge = desktop(); if (bridge?.openExternal) void bridge.openExternal(plan.checkoutUrl); else window.location.href = plan.checkoutUrl; };
 
   useEffect(() => {
