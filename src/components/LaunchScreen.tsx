@@ -1,9 +1,9 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 import { WindowControls } from "./TitleBar";
 import { reportSignIn } from "@/lib/site-session";
+import { storedUser, writeStoredUser, type CalvrasUser } from "@/lib/account";
 
-const USER_KEY = "calvras_user";
 const SPLASH_MS = 2000;
 
 type DesktopBridge = {
@@ -23,8 +23,6 @@ const installedVersion = async () => {
   try { return String((await desktopBridge()?.appVersion?.()) || ""); } catch { return ""; }
 };
 
-export type CalvrasUser = { provider: "google"; email?: string; name?: string; picture?: string; plan?: string; joinedAt: number };
-
 type GoogleAnswer = { ok?: boolean; email?: string; name?: string; picture?: string; idToken?: string | null; error?: string };
 
 export function SplashScreen() {
@@ -41,8 +39,15 @@ export function SplashScreen() {
 export function AuthScreen({ onContinue }: { onContinue: (user: CalvrasUser) => void }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  // Google opens its own tab. If the person closes that tab instead of finishing, the bridge
+  // promise can sit there forever, so Back retires the attempt and the late answer is dropped.
+  const attempt = useRef(0);
+
+  const back = () => { attempt.current += 1; setBusy(false); setError(""); };
 
   const google = async () => {
+    const mine = attempt.current + 1;
+    attempt.current = mine;
     setError("");
     const bridge = desktopBridge();
     if (!bridge?.googleSignIn) {
@@ -51,6 +56,7 @@ export function AuthScreen({ onContinue }: { onContinue: (user: CalvrasUser) => 
     }
     setBusy(true);
     const answer: GoogleAnswer = await bridge.googleSignIn().catch((reason) => ({ ok: false, error: reason instanceof Error ? reason.message : String(reason) }));
+    if (attempt.current !== mine) return;
     if (!answer?.ok || !answer.email) {
       setBusy(false);
       setError(answer?.error || "Google sign-in failed.");
@@ -59,6 +65,7 @@ export function AuthScreen({ onContinue }: { onContinue: (user: CalvrasUser) => 
     // Tell the site this person signed in, so the owner's console sees them and so a plan the owner
     // granted comes back with them. A site that cannot be reached does not lock anyone out.
     const session = await reportSignIn({ ...(answer.idToken ? { idToken: answer.idToken } : {}), platform: navigator.platform, version: await installedVersion() }).catch(() => ({ ok: false } as const));
+    if (attempt.current !== mine) return;
     const plan = session?.ok && session.plan ? session.plan : undefined;
     onContinue({ provider: "google", email: answer.email, name: answer.name ?? answer.email, ...(answer.picture ? { picture: answer.picture } : {}), ...(plan ? { plan } : {}), joinedAt: Date.now() });
   };
@@ -100,6 +107,16 @@ export function AuthScreen({ onContinue }: { onContinue: (user: CalvrasUser) => 
           {busy ? "Signing in…" : "Continue with Google"}
         </button>
 
+        <button
+          type="button"
+          onClick={back}
+          aria-label="Back"
+          className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-xl px-4 py-2 text-[12px] text-white/45 transition-colors hover:bg-white/[0.04] hover:text-white/70"
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M19 12H5m7-7-7 7 7 7" /></svg>
+          Back
+        </button>
+
         {error && <p role="alert" className="mt-3 text-center text-[11px] text-red-300">{error}</p>}
 
         <p className="mt-6 text-center text-[10px] leading-5 text-white/25">By continuing you agree to the Calvras <a href="https://calvras.com/terms" target="_blank" rel="noopener noreferrer" className="text-white/45 underline underline-offset-2 hover:text-white/70">terms</a> and <a href="https://calvras.com/privacy" target="_blank" rel="noopener noreferrer" className="text-white/45 underline underline-offset-2 hover:text-white/70">privacy policy</a>.<br />Your projects stay on this computer; Google is only used to identify you.</p>
@@ -112,19 +129,15 @@ export function LaunchGate({ children }: { children: ReactNode }) {
   const [phase, setPhase] = useState<"splash" | "auth" | "app">("splash");
 
   useEffect(() => {
+    // The logo holding the screen is the check: while it is up the app reads the stored
+    // session, so a signed-in person lands in the workspace and nobody else does.
     let launched = false;
     try { launched = Boolean(window.sessionStorage.getItem("calvras_session_started")); } catch { /* storage unavailable */ }
-    if (launched) {
-      let signedIn = false;
-      try { signedIn = Boolean(window.localStorage.getItem(USER_KEY)); } catch { /* storage unavailable */ }
-      setPhase(signedIn ? "app" : "auth");
-      return;
-    }
+    const enter = () => setPhase(storedUser() ? "app" : "auth");
+    if (launched) { enter(); return; }
     const timer = window.setTimeout(() => {
       try { window.sessionStorage.setItem("calvras_session_started", "1"); } catch { /* storage unavailable */ }
-      let signedIn = false;
-      try { signedIn = Boolean(window.localStorage.getItem(USER_KEY)); } catch { /* storage unavailable */ }
-      setPhase(signedIn ? "app" : "auth");
+      enter();
     }, SPLASH_MS);
     return () => window.clearTimeout(timer);
   }, []);
@@ -132,7 +145,7 @@ export function LaunchGate({ children }: { children: ReactNode }) {
   if (phase === "splash") return <SplashScreen />;
   if (phase === "auth") {
     return <AuthScreen onContinue={(user) => {
-      try { window.localStorage.setItem(USER_KEY, JSON.stringify(user)); } catch { /* storage unavailable */ }
+      writeStoredUser(user);
       setPhase("app");
     }} />;
   }

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import server from "@/server";
+import { servesWorkspace, workspaceHostFrom } from "@/lib/workspace-host";
 
 const root = path.resolve(__dirname, "../..");
 const source = (file: string) => readFileSync(path.resolve(root, file), "utf8");
@@ -59,5 +60,35 @@ describe("public site surface", () => {
     const pricing = source("src/routes/pricing.tsx");
     expect(pricing).not.toMatch(/catalog\?\.error/);
     expect(pricing).not.toMatch(/\$\{catalog/);
+  });
+
+  it("serves the coding workspace only on the machine or LAN running the app", () => {
+    for (const host of ["localhost", "127.0.0.1", "::1", "10.0.3.7", "192.168.100.4", "172.16.0.1", "172.31.255.9", "calvras.local"]) {
+      expect(servesWorkspace(host), host).toBe(true);
+    }
+    for (const host of ["calvras.com", "www.calvras.com", "172.32.0.1", "8.8.8.8", "evil-local.com", ""]) {
+      expect(servesWorkspace(host), host).toBe(false);
+    }
+  });
+
+  it("takes the host from the server render context and the address bar on the client", () => {
+    expect(workspaceHostFrom({ serverContext: { workspaceHost: "127.0.0.1" } })).toBe("127.0.0.1");
+    expect(workspaceHostFrom({ serverContext: { workspaceHost: "calvras.com" } })).toBe("calvras.com");
+    expect(workspaceHostFrom({})).toBe(window.location.hostname);
+    expect(workspaceHostFrom(undefined)).toBe(window.location.hostname);
+  });
+
+  it("keeps the workspace off the home page for anyone but the desktop runtime", () => {
+    const index = source("src/routes/index.tsx");
+    expect(index).toContain('loader: (context) => ({ workspace: servesWorkspace(workspaceHostFrom(context)) })');
+    expect(index).toContain("if (!workspace) return <LandingPage />;");
+    expect(source("src/start.ts")).toContain("workspaceHost: new URL(request.url).hostname");
+  });
+
+  it("removes /app as a page and leaves it as a redirect to the home route", () => {
+    const app = source("src/routes/app.tsx");
+    expect(app).toContain("beforeLoad");
+    expect(app).toContain('redirect({ to: "/"');
+    expect(app).not.toContain("component");
   });
 });

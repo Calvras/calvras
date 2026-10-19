@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { ChevronRight, Eye, FileText, Folder, FolderOpen, FolderPlus, Globe2, PanelRightClose, RefreshCw, Search, Users, X } from "lucide-react";
+import { ChevronRight, FileText, Folder, FolderOpen, FolderPlus, Globe2, PanelRightClose, Search, SquareTerminal, Users, X } from "lucide-react";
 import hljs from "highlight.js/lib/common";
 import AgentAvatar from "@/components/ui/agent-avatar";
 import { formatElapsed } from "@/components/ui/ai-agent-response";
 import { BrowserPanel } from "@/components/BrowserPanel";
-import { safePreviewUrl } from "@/lib/preview-url";
+import { TerminalDock } from "@/components/TerminalDock";
 import type { SubagentJob } from "@/components/AgentActivity";
 import type { ToolAction } from "@/lib/tool-catalog";
 import { cn } from "@/lib/utils";
 
-export type DockTab = "files" | "preview" | "browser" | "agents";
+export type DockTab = "files" | "terminal" | "browser" | "agents";
 
 type Props = {
   open: boolean;
@@ -18,7 +18,6 @@ type Props = {
   onClose: () => void;
   projectPath: string | null;
   projectName: string | null;
-  previewUrl: string;
   onPickFolder?: (() => void) | undefined;
   showBrowser: boolean;
   showAgents: boolean;
@@ -173,7 +172,7 @@ function TreeBranch({ node, depth, expanded, onToggle, filter, openFile, busy }:
   );
 }
 
-export function RightDock({ open, tab, onTabChange, onClose, projectPath, projectName, previewUrl, onPickFolder, showBrowser, showAgents, browserActive, agents, jobs, execute }: Props) {
+export function RightDock({ open, tab, onTabChange, onClose, projectPath, projectName, onPickFolder, showBrowser, showAgents, browserActive, agents, jobs, execute }: Props) {
   const asideRef = useRef<HTMLElement | null>(null);
   const stopResizeRef = useRef<(() => void) | null>(null);
   const [width, setWidth] = useState(0);
@@ -246,7 +245,7 @@ export function RightDock({ open, tab, onTabChange, onClose, projectPath, projec
 
   const tabs = [
     { id: "files" as DockTab, label: "Workspace files", short: "Files", icon: FileText, visible: Boolean(projectPath) },
-    { id: "preview" as DockTab, label: "Preview", short: "Preview", icon: Eye, visible: Boolean(projectPath) },
+    { id: "terminal" as DockTab, label: "Terminal", short: "Terminal", icon: SquareTerminal, visible: Boolean(projectPath) },
     { id: "browser" as DockTab, label: "Browser", short: "Browser", icon: Globe2, visible: showBrowser },
     { id: "agents" as DockTab, label: "Subagents", short: "Subagents", icon: Users, visible: showAgents },
   ].filter((entry) => entry.visible);
@@ -309,8 +308,8 @@ export function RightDock({ open, tab, onTabChange, onClose, projectPath, projec
         <Panel label="Workspace files" active={activeTab === "files"}>
           <FilesPane projectPath={projectPath} projectName={projectName} onPickFolder={onPickFolder} execute={execute} open={open && activeTab === "files"} />
         </Panel>
-        <Panel label="Preview" active={activeTab === "preview"}>
-          <PreviewPane previewUrl={previewUrl} execute={execute} />
+        <Panel label="Terminal" active={activeTab === "terminal"}>
+          <TerminalDock docked projectPath={projectPath} projectName={projectName} onClose={onClose} />
         </Panel>
         <Panel label="Browser" active={activeTab === "browser"} className="dock-panel--browser">
           <BrowserPanel active={browserActive} />
@@ -452,71 +451,6 @@ function FilesPane({ projectPath, projectName, onPickFolder, execute, open }: { 
           </div>
         </>
       )}
-    </div>
-  );
-}
-
-function PreviewPane({ previewUrl, execute }: { previewUrl: string; execute: Props["execute"] }) {
-  const url = safePreviewUrl(previewUrl);
-  const [nonce, setNonce] = useState(0);
-  const [checking, setChecking] = useState(false);
-  const [detected, setDetected] = useState("");
-  const [note, setNote] = useState("");
-  const shown = safePreviewUrl(detected) || url;
-
-  const recheck = async () => {
-    setChecking(true); setNote("");
-    try {
-      const result = await execute({ type: "check_server" });
-      if (result?.ready && safePreviewUrl(result.url)) setDetected(String(result.url));
-      else setNote(result?.error ? String(result.error) : "Nothing is listening on a local port yet, so there is no preview to show. Ask Calvras to start the server.");
-    } catch (reason) {
-      setNote(reason instanceof Error ? reason.message : String(reason));
-    } finally { setChecking(false); }
-  };
-
-  if (!shown) {
-    return (
-      <div className="dock-empty-block">
-        <Eye className="size-7" aria-hidden="true" />
-        <p>No local server preview is open. Start the dev server and this tab shows the running page.</p>
-        <button type="button" className="dock-button" onClick={() => void recheck()} disabled={checking}>
-          <RefreshCw className={`size-3.5 ${checking ? "animate-spin" : ""}`} aria-hidden="true" />
-          Look for a running server
-        </button>
-        {note ? <p className="dock-error" role="alert">{note}</p> : null}
-      </div>
-    );
-  }
-
-  return (
-    <div className="dock-fill">
-      <div className="dock-summary">
-        <span className="dock-tile" aria-hidden="true"><Eye /></span>
-        <span className="dock-summary-body">
-          <span className="dock-summary-time">Local server</span>
-          <span className="dock-summary-text" title={shown}>{shown}</span>
-        </span>
-      </div>
-      <div className="dock-toolbar">
-        <button type="button" className="dock-button" onClick={() => { setNonce((value) => value + 1); }} title="Reload the preview">
-          <RefreshCw className="size-3.5" aria-hidden="true" />
-          Reload
-        </button>
-        <button type="button" className="dock-button" onClick={() => void recheck()} disabled={checking}>
-          <RefreshCw className={`size-3.5 ${checking ? "animate-spin" : ""}`} aria-hidden="true" />
-          Re-check
-        </button>
-      </div>
-      {note ? <p className="dock-error" role="alert">{note}</p> : null}
-      <iframe
-        key={`${shown}-${nonce}`}
-        title="Local project preview"
-        src={shown}
-        sandbox="allow-scripts allow-forms allow-same-origin"
-        referrerPolicy="no-referrer"
-        className="dock-preview"
-      />
     </div>
   );
 }

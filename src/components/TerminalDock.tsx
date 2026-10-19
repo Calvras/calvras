@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronRight, Folder, SquareTerminal, Trash2, X } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 type Props = {
   projectPath: string | null;
   projectName: string | null;
   onClose: () => void;
+  /** Inside the right dock the panel owns the frame and the close control, so the terminal
+   * drops its own floating window chrome. */
+  docked?: boolean;
 };
 
 type Line = { id: number; kind: "command" | "output" | "error" | "info"; text: string };
@@ -35,7 +39,7 @@ function normalizePath(value: string): string | null {
   return stack.join("/");
 }
 
-export function TerminalDock({ projectPath, projectName, onClose }: Props) {
+export function TerminalDock({ projectPath, projectName, onClose, docked = false }: Props) {
   const [lines, setLines] = useState<Line[]>([]);
   const [command, setCommand] = useState("");
   const [cwd, setCwd] = useState(".");
@@ -67,10 +71,11 @@ export function TerminalDock({ projectPath, projectName, onClose }: Props) {
   }, [lines, running]);
 
   useEffect(() => {
+    if (docked) return;
     const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [docked, onClose]);
 
   const prompt = `${projectName || "folder"}${cwd && cwd !== "." ? `/${cwd}` : ""}>`;
 
@@ -171,14 +176,23 @@ export function TerminalDock({ projectPath, projectName, onClose }: Props) {
   };
 
   return (
-    <section aria-label="Terminal" className="fixed bottom-3 right-3 z-50 flex h-[min(360px,calc(100dvh-140px))] w-[min(620px,calc(100vw-24px))] flex-col overflow-hidden rounded-xl border border-white/[0.09] bg-[#0f1011] text-white animate-in slide-in-from-bottom-4 fade-in duration-300">
+    <section
+      aria-label="Terminal"
+      className={docked
+        ? "flex h-full min-h-0 flex-col bg-[#0f1011] text-white"
+        : "fixed bottom-3 right-3 z-50 flex h-[min(360px,calc(100dvh-140px))] w-[min(620px,calc(100vw-24px))] flex-col overflow-hidden rounded-xl border border-white/[0.09] bg-[#0f1011] text-white animate-in slide-in-from-bottom-4 fade-in duration-300"}
+    >
       <div className="flex shrink-0 items-center gap-2 border-b border-white/[0.07] bg-[#151617] px-3.5 py-2.5">
-        <span className="flex items-center gap-1.5"><i className="size-2.5 rounded-full bg-[#ff5f57]" /><i className="size-2.5 rounded-full bg-[#febc2e]" /><i className="size-2.5 rounded-full bg-[#28c840]" /></span>
-        <span className="ml-2 flex items-center gap-1.5 text-[12px] text-white/65"><SquareTerminal className="size-3.5" />Terminal</span>
-        <span className="flex min-w-0 items-center gap-1 rounded-md bg-white/[0.05] px-2 py-0.5 text-[10px] text-white/35"><Folder className="size-3 shrink-0" /><span className="truncate">{projectName || "No folder"}</span></span>
+        {!docked && (
+          <>
+            <span className="flex items-center gap-1.5"><i className="size-2.5 rounded-full bg-[#ff5f57]" /><i className="size-2.5 rounded-full bg-[#febc2e]" /><i className="size-2.5 rounded-full bg-[#28c840]" /></span>
+            <span className="ml-2 flex items-center gap-1.5 text-[12px] text-white/65"><SquareTerminal className="size-3.5" />Terminal</span>
+          </>
+        )}
+        <span className={cn("flex min-w-0 items-center gap-1 rounded-md bg-white/[0.05] px-2 py-0.5 text-[10px] text-white/35", docked && "mr-auto")}><Folder className="size-3 shrink-0" /><span className="truncate">{projectName || "No folder"}</span></span>
         <span className="ml-auto flex items-center gap-1">
           <button type="button" aria-label="Clear terminal" title="Clear (Ctrl+L)" onClick={() => setLines([])} className="rounded-md p-1.5 text-white/35 hover:bg-white/[0.06] hover:text-white/80"><Trash2 className="size-3.5" /></button>
-          <button type="button" aria-label="Close terminal" title="Close (Esc)" onClick={onClose} className="rounded-md p-1.5 text-white/35 hover:bg-white/[0.06] hover:text-white/80"><X className="size-4" /></button>
+          {!docked && <button type="button" aria-label="Close terminal" title="Close (Esc)" onClick={onClose} className="rounded-md p-1.5 text-white/35 hover:bg-white/[0.06] hover:text-white/80"><X className="size-4" /></button>}
         </span>
       </div>
 

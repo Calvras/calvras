@@ -15,6 +15,7 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { CalvrasSidebar } from "../components/CalvrasSidebar";
 import { ProjectProvider, useProjects } from "../lib/project-context";
 import { TitleBar } from "../components/TitleBar";
+import { servesWorkspace } from "../lib/workspace-host";
 
 function NotFoundComponent() {
   return (
@@ -119,7 +120,7 @@ function RootShell({ children }: { children: ReactNode }) {
 }
 
 function SidebarWithProjects() {
-  const { projects, recents, triggerNewChat, setActiveProject, deleteRecent, deleteProject, renameRecent, renameProject } = useProjects();
+  const { projects, recents, triggerNewChat, setActiveProject, openChat, deleteRecent, deleteProject, renameRecent, renameProject } = useProjects();
   const router = useRouter();
 
   return (
@@ -128,24 +129,24 @@ function SidebarWithProjects() {
       recents={recents}
       onNewChat={() => {
         triggerNewChat();
-        if (router.state.location.pathname !== "/app") {
-          router.navigate({ to: "/app" });
+        if (router.state.location.pathname !== "/") {
+          router.navigate({ to: "/" });
         }
       }}
       onSelectProject={(project) => {
         if (project.path) {
           setActiveProject({ name: project.name, path: project.path, ...(project.tasks ? { tasks: project.tasks } : {}) });
         }
-        if (router.state.location.pathname !== "/app") {
-          router.navigate({ to: "/app" });
+        if (router.state.location.pathname !== "/") {
+          router.navigate({ to: "/" });
         }
       }}
       onSelectRecent={(recent) => {
-        if (recent.projectPath && recent.projectName) {
-          setActiveProject({ name: recent.projectName, path: recent.projectPath });
-        }
-        if (router.state.location.pathname !== "/app") {
-          router.navigate({ to: "/app" });
+        // Opening a conversation from History brings back its own transcript, not just its folder.
+        if (recent.id) openChat(recent.id);
+        else if (recent.projectPath && recent.projectName) setActiveProject({ name: recent.projectName, path: recent.projectPath });
+        if (router.state.location.pathname !== "/") {
+          router.navigate({ to: "/" });
         }
       }}
       onDeleteRecent={(item) => {
@@ -167,8 +168,11 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const router = useRouter();
   const [isElectron, setIsElectron] = useState(false);
+  // "/" is the workspace when the desktop runtime serves it and the marketing page everywhere
+  // else, so the sidebar only belongs to the home address on the machine running the app.
+  const workspaceRoot = router.state.location.pathname === "/" && typeof window !== "undefined" && servesWorkspace(window.location.hostname);
   const isExcludedPage =
-    router.state.location.pathname === "/" ||
+    (router.state.location.pathname === "/" && !workspaceRoot) ||
     router.state.location.pathname === "/signin" ||
     router.state.location.pathname === "/pricing" ||
     router.state.location.pathname === "/landing" ||

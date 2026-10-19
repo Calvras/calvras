@@ -8,7 +8,9 @@ Calvras runs workspace tools on its local Node server. The shared composer selec
 | --- | --- |
 | Ask first | Reads and agent bookkeeping can proceed; edits, execution, destructive operations, and external access require approval. |
 | Work automatically | Routine workspace changes proceed; arbitrary shell commands, destructive operations, and external access require approval. |
-| Full access | Routine workspace work and commands proceed; destructive operations and external access still require approval. |
+| Full access | Edits, new files, commands, installs, builds, servers and git add/commit run without a prompt. Deleting, undoing, rolling back and bringing a worker's isolated branch back still ask, as does a file outside the workspace. |
+
+A message sent while a task is running stops that task and starts the new one. Settings can change it to steer into the live task instead, or hold the message above the input until the run ends.
 
 Approval is enforced by the server before executing a tool. Once tokens are single-use and bound to the exact action. Task grants apply to the approved routine tool type; destructive and external actions retain individual approval requirements. Denying an action blocks retrying that exact action during the session. Stop aborts active commands and workers and clears outstanding approvals.
 
@@ -70,6 +72,14 @@ Connections are created only through an approved `configure_mcp` action. Reposit
 ```
 
 HTTP connections use `{"transport":"http","url":"https://your-server.example/mcp"}` with optional `headers`. The client implements initialization, tool listing, calls, JSON and streamed responses, timeouts, and HTTP sessions. Stdio commands run without a shell; on Windows, use an executable such as `node.exe` rather than assuming a shell wrapper will run. Only explicitly supplied server environment values and basic process-path variables are forwarded. Use `list_mcp_tools` and `call_mcp_tool` with the configured name. Configure credentials required by that server explicitly. Stop or connection replacement closes the client.
+
+## Accounts and what is remembered
+
+The app opens on the logo for two seconds and uses that time to read the stored Google session. Signed in, it goes straight to the workspace with the last conversation open. Not signed in, or holding a session record with no account behind it, it shows sign-in and nothing else until Google hands back an address.
+
+Everything the person produces is filed under their own account (`calvras/account/<email>/…`): project folders, the History list, every conversation transcript and each conversation's compressed memory. A second Google account on the same machine starts with an empty shelf and never sees the first one's work. Device-level choices — permission mode, appearance, dock width — stay per machine, because they describe the computer rather than the person.
+
+One History entry is one conversation. The first message names it and opens a thread; later turns write back to that same thread, so leaving for another chat and returning brings the whole exchange, its tool trace and its running summary back. Removing a conversation from the sidebar deletes only its local transcript; the workspace folder, its checkpoints and its files are untouched.
 
 ## Verification and requirements
 

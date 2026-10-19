@@ -2,7 +2,7 @@ import { chromium } from "playwright";
 import fs from "node:fs";
 
 fs.mkdirSync(".agents/artifacts/verify", { recursive: true });
-const BASE = "http://localhost:8082/app";
+const BASE = "http://localhost:8082/";
 const out = (name) => `.agents/artifacts/verify/${name}.png`;
 
 const browser = await chromium.launch();
@@ -19,7 +19,7 @@ await page.screenshot({ path: out("1-splash") });
 
 // 2) Skip splash/auth by pre-seeding storage, reload into the app.
 await page.addInitScript(() => {
-  localStorage.setItem("calvras_user", JSON.stringify({ provider: "google", name: "Calvras user", joinedAt: Date.now() }));
+  localStorage.setItem("calvras_user", JSON.stringify({ provider: "google", email: "hello@calvras.com", name: "Calvras user", joinedAt: Date.now() }));
   sessionStorage.setItem("calvras_session_started", "1");
 });
 await page.goto(BASE, { waitUntil: "domcontentloaded" });

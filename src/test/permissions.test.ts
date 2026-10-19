@@ -12,7 +12,7 @@ describe('permission enforcement',()=>{
     const p=new PermissionScope('ask');expect(()=>p.require({type:'read_file',path:'a.ts'})).not.toThrow();
     expect(request(p,{type:'write_file',path:'a.ts',content:'x'}).status).toBe('pending');
   });
-  it('buys the terminal in Full access but still asks before a file is created, changed or removed',()=>{
+  it('buys the workspace and the terminal in Full access but still asks before removing work',()=>{
     const p=new PermissionScope('full');
     expect(()=>p.require({type:'run_build'})).not.toThrow();
     expect(()=>p.require({type:'run_command',command:'npm install left-pad'})).not.toThrow();
@@ -23,16 +23,14 @@ describe('permission enforcement',()=>{
     expect(()=>p.require({type:'git_push'})).not.toThrow();
     expect(()=>p.require({type:'deploy_application',command:'vercel deploy'})).not.toThrow();
     expect(()=>p.require({type:'request_user_approval',question:'Which repo?'})).not.toThrow();
-    // The workspace itself is not part of the deal, whatever the preset used to promise.
-    for(const action of [{type:'write_file',path:'a.ts',content:'x'},{type:'create_file',path:'b.ts',content:'x'},{type:'search_replace',path:'a.ts',search:'x',replace:'y'},{type:'delete_file',path:'a.ts'}] as ToolAction[]){
-      expect(request(p,action).status).toBe('pending');
+    // Editing the folder is part of the deal now: a new file, a rewrite and a patch all run free.
+    for(const action of [{type:'write_file',path:'a.ts',content:'x'},{type:'create_file',path:'b.ts',content:'x'},{type:'search_replace',path:'a.ts',search:'x',replace:'y'}] as ToolAction[]){
+      expect(()=>p.require(action)).not.toThrow();
     }
-    // One "allow for this task" answers that tool for the rest of the build, so the agent asks
-    // once and then works; a destructive call is never carried over.
-    const write=request(p,{type:'write_file',path:'c.ts',content:'x'});
-    p.decision(write.id,'task');
-    expect(()=>p.require({type:'write_file',path:'d.ts',content:'x'})).not.toThrow();
-    expect(request(p,{type:'delete_file',path:'d.ts'}).status).toBe('pending');
+    // What it takes back is work that already exists, and a worker living outside this folder.
+    expect(request(p,{type:'delete_file',path:'a.ts'}).status).toBe('pending');
+    expect(request(p,{type:'undo_edit',checkpointId:'cp-1'}).status).toBe('pending');
+    expect(request(p,{type:'resolve_worker',id:'job-1',action:'apply'}).status).toBe('pending');
     // use_user_file has its own native confirm, and these two never touch a user file.
     expect(()=>p.require({type:'use_user_file',path:'C:\\Users\\me\\Documents\\CV.pdf'})).not.toThrow();
     expect(()=>p.require({type:'write_memory',key:'stack',value:'vite'})).not.toThrow();

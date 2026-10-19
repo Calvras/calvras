@@ -93,22 +93,21 @@ describe('real agent API approvals', () => {
     expect((await event({ sessionId: id, action: { ...action, content: 'unauthorized change' }, approvalToken: nextDecision.token })).result.ok).toBe(false);
     expect(await readFile(path.join(root, 'example.txt'), 'utf8')).toBe('approved edit');
   });
-  it('runs commands silently in full access but still asks before a file is written', async () => {
+  it('writes files and runs commands silently in full access but still asks before removing work', async () => {
     const { root, id } = await session('full');
     expect((await event({ sessionId: id, action: { type: 'run_command', command: 'node -v' } })).result.ok).toBe(true);
-    const action = { type: 'write_file', path: 'example.txt', content: 'automatic edit' };
-    const held = await event({ sessionId: id, action });
-    expect(held.approval.question).toContain('example.txt');
-    expect(await readFile(path.join(root, 'example.txt'), 'utf8')).toBe('original');
-    const decision = await (await api('approve', { sessionId: id, approvalId: held.approval.id, choice: 'task' })).json();
-    expect((await event({ sessionId: id, action, approvalToken: decision.token })).result.ok).toBe(true);
-    expect(await readFile(path.join(root, 'example.txt'), 'utf8')).toBe('automatic edit');
-    // Answered once for the task, the next file the same tool writes goes through without a prompt.
-    expect((await event({ sessionId: id, action: { type: 'write_file', path: 'second.txt', content: 'x' } })).result.ok).toBe(true);
-    const removal = await event({ sessionId: id, action: { type: 'delete_file', path: 'second.txt' } });
-    expect(removal.approval).toBeDefined();
-    expect((await event({ sessionId: id, action: { type: 'delete_file', path: 'second.txt' }, approvalToken: (await (await api('approve', { sessionId: id, approvalId: removal.approval.id, choice: 'once' })).json()).token })).result.ok).toBe(true);
-    await expect(readFile(path.join(root, 'second.txt'), 'utf8')).rejects.toThrow();
+    // The workspace is part of the deal: creating and editing go through with no prompt.
+    const written = { type: 'write_file', path: 'automatic.txt', content: 'automatic edit' };
+    expect((await event({ sessionId: id, action: written })).result.ok).toBe(true);
+    expect(await readFile(path.join(root, 'automatic.txt'), 'utf8')).toBe('automatic edit');
+    expect((await event({ sessionId: id, action: { type: 'search_replace', path: 'automatic.txt', search: 'automatic', replace: 'quiet' } })).result.ok).toBe(true);
+    // Removing what already exists is the one thing that still interrupts, and it waits for a yes.
+    const removal = await event({ sessionId: id, action: { type: 'delete_file', path: 'automatic.txt' } });
+    expect(removal.approval.question).toContain('automatic.txt');
+    expect(await readFile(path.join(root, 'automatic.txt'), 'utf8')).toBe('quiet edit');
+    const decision = await (await api('approve', { sessionId: id, approvalId: removal.approval.id, choice: 'once' })).json();
+    expect((await event({ sessionId: id, action: { type: 'delete_file', path: 'automatic.txt' }, approvalToken: decision.token })).result.ok).toBe(true);
+    await expect(readFile(path.join(root, 'automatic.txt'), 'utf8')).rejects.toThrow();
   });
   it('blocks requests from external origins before touching a session', async () => {
     const response = await api('session', { projectPath: 'C:/' }, { origin: 'https://evil.example' });

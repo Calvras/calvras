@@ -18,7 +18,7 @@ page.on("request",request=>{if(request.url().endsWith("/api/v1/chat/completions"
 page.on("pageerror",e=>errors.push(e.message));
 page.on("response",async response=>{if(response.url().endsWith("/api/agent/session")&&response.request().method()==="POST"){try{sessions.add((await response.json()).id);}catch{}}});
 try {
- await page.goto(origin+"/app");
+ await page.goto(origin+"/");
  const prompt="In this empty Node project implement a tiny fullstack health page. Create server.mjs using node:http, serve index.html at / and JSON {ok:true} at /api/health. index.html must fetch /api/health and display Service healthy after success. Export the server without listening when imported by node:test. Add server.test.mjs with a real HTTP test for /api/health. Keep package scripts test=node --test and dev=node server.mjs. Run the tests, start the dev server, and verify the page with browser tools. Use only Node built-ins and plain HTML; no dependencies. Work through all steps automatically and stop when verified.";
  await page.getByRole("textbox",{name:"Prompt"}).fill(prompt);await page.getByRole("button",{name:"Send prompt",exact:true}).click();
  await page.getByRole("button",{name:"Stop task",exact:true}).waitFor({timeout:10000});

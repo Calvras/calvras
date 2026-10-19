@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthScreen, LaunchGate, SplashScreen } from "../components/LaunchScreen";
+import { writeStoredUser } from "../lib/account";
 
 beforeEach(() => {
   localStorage.clear();
@@ -112,8 +113,24 @@ describe("launch screen", () => {
 
   it("skips the splash for an already started session", () => {
     sessionStorage.setItem("calvras_session_started", "1");
-    localStorage.setItem("calvras_user", JSON.stringify({ provider: "google", joinedAt: 1 }));
+    localStorage.setItem("calvras_user", JSON.stringify({ provider: "google", email: "hello@calvras.com", joinedAt: 1 }));
     render(<LaunchGate><p>Workspace ready</p></LaunchGate>);
     expect(screen.getByText("Workspace ready")).toBeInTheDocument();
+  });
+
+  it("sends a session record with no account behind it back to sign-in", () => {
+    sessionStorage.setItem("calvras_session_started", "1");
+    localStorage.setItem("calvras_user", JSON.stringify({ provider: "google", joinedAt: 1 }));
+    render(<LaunchGate><p>Workspace ready</p></LaunchGate>);
+    expect(screen.queryByText("Workspace ready")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Continue with Google" })).toBeInTheDocument();
+  });
+
+  it("signs out by forgetting the account, not the work", () => {
+    localStorage.setItem("calvras_user", JSON.stringify({ provider: "google", email: "hello@calvras.com", joinedAt: 1 }));
+    localStorage.setItem("calvras/account/hello@calvras.com/projects", JSON.stringify([{ name: "Calvras", path: "C:/repo/calvras" }]));
+    writeStoredUser(null);
+    expect(localStorage.getItem("calvras_user")).toBeNull();
+    expect(JSON.parse(String(localStorage.getItem("calvras/account/hello@calvras.com/projects")))).toHaveLength(1);
   });
 });

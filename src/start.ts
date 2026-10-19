@@ -1,6 +1,13 @@
 import { createStart, createCsrfMiddleware, createMiddleware } from "@tanstack/react-start";
 
 import { renderErrorPage } from "./lib/error-page";
+import { servesWorkspace } from "./lib/workspace-host";
+
+// The same build is the desktop workspace on the machine running it and the marketing site
+// everywhere else. Only the request knows which, so record the host here for the route loader.
+const hostMiddleware = createMiddleware().server(async ({ next, request }) => {
+  return next({ context: { workspaceHost: new URL(request.url).hostname } });
+});
 
 const errorMiddleware = createMiddleware().server(async ({ next }) => {
   try {
@@ -25,5 +32,5 @@ const csrfMiddleware = createCsrfMiddleware({
 });
 
 export const startInstance = createStart(() => ({
-  requestMiddleware: [errorMiddleware, csrfMiddleware],
+  requestMiddleware: [errorMiddleware, hostMiddleware, csrfMiddleware],
 }));

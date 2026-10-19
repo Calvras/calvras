@@ -7,12 +7,12 @@ import {
   saveProjectPolicy, type Effort, type Policies, type Preferences, type ProjectOverrides, type RoleRouting, type ToolEffect, type UrlRule, type WorkerRole,
 } from "@/lib/preferences";
 import { clearUsage, readUsage } from "@/lib/telemetry";
+import { accountDataChanged, clearScoped, readChats, readScoped, storedUser, writeScoped, writeStoredUser } from "@/lib/account";
 import { version } from "../../package.json";
 import { checkoutFor, paidPlans } from "@/lib/plans";
 import { Dialog, DialogContent, DialogTitle } from "./ui/dialog";
 import { cn } from "@/lib/utils";
 
-const USER_KEY = "calvras_user";
 const planLabel = (plan: string) => plan.charAt(0).toUpperCase() + plan.slice(1);
 const SUPPORT_EMAIL = "calvrasnoreply@gmail.com";
 type Profile = { provider?: string; email?: string; name?: string; picture?: string; plan?: string; joinedAt?: number };
@@ -38,7 +38,13 @@ const desktop = (): Desktop | undefined => typeof window === "undefined" ? undef
 const SECURITY_PRESETS: { value: Policies["securityPreset"]; label: string; description: string }[] = [
   { value: "ask", label: "Ask for approval", description: "Confirm every edit, command, and site visit before it happens." },
   { value: "automatic", label: "Confirm risky actions", description: "Routine workspace work runs on its own; anything destructive or outside asks first." },
-  { value: "full", label: "Turbo Mode", description: "Build, run, and drive the computer without prompts — including destructive and external actions." },
+  { value: "full", label: "Full access", description: "Edits, new files and commands run without a prompt. Deleting, undoing, rolling back and applying a worker's branch still ask you." },
+];
+
+const DELIVERY_OPTIONS: { value: Policies["queuedDelivery"]; label: string }[] = [
+  { value: "interrupt", label: "Stop and Send" },
+  { value: "immediate", label: "Send Into This Task" },
+  { value: "queue", label: "Hold Above Input" },
 ];
 
 const ROLE_ENGINES: { role: WorkerRole; label: string; description: string }[] = [
@@ -200,6 +206,8 @@ export function SettingsPanel({ open, onOpenChange }: { open: boolean; onOpenCha
   const [preferences, setPreferences] = useState<Preferences>(readPreferences());
   const [profile, setProfile] = useState<Profile>({});
   const [projects, setProjects] = useState<RememberedProject[]>([]);
+  const [conversations, setConversations] = useState(0);
+  const [notes, setNotes] = useState(0);
   const [projectPolicies, setProjectPolicies] = useState<Record<string, ProjectOverrides>>({});
   const [showAllProjects, setShowAllProjects] = useState(false);
   const [dialog, setDialog] = useState<"" | "tools" | "network" | "sandbox" | "browser-rules">("");
@@ -217,12 +225,14 @@ export function SettingsPanel({ open, onOpenChange }: { open: boolean; onOpenCha
     setPolicies(readPolicies());
     setPreferences(readPreferences());
     setProjectPolicies(readProjectPolicies());
-    setProjects(readJson<RememberedProject[]>("calvras_projects", []));
+    setProjects(readScoped<RememberedProject[]>("projects", []));
+    setConversations(readScoped<unknown[]>("recents", []).length);
+    setNotes(readScoped<unknown[]>("feedback", []).length);
     const log = readUsage();
     setUsage(log.length);
     setTaskEvents(log.filter((item) => item.kind === "task").length);
-    setReplyEvents(readJson<{ role?: unknown }[]>("calvras_chat_messages", []).filter((item) => item?.role === "assistant").length);
-    try { setProfile(readJson<Profile>(USER_KEY, {})); } catch { setProfile({}); }
+    setReplyEvents(Object.values(readChats()).reduce((total, chat) => total + chat.messages.filter((message) => (message as { role?: unknown })?.role === "assistant").length, 0));
+    setProfile(storedUser() ?? {});
   }, []);
 
   // Usage and the store credential come from the local server, so a window that cannot reach it
@@ -252,7 +262,7 @@ export function SettingsPanel({ open, onOpenChange }: { open: boolean; onOpenCha
     let alive = true;
     void info().then((network) => {
       if (!alive) return;
-      setRemote({ lanUrl: `http://${network.lanAddress || "this-computer"}:${network.port}/app`, available: Boolean(network.lanAddress), applying: false });
+      setRemote({ lanUrl: `http://${network.lanAddress || "this-computer"}:${network.port}/`, available: Boolean(network.lanAddress), applying: false });
     }).catch(() => { if (alive) setRemote({ lanUrl: "", available: false, applying: false }); });
     return () => { alive = false; };
   }, [open, refresh]);
@@ -300,7 +310,7 @@ export function SettingsPanel({ open, onOpenChange }: { open: boolean; onOpenCha
     conversations: "Conversations", usage: "Usage", shortcuts: "Keyboard shortcuts", feedback: "Provide Feedback", account: "Account",
   } as Record<Page, string>)[route.page];
   const pageSubtitle = activeProject ? "Override how Calvras works inside this folder only." : ({
-    general: "Configure agent execution, queued message delivery, and permissions.",
+    general: "Configure agent execution, follow-up message delivery, and permissions.",
     application: "Manage Calvras app settings.",
     appearance: "Manage how Calvras looks and moves.",
     projects: "Permissions Calvras uses per folder. Anything you set here overrides General.",
@@ -360,8 +370,8 @@ export function SettingsPanel({ open, onOpenChange }: { open: boolean; onOpenCha
           {!activeProject && route.page === "general" && <>
             <Group label="Execution">
               <Card>
-                <Row title="Queued Messages" description="Configure when follow-up messages are sent.">
-                  <Segmented label="Queued Messages" value={policies.queuedDelivery} onChange={(queuedDelivery) => update({ queuedDelivery })} options={[{ value: "queue", label: "Queue" }, { value: "immediate", label: "Send Immediately" }]} />
+                <Row title="Follow-up Messages" description="What pressing send does while the agent is still working.">
+                  <Segmented label="Follow-up messages" value={policies.queuedDelivery} onChange={(queuedDelivery) => update({ queuedDelivery })} options={DELIVERY_OPTIONS} />
                 </Row>
                 <button type="button" className="settings-link-row" onClick={() => setRoute({ page: "shortcuts" })}>Keyboard shortcuts</button>
               </Card>
@@ -513,8 +523,8 @@ export function SettingsPanel({ open, onOpenChange }: { open: boolean; onOpenCha
                     {SECURITY_PRESETS.map((preset) => <option key={preset.value} value={preset.value}>{preset.label}</option>)}
                   </select>
                 </Row>
-                <Row title="Queued Messages" description="Configure when follow-up messages are sent in chats without a folder.">
-                  <Segmented label="Queued Messages without a folder" value={policies.queuedDelivery} onChange={(queuedDelivery) => update({ queuedDelivery })} options={[{ value: "queue", label: "Queue" }, { value: "immediate", label: "Send Immediately" }]} />
+                <Row title="Follow-up Messages" description="What pressing send does during a run in chats without a folder.">
+                  <Segmented label="Follow-up messages without a folder" value={policies.queuedDelivery} onChange={(queuedDelivery) => update({ queuedDelivery })} options={DELIVERY_OPTIONS} />
                 </Row>
                 <Row title="Plan Review Policy" description="Whether the agent asks you to review its documents when no folder is open.">
                   <select aria-label="Not in project plan review" className="settings-control" value={policies.planReview} onChange={(event) => update({ planReview: event.target.value as Policies["planReview"] })}><option value="proceed">Always Proceed</option><option value="ask">Always Ask</option></select>
@@ -527,8 +537,8 @@ export function SettingsPanel({ open, onOpenChange }: { open: boolean; onOpenCha
             <Group label="On this computer">
               <p className="settings-group-note">These lists live in this app profile. Clearing them does not touch any file in your folders.</p>
               <Card>
-                <Row title="Projects" description={`${projects.length} folder${projects.length === 1 ? "" : "s"} Calvras remembers.`}><button type="button" className="settings-danger" disabled={!projects.length} onClick={() => { window.localStorage.removeItem("calvras_projects"); refresh(); setNotice("Project list cleared. Folders on disk are untouched."); }}>Clear</button></Row>
-                <Row title="Conversations" description={`${readJson<unknown[]>("calvras_recents", []).length} recent conversation${readJson<unknown[]>("calvras_recents", []).length === 1 ? "" : "s"} in the sidebar.`}><button type="button" className="settings-danger" disabled={!readJson<unknown[]>("calvras_recents", []).length} onClick={() => { window.localStorage.removeItem("calvras_recents"); refresh(); setNotice("Conversation list cleared."); }}>Clear</button></Row>
+                <Row title="Projects" description={`${projects.length} folder${projects.length === 1 ? "" : "s"} Calvras remembers.`}><button type="button" className="settings-danger" disabled={!projects.length} onClick={() => { clearScoped("projects"); accountDataChanged(); refresh(); setNotice("Project list cleared. Folders on disk are untouched."); }}>Clear</button></Row>
+                <Row title="Conversations" description={`${conversations} conversation${conversations === 1 ? "" : "s"} this account can return to.`}><button type="button" className="settings-danger" disabled={!conversations} onClick={() => { clearScoped("recents"); clearScoped("chats"); accountDataChanged(); refresh(); setNotice("Conversation list cleared."); }}>Clear</button></Row>
                 <Row title="Explored workspaces" description={`${readJson<string[]>("calvras_seen_workspaces", []).length} folder${readJson<string[]>("calvras_seen_workspaces", []).length === 1 ? "" : "s"} already mapped, so Calvras does not re-read them from scratch.`}><button type="button" className="settings-danger" disabled={!readJson<string[]>("calvras_seen_workspaces", []).length} onClick={() => { window.localStorage.removeItem("calvras_seen_workspaces"); refresh(); setNotice("Workspace exploration notes cleared. Calvras will re-read folders next time."); }}>Reset</button></Row>
                 <Row title="Per-folder overrides" description={`${Object.keys(projectPolicies).length} folder${Object.keys(projectPolicies).length === 1 ? "" : "s"} deviate from General.`}><button type="button" className="settings-danger" disabled={!Object.keys(projectPolicies).length} onClick={() => { window.localStorage.removeItem("calvras_project_policies"); refresh(); setNotice("All folders follow General again."); }}>Reset</button></Row>
               </Card>
@@ -556,7 +566,7 @@ export function SettingsPanel({ open, onOpenChange }: { open: boolean; onOpenCha
                   <span className="settings-usage-cell"><b>{replyEvents}</b><span>Replies written back</span></span>
                   <span className="settings-usage-cell"><b>{stats ? stats.toolCalls : "—"}</b><span>Tool calls recorded{stats && stats.failures ? ` · ${stats.failures} failed` : ""}</span></span>
                   <span className="settings-usage-cell"><b>{stats ? stats.projects : projects.length}</b><span>Project folders worked in</span></span>
-                  <span className="settings-usage-cell"><b>{readJson<unknown[]>("calvras_recents", []).length}</b><span>Conversations remembered</span></span>
+                  <span className="settings-usage-cell"><b>{conversations}</b><span>Conversations remembered</span></span>
                   <span className="settings-usage-cell"><b>{stats?.firstAt ? new Date(stats.firstAt).toLocaleDateString() : "—"}</b><span>Earliest recorded action</span></span>
                 </div>
                 {!stats?.available && <Row title="Nothing to total yet" description="The local server did not answer, or no folder has been worked in. Calvras will not show a number it cannot source." />}
@@ -601,14 +611,14 @@ export function SettingsPanel({ open, onOpenChange }: { open: boolean; onOpenCha
                   <textarea aria-label="Feedback" className="settings-control mt-3 h-32 w-full resize-y" placeholder="The agent stopped before checking the preview…" value={feedback} onChange={(event) => setFeedback(event.target.value)} />
                   <div className="flex justify-end gap-2">
                     <button type="button" className="settings-control" disabled={!feedback.trim()} onClick={() => {
-                      const stored = readJson<{ at: number; text: string }[]>("calvras_feedback", []);
-                      window.localStorage.setItem("calvras_feedback", JSON.stringify([...stored, { at: Date.now(), text: feedback.trim() }].slice(-100)));
-                      setFeedback(""); setNotice(`Saved on this computer. ${stored.length + 1} note${stored.length + 1 === 1 ? "" : "s"} waiting to review.`);
+                      const stored = readScoped<{ at: number; text: string }[]>("feedback", []);
+                      writeScoped("feedback", [...stored, { at: Date.now(), text: feedback.trim() }].slice(-100));
+                      setFeedback(""); refresh(); setNotice(`Saved on this computer. ${stored.length + 1} note${stored.length + 1 === 1 ? "" : "s"} waiting to review.`);
                     }}>Save note</button>
                     <button type="button" className="settings-control" disabled={!feedback.trim()} onClick={() => void desktop()?.openExternal?.(`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Calvras feedback")}&body=${encodeURIComponent(feedback)}`)}>Send by email</button>
                   </div>
                 </div>
-                <Row title="Saved notes" description={`${readJson<unknown[]>("calvras_feedback", []).length} note${readJson<unknown[]>("calvras_feedback", []).length === 1 ? "" : "s"} stored locally.`}><button type="button" className="settings-danger" disabled={!readJson<unknown[]>("calvras_feedback", []).length} onClick={() => { window.localStorage.removeItem("calvras_feedback"); refresh(); setNotice("Notes cleared."); }}>Clear</button></Row>
+                <Row title="Saved notes" description={`${notes} note${notes === 1 ? "" : "s"} stored locally.`}><button type="button" className="settings-danger" disabled={!notes} onClick={() => { clearScoped("feedback"); accountDataChanged(); refresh(); setNotice("Notes cleared."); }}>Clear</button></Row>
               </Card>
             </Group>
           </>}
@@ -632,7 +642,7 @@ export function SettingsPanel({ open, onOpenChange }: { open: boolean; onOpenCha
                   <button type="button" className="settings-control" onClick={() => { const bridge = desktop(); if (bridge?.openExternal) void bridge.openExternal("https://calvras.com"); else setNotice("calvras.com — open it from a browser window."); }}>Learn more</button>
                 </Row>
                 <Row title="Email" description={profile.email || "Signed in locally without an email address."}>
-                  <button type="button" className="settings-danger" onClick={() => { window.localStorage.removeItem(USER_KEY); window.location.href = "/app"; }}>Sign Out</button>
+                  <button type="button" className="settings-danger" onClick={() => { writeStoredUser(null); window.location.href = "/"; }}>Sign Out</button>
                 </Row>
               </Card>
             </Group>
@@ -699,9 +709,9 @@ function ProjectPage({ project, policies, global, onChange }: { project: Remembe
             <option value="">Follow General</option><option value="proceed">Always Proceed</option><option value="ask">Always Ask</option>
           </select>
         </Row>
-        <Row title="Queued Messages" description={`Follows General (${global.queuedDelivery === "queue" ? "Queue" : "Send Immediately"}).`}>
+        <Row title="Follow-up Messages" description={`Follows General (${DELIVERY_OPTIONS.find((option) => option.value === global.queuedDelivery)?.label || "Stop and Send"}).`}>
           <select aria-label="Project queued delivery" className="settings-control" value={policies.queuedDelivery || ""} onChange={(event) => onChange({ queuedDelivery: (event.target.value || undefined) as ProjectOverrides["queuedDelivery"] })}>
-            <option value="">Follow General</option><option value="queue">Queue</option><option value="immediate">Send Immediately</option>
+            <option value="">Follow General</option>{DELIVERY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
         </Row>
         <Row title="Folder path" description={project.path || "Calvras does not remember a path for this entry."} />

@@ -531,7 +531,7 @@
 .shell-icon-button:hover, .shell-icon-button.is-selected { background: oklch(1 0 0 / 7%); color: oklch(0.96 0 0); }
 .shell-icon-button:focus-visible { outline: 2px solid oklch(0.65 0 0); outline-offset: 2px; }
 .rail-brand { margin-bottom: 16px; }
-.app-sidebar { position: fixed; z-index: 44; top: var(--app-title-height); bottom: 0; left: var(--app-rail-width); width: min(272px, calc(100vw - var(--app-rail-width))); display: flex; flex-direction: column; background: oklch(0.215 0 0); border-right: 1px solid oklch(1 0 0 / 7%); }
+.app-sidebar { position: fixed; z-index: 44; top: var(--app-title-height); bottom: 0; left: var(--app-rail-width); width: min(272px, calc(100vw - var(--app-rail-width))); display: flex; flex-direction: column; background: oklch(0.215 0 0); border-right: 1px solid oklch(1 0 0 / 7%); border-top-right-radius: 14px; border-bottom-right-radius: 14px; overflow: hidden; }
 .sidebar-action, .sidebar-row { display: flex; align-items: center; gap: 9px; width: 100%; padding: 9px 10px; border-radius: 8px; color: oklch(0.86 0 0); font-size: 13px; line-height: 1.45; text-align: left; }
 .sidebar-action:hover, .sidebar-row:hover { background: oklch(1 0 0 / 5%); }
 .sidebar-caption { display: flex; justify-content: space-between; padding: 0 10px 10px; font-size: 11px; color: oklch(0.7 0 0); }
@@ -702,7 +702,6 @@ html[data-reduce-motion="true"] *, html[data-reduce-motion="true"] *::before, ht
 .dock-row-count { margin-left: auto; color: oklch(0.48 0 0); font-size: 10.5px; font-variant-numeric: tabular-nums; }
 .dock-code { flex: 0 1 auto; max-height: 100%; min-height: 0; overflow: auto; margin: 0; border: 1px solid var(--dock-hairline); border-radius: 12px; background: oklch(0.165 0 0); padding: 12px 14px; color: oklch(0.86 0 0); font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; font-size: 12px; line-height: 1.7; scrollbar-width: none; }
 .dock-code::-webkit-scrollbar { display: none; }
-.dock-preview { flex: 1; min-height: 0; width: 100%; border: 1px solid var(--dock-hairline); border-radius: 12px; background: #fff; }
 .dock-section-row { display: flex; align-items: center; gap: 9px; margin-top: 6px; }
 .dock-section { flex: 1; min-width: 0; color: oklch(0.62 0 0); font-size: 12px; font-weight: 500; letter-spacing: .01em; }
 .dock-chip { flex-shrink: 0; padding: 3px 9px; border-radius: 999px; background: rgba(255, 255, 255, .07); color: oklch(0.8 0 0); font-size: 10.5px; letter-spacing: .01em; }

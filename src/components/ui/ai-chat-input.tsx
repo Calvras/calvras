@@ -388,10 +388,12 @@ export interface PromptInputProps {
   onClearFolder?: () => void;
   /** Once a chat has started its folder is fixed; clicking the badge does nothing. */
   folderLocked?: boolean;
-  /** Messages the user sent while the agent was busy, stacked above the input. */
+  /** Messages the user sent while the agent was busy, stacked above the input. Only used when sendWhileThinking is "queue". */
   queued?: { id: string; text: string }[];
   onSendQueuedNow?: (id: string) => void;
   onRemoveQueued?: (id: string) => void;
+  /** What pressing send during a run does: take the task over, steer into it, or hold it above the input. */
+  sendWhileThinking?: "interrupt" | "immediate" | "queue";
   /** Panel actions chosen from the slash menu. */
   onSlashAction?: (id: string) => void;
   /** Electron only: capture the desktop and attach it to the queued message. */
@@ -413,7 +415,7 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
       onStop,
       accessMode = "automatic", onAccessModeChange, approval, onApprovalDecision, onCaptureScreen,
       projectName = null, projectPath = null, folderBusy = false, folderError = "", onFolderFiles, onPickFolder, onNewChatWithFolder, onClearFolder, onSlashAction,
-      folderLocked = false, queued = [], onSendQueuedNow, onRemoveQueued,
+      folderLocked = false, queued = [], onSendQueuedNow, onRemoveQueued, sendWhileThinking = "interrupt",
     },
     ref
   ) => {
@@ -978,16 +980,18 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
           </div>
 
           {queued.length > 0 && (
-            <div role="list" className="mb-1.5 flex flex-col gap-1" aria-label="Waiting to send">
+            <div role="list" className="mb-1.5 flex flex-col gap-1 px-1" aria-label="Waiting to send">
               {queued.map((item) => (
-                <div key={item.id} role="listitem" className="flex items-center gap-2 rounded-lg border border-border bg-muted/60 px-2.5 py-1 text-[12px] text-muted-foreground">
+                <div key={item.id} role="listitem" className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[12px] text-white/60">
+                  <span className="size-1.5 shrink-0 rounded-full bg-[#f5f0e8]/50" aria-hidden="true" />
                   <span className="min-w-0 flex-1 truncate"><LinkifiedText text={item.text} /></span>
                   {onSendQueuedNow && (
                     <button
                       type="button"
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => onSendQueuedNow(item.id)}
-                      className="shrink-0 rounded-md border border-border bg-background px-2 py-0.5 text-[11px] font-medium text-foreground transition-colors hover:bg-muted"
+                      className="shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-opacity hover:opacity-90"
+                      style={{ background: "#f5f0e8", color: "#1a1512" }}
                     >
                       Send now
                     </button>
@@ -998,7 +1002,7 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => onRemoveQueued(item.id)}
                       aria-label={`Discard queued message ${item.text}`}
-                      className="flex size-4 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-black/10"
+                      className="flex size-4 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/10"
                     >
                       <CloseIcon />
                     </button>
@@ -1220,7 +1224,7 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
               type="button"
               onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }} 
               onClick={onActionButtonClick}
-              aria-label={isThinking ? hasValue ? "Queue message" : "Stop task" : showStop ? "Stop recording" : showArrow ? "Send prompt" : "Use voice input"}
+              aria-label={isThinking ? hasValue ? sendWhileThinking === "queue" ? "Queue message" : sendWhileThinking === "immediate" ? "Send into the running task" : "Stop this task and send" : "Stop task" : showStop ? "Stop recording" : showArrow ? "Send prompt" : "Use voice input"}
               className="absolute right-2 bottom-2 z-[10] flex h-8 w-8 items-center justify-center transition-all duration-300 hover:opacity-90 outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-default"
               style={{ borderRadius: 9999, background: "#1a1512", color: "#f5f0e8" }}
             >

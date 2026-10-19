@@ -337,14 +337,24 @@ try {
     await page.waitForFunction(() => document.querySelector('[aria-label="Workspace files"] .dock-code')?.textContent.includes("CALVRAS-DOCK-MARKER-4173"), null, { timeout: 15_000 });
     checks.push(["a second file opens from disk too", true]);
 
-    // Preview tab: honest when nothing is listening, and no iframe pointed at nowhere.
-    await page.getByRole("tab", { name: "Preview" }).click();
+    // Terminal tab: it lives inside the dock now, so there is no floating window to stack.
+    await page.getByRole("tab", { name: "Terminal" }).click();
     await page.waitForTimeout(400);
-    const preview = await page.evaluate(() => ({
-      text: document.querySelector('[aria-label="Preview"].dock-panel')?.innerText.replace(/\s+/g, " ") || "",
-      iframes: document.querySelectorAll(".dock-preview").length,
+    const terminal = await page.evaluate(() => ({
+      text: document.querySelector('[aria-label="Terminal"].dock-panel')?.innerText.replace(/\s+/g, " ") || "",
+      input: Boolean(document.querySelector('[aria-label="Terminal"].dock-panel input[aria-label="Terminal command"]')),
+      close: document.querySelectorAll('[aria-label="Close terminal"]').length,
+      floating: document.querySelectorAll("section.fixed.bottom-3").length,
     }));
-    checks.push([`preview with no server says so and embeds nothing (${preview.text.slice(0, 70)})`, /No local server preview is open/.test(preview.text) && preview.iframes === 0]);
+    checks.push([`the dock hosts the terminal with a live prompt and no second window (${JSON.stringify(terminal).slice(0, 80)})`,
+      /Terminal ready in/.test(terminal.text) && terminal.input && terminal.close === 0 && terminal.floating === 0]);
+
+    const sidebarRadius = await page.evaluate(() => {
+      const el = document.querySelector(".app-sidebar");
+      return el ? [getComputedStyle(el).borderTopRightRadius, getComputedStyle(el).borderBottomRightRadius] : ["", ""];
+    });
+    checks.push([`the sidebar rounds both right corners (${sidebarRadius.join(" / ")})`,
+      parseFloat(sidebarRadius[0]) >= 10 && parseFloat(sidebarRadius[1]) >= 10]);
 
     await page.keyboard.press("Escape");
     assert.equal(await page.locator('.browser-dock[data-open="true"]').count(), 0, "Escape must close the dock");

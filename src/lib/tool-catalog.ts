@@ -23,7 +23,7 @@ export type ToolAction = {
 export const ACCESS_MODES: { value: AccessMode; label: string; description: string }[] = [
   { value: "ask", label: "Ask first", description: "Confirm edits, commands, and outside access." },
   { value: "automatic", label: "Work automatically", description: "Handle routine workspace work; ask about risky actions." },
-  { value: "full", label: "Full access", description: "Commands, installs, builds and servers run without a prompt. Creating, editing or deleting files still asks you first." },
+  { value: "full", label: "Full access", description: "Edits, new files and commands run without a prompt. Deleting, undoing, rolling back and applying a worker's branch still ask you." },
 ];
 export function toolQuestion(action: ToolAction): string {
   const target = action.path || action.command || action.url || action.task || action.prompt;

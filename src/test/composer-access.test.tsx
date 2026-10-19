@@ -34,15 +34,25 @@ describe("composer permissions", () => {
     fireEvent.click(screen.getByLabelText("Production")); fireEvent.click(screen.getByRole("button", { name: "Send answer" }));
     expect(onDecision).toHaveBeenCalledWith("Production");
   });
-  it("stacks a message sent mid-task above the composer instead of interrupting", () => {
+  it("holds a message above the composer when delivery is set to queue", () => {
     const onSendNow = vi.fn(); const onRemove = vi.fn();
-    render(<PromptInput isThinking queued={[{ id: "q1", text: "also add a dark mode toggle" }]} onSendQueuedNow={onSendNow} onRemoveQueued={onRemove} />);
+    render(<PromptInput isThinking sendWhileThinking="queue" queued={[{ id: "q1", text: "also add a dark mode toggle" }]} onSendQueuedNow={onSendNow} onRemoveQueued={onRemove} />);
     expect(screen.getByRole("list", { name: "Waiting to send" })).toBeInTheDocument();
     expect(screen.getByText("also add a dark mode toggle")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Send now" }));
     expect(onSendNow).toHaveBeenCalledWith("q1");
     fireEvent.click(screen.getByRole("button", { name: /Discard queued message/ }));
     expect(onRemove).toHaveBeenCalledWith("q1");
+  });
+  it("names the send button for what pressing it during a run will do", () => {
+    const { unmount } = render(<PromptInput isThinking defaultValue="stop and do this instead" />);
+    expect(screen.getByRole("button", { name: "Stop this task and send" })).toBeInTheDocument();
+    unmount();
+    const second = render(<PromptInput isThinking defaultValue="x" sendWhileThinking="queue" />);
+    expect(screen.getByRole("button", { name: "Queue message" })).toBeInTheDocument();
+    second.unmount();
+    render(<PromptInput isThinking />);
+    expect(screen.getByRole("button", { name: "Stop task" })).toBeInTheDocument();
   });
   it("keeps a running chat's folder fixed, with a new chat as the only way out", () => {
     const pick = vi.fn(); const reset = vi.fn(); const clear = vi.fn();

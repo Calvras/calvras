@@ -109,16 +109,18 @@ export class PermissionScope {
     }
     const risk = TOOL_RISK[action.type];
     const assessment = actionRisk(action);
-    // Full access buys the terminal, not the workspace: commands, installs, builds, tests and
-    // servers run without a prompt, but writing, creating or removing anything still asks the user.
-    // use_user_file has its own native confirm and the two bookkeeping tools touch no user file.
-    // A worker inside its own git checkout writes to scratch space, so its edits wait for the
-    // resolve_worker approval that actually brings them back — Settings rules still apply.
+    // Full access buys the workspace and the terminal: creating, editing and running go through
+    // without a prompt. Two things still ask. Removal — delete, rollback, git restore, undoing an
+    // edit, or anything the model marked destructive — because that is the one class of mistake a
+    // quiet run cannot undo. And resolve_worker, because a worker's edits live in its own checkout
+    // precisely so that bringing them back is a decision, not a side effect. use_user_file keeps
+    // its own native confirm: a file outside the workspace was never the project's to take.
     const FULL_ACCESS_QUIET = ["use_user_file", "write_memory", "create_checkpoint"];
+    const FULL_ACCESS_ASKS = ["resolve_worker", "undo_edit"];
     const forced = action.type === "request_user_approval";
-    let ask = this.mode === "full" ? (["edit", "destructive"].includes(risk) && !(scratch && risk === "edit") && !FULL_ACCESS_QUIET.includes(action.type)) : forced || (this.mode === "ask" && risk !== "read" && risk !== "agent") || (this.mode === "automatic" && assessment.ask);
+    let ask = this.mode === "full" ? ((risk === "destructive" || FULL_ACCESS_ASKS.includes(action.type)) && !FULL_ACCESS_QUIET.includes(action.type)) : forced || (this.mode === "ask" && risk !== "read" && risk !== "agent") || (this.mode === "automatic" && assessment.ask);
     // Settings rules outrank the preset in both directions: an allow list silences the
-    // prompt it covers, an ask rule interrupts even Turbo Mode.
+    // prompt it covers, an ask rule interrupts even Full access.
     const rule = this.rules.toolRules[action.type];
     const preapproved = SHELL_TOOLS.includes(action.type) && this.rules.outsideSandboxCommands.includes(actionProgram(action));
     const allowedHost = Boolean(host) && (ruleEffect(this.rules.networkRules, host) === "allow" || (ACTUATION_TOOLS.includes(action.type) && ruleEffect(this.rules.browserRules, host) === "allow"));

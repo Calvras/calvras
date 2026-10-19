@@ -14,7 +14,7 @@ const listResult = { ok: true, entries: [
   { path: "src/components/App.tsx", type: "file" },
 ] };
 
-function dock(overrides: Partial<{ tab: DockTab; execute: any; previewUrl: string; showBrowser: boolean; showAgents: boolean; agents: any[]; jobs: SubagentJob[]; onClose: any; onPickFolder: any; projectPath: string | null }> = {}) {
+function dock(overrides: Partial<{ tab: DockTab; execute: any; showBrowser: boolean; showAgents: boolean; agents: any[]; jobs: SubagentJob[]; onClose: any; onPickFolder: any; projectPath: string | null }> = {}) {
   const execute = overrides.execute || vi.fn(async (action: any) => (action.type === "list_files" ? listResult : { ok: true, content: "export const actual = 42;" }));
   return render(
     <RightDock
@@ -24,7 +24,6 @@ function dock(overrides: Partial<{ tab: DockTab; execute: any; previewUrl: strin
       onClose={overrides.onClose || vi.fn()}
       projectPath={"projectPath" in overrides ? overrides.projectPath : "C:/project"}
       projectName="fixture"
-      previewUrl={overrides.previewUrl || ""}
       onPickFolder={overrides.onPickFolder}
       showBrowser={Boolean(overrides.showBrowser)}
       showAgents={Boolean(overrides.showAgents)}
@@ -74,22 +73,25 @@ describe("workspace dock", () => {
     expect(screen.getByRole("tab", { name: "Browser" })).toBeInTheDocument();
   });
 
-  it("embeds only a verified local server in the preview tab", async () => {
-    const execute = vi.fn(async (action: any) => (action.type === "list_files" ? listResult : { ok: true, ready: true, url: "http://localhost:3000" }));
-    dock({ tab: "preview", execute, previewUrl: "http://localhost:3000" });
-    await waitFor(() => expect(screen.getByTitle("Local project preview")).toHaveAttribute("src", "http://localhost:3000/"));
-    cleanup();
-    dock({ tab: "preview", execute, previewUrl: "https://example.com" });
-    expect(screen.queryByTitle("Local project preview")).not.toBeInTheDocument();
-    expect(screen.getByText(/No local server preview is open/)).toBeInTheDocument();
+  it("embeds only a verified local server wherever a preview URL is shown", () => {
     for (const input of ["javascript:alert(1)", "file:///secret", "https://localhost.evil.com", "http://localhost@evil.com", "http://user:pass@localhost:3000"]) expect(safePreviewUrl(input)).toBeNull();
+    expect(safePreviewUrl("http://localhost:3000")).toBe("http://localhost:3000/");
   });
 
-  it("finds a running server when the preview tab has nothing to show yet", async () => {
-    const execute = vi.fn(async (action: any) => (action.type === "check_server" ? { ok: true, ready: true, url: "http://127.0.0.1:4173" } : { ok: true, entries: [] }));
-    dock({ tab: "preview", execute, previewUrl: "" });
-    fireEvent.click(await screen.findByRole("button", { name: /Look for a running server/ }));
-    await waitFor(() => expect(execute).toHaveBeenCalledWith({ type: "check_server" }));
+  it("hosts the terminal in the dock instead of a floating window", () => {
+    dock({ tab: "terminal" });
+    expect(screen.getByRole("tab", { name: "Terminal" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByLabelText("Terminal command")).toBeEnabled();
+    expect(screen.getByRole("log")).toHaveTextContent("Terminal ready in fixture");
+    // The dock owns the frame and its close control, so the panel must not stack a second one.
+    expect(screen.queryByRole("button", { name: "Close terminal" })).not.toBeInTheDocument();
+  });
+
+  it("leaves Escape to the dock while the terminal is open in it", () => {
+    const onClose = vi.fn();
+    dock({ tab: "terminal", onClose });
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it("reports the subagents the session actually ran, and can stop one", async () => {

@@ -151,7 +151,7 @@ async function restartServer() {
     serverPort = await findFreePort(serverPort + 1);
     startServer(serverPort);
     await waitForServer(serverPort);
-    if (mainWindow) mainWindow.loadURL(`http://127.0.0.1:${serverPort}/app`);
+    if (mainWindow) mainWindow.loadURL(`http://127.0.0.1:${serverPort}/`);
   } catch (e) {
     if (mainWindow) {
       mainWindow.loadURL('about:blank');
@@ -212,7 +212,7 @@ function createMainWindow(port) {
   };
 
   mainWindow = new BrowserWindow(windowOptions);
-  mainWindow.loadURL(`http://127.0.0.1:${port}/app`);
+  mainWindow.loadURL(`http://127.0.0.1:${port}/`);
 
   mainWindow.show();
   mainWindow.restore();
@@ -223,7 +223,7 @@ function createMainWindow(port) {
   }, 1000);
 
   mainWindow.webContents.on('did-finish-load', () => {
-    console.log('[MAIN] Window finished loading /app');
+    console.log('[MAIN] Window finished loading the workspace');
     mainWindow.show();
     mainWindow.focus();
   });
@@ -573,7 +573,7 @@ ipcMain.handle('app-set-device-name', (_event, name) => {
  * reports honestly that a restart is what applies it. */
 ipcMain.handle('app-set-remote-control', (_event, on) => {
   writeAppSettings({ remoteControl: Boolean(on) });
-  return { saved: readAppSettings().remoteControl === true, lanUrl: `http://${lanAddress() || 'this-computer'}:${serverPort}/app`, needsRestart: true };
+  return { saved: readAppSettings().remoteControl === true, lanUrl: `http://${lanAddress() || 'this-computer'}:${serverPort}/`, needsRestart: true };
 });
 
 ipcMain.handle('app-network-info', () => ({ lanAddress: lanAddress(), port: serverPort, remoteControl: readAppSettings().remoteControl === true }));

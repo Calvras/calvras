@@ -45,7 +45,7 @@ await context.addInitScript(({ root }) => {
 }, { root });
 const page = await context.newPage(); const errors = [];
 page.on("pageerror", (error) => errors.push(error.message));
-await page.goto(`${origin}/app`); await page.getByRole("textbox", { name: "Prompt" }).waitFor();
+await page.goto(`${origin}/`); await page.getByRole("textbox", { name: "Prompt" }).waitFor();
 await page.getByRole("button", { name: "Workspace permissions" }).click();
 await page.screenshot({ animations: "disabled", path: path.join(artifacts, "permission-menu.png") });
 await page.getByRole("menuitemradio", { name: /Ask first/ }).click();

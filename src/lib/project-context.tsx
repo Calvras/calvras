@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
+import { clearScoped, readChats, readScoped, writeChats, writeScoped, type StoredChat } from "./account";
 
 export interface Project {
   name: string;
@@ -14,7 +15,7 @@ export interface RecentChat {
   hasAlert?: boolean;
 }
 
-interface ProjectContextValue {
+export interface ProjectContextValue {
   projects: Project[];
   recents: RecentChat[];
   activeProject: Project | null;
@@ -25,8 +26,13 @@ interface ProjectContextValue {
   deleteProject: (path: string) => void;
   renameRecent: (id: string, newLabel: string) => void;
   renameProject: (path: string, newName: string) => void;
-  newChatSignal: number;
   triggerNewChat: () => void;
+  /** The conversation open right now, or null for a fresh one that nothing has been written to. */
+  activeChatId: string | null;
+  /** Everything this account has said and the agent has done, newest first. */
+  chats: StoredChat[];
+  openChat: (id: string) => void;
+  saveChat: (id: string, patch: Partial<Pick<StoredChat, "messages" | "label" | "projectPath" | "projectName" | "memory">>) => void;
 }
 
 const ProjectContext = createContext<ProjectContextValue>({
@@ -40,52 +46,54 @@ const ProjectContext = createContext<ProjectContextValue>({
   deleteProject: () => {},
   renameRecent: () => {},
   renameProject: () => {},
-  newChatSignal: 0,
   triggerNewChat: () => {},
+  activeChatId: null,
+  chats: [],
+  openChat: () => {},
+  saveChat: () => {},
 });
 
 export function ProjectProvider({ children }: { children: ReactNode }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [recents, setRecents] = useState<RecentChat[]>([]);
   const [activeProject, setActiveProject] = useState<Project | null>(null);
-  const [newChatSignal, setNewChatSignal] = useState(0);
+  const [chats, setChats] = useState<Record<string, StoredChat>>({});
+  const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    try {
-      const storedP = localStorage.getItem("calvras_projects");
-      if (storedP) setProjects(JSON.parse(storedP));
-      const storedR = localStorage.getItem("calvras_recents");
-      if (storedR) setRecents(JSON.parse(storedR));
-      const storedActive = localStorage.getItem("calvras_active_project");
-      if (storedActive) setActiveProject(JSON.parse(storedActive));
-    } catch {}
+    const storedProjects = readScoped<Project[]>("projects", []);
+    const storedRecents = readScoped<RecentChat[]>("recents", []);
+    const storedActive = readScoped<Project | null>("activeProject", null);
+    setProjects(storedProjects);
+    setRecents(storedRecents);
+    if (storedActive) setActiveProject(storedActive);
+    const stored = readChats();
+    setChats(stored);
+    const openest = Object.values(stored).sort((a, b) => b.savedAt - a.savedAt)[0];
+    if (openest) setActiveChatId(openest.id);
     setMounted(true);
   }, []);
 
   useEffect(() => {
     if (!mounted) return;
-    try {
-      localStorage.setItem("calvras_projects", JSON.stringify(projects));
-    } catch {}
+    writeScoped("projects", projects);
   }, [projects, mounted]);
 
   useEffect(() => {
     if (!mounted) return;
-    try {
-      localStorage.setItem("calvras_recents", JSON.stringify(recents));
-    } catch {}
+    writeScoped("recents", recents);
   }, [recents, mounted]);
 
   useEffect(() => {
     if (!mounted) return;
-    try {
-      if (activeProject) {
-        localStorage.setItem("calvras_active_project", JSON.stringify(activeProject));
-      } else {
-        localStorage.removeItem("calvras_active_project");
-      }
-    } catch {}
+    writeChats(chats);
+  }, [chats, mounted]);
+
+  useEffect(() => {
+    if (!mounted) return;
+    if (activeProject) writeScoped("activeProject", activeProject);
+    else clearScoped("activeProject");
   }, [activeProject, mounted]);
 
   const addProject = (p: Project) => {
@@ -101,6 +109,20 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       const filtered = prev.filter((x) => x.id !== r.id && x.label !== r.label);
       return [r, ...filtered].slice(0, 30);
     });
+    // The conversation gets its place in the store beside its History entry, so opening it
+    // later finds the transcript that was written under the same id.
+    setChats((prev) => ({
+      ...prev,
+      [r.id]: {
+        ...(prev[r.id] || { id: r.id, label: r.label, messages: [] }),
+        id: r.id,
+        label: r.label,
+        ...(r.projectPath ? { projectPath: r.projectPath } : {}),
+        ...(r.projectName ? { projectName: r.projectName } : {}),
+        savedAt: Date.now(),
+      },
+    }));
+    setActiveChatId(r.id);
 
     // Also register task / sub-recent under its project
     if (r.projectPath) {
@@ -121,8 +143,20 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const triggerNewChat = () => {
-    setNewChatSignal((s) => s + 1);
+  const triggerNewChat = () => setActiveChatId(null);
+
+  const openChat = (id: string) => {
+    if (!chats[id]) return;
+    setActiveChatId(id);
+    const chat = chats[id]!;
+    if (chat.projectPath && chat.projectName) setActiveProject({ name: chat.projectName, path: chat.projectPath });
+  };
+
+  const saveChat = (id: string, patch: Partial<Pick<StoredChat, "messages" | "label" | "projectPath" | "projectName" | "memory">>) => {
+    setChats((prev) => ({
+      ...prev,
+      [id]: { ...(prev[id] || { id, label: patch.label || "Conversation", messages: [], savedAt: 0 }), ...patch, savedAt: Date.now() },
+    }));
   };
 
   const deleteRecent = (idOrLabel: string) => {
@@ -133,6 +167,11 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         ...(proj.tasks ? { tasks: proj.tasks.filter((t) => t !== idOrLabel) } : {}),
       }))
     );
+    const gone = Object.values(chats).find((chat) => chat.id === idOrLabel || chat.label === idOrLabel);
+    if (!gone) return;
+    const { [gone.id]: _removed, ...rest } = chats;
+    setChats(rest);
+    if (activeChatId === gone.id) setActiveChatId(null);
   };
 
   const deleteProject = (path: string) => {
@@ -150,6 +189,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         ...(proj.tasks ? { tasks: proj.tasks.map((t) => (t === idOrLabel ? newLabel : t)) } : {}),
       }))
     );
+    const match = Object.values(chats).find((chat) => chat.id === idOrLabel || chat.label === idOrLabel);
+    if (match) saveChat(match.id, { label: newLabel });
   };
 
   const renameProject = (path: string, newName: string) => {
@@ -170,8 +211,11 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         deleteProject,
         renameRecent,
         renameProject,
-        newChatSignal,
         triggerNewChat,
+        activeChatId,
+        chats: Object.values(chats).sort((a, b) => b.savedAt - a.savedAt),
+        openChat,
+        saveChat,
       }}
     >
       {children}

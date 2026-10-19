@@ -7,7 +7,7 @@ export default function ModernLoginSignup() {
   const [notice, setNotice] = useState("");
   return (
     <main className="auth-page">
-      <Link to="/app" className="absolute left-6 top-6 flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft size={16} /> Back to workspace</Link>
+      <Link to="/" className="absolute left-6 top-6 flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft size={16} /> Back to workspace</Link>
       <section className="auth-card">
         <img src="/calvras-logo.png" alt="Calvras" className="mx-auto mb-6 h-12 w-12 object-contain" />
         <h1 className="text-center text-2xl font-semibold tracking-tight">{isSignup ? "Make room for your next idea" : "Welcome back to Calvras"}</h1>
@@ -17,7 +17,7 @@ export default function ModernLoginSignup() {
           <label className="text-xs text-muted-foreground">Email address<input className="auth-input" autoComplete="email" type="email" name="email" placeholder="you@example.com" required /></label>
           <button className="auth-primary" type="submit"><Mail size={16} /> Continue with email</button>
         </form>
-        {notice && <p role="status" className="mt-4 text-sm text-muted-foreground">{notice} <Link to="/app" className="underline">Open workspace</Link></p>}
+        {notice && <p role="status" className="mt-4 text-sm text-muted-foreground">{notice} <Link to="/" className="underline">Open workspace</Link></p>}
         <p className="mt-7 text-center text-sm text-muted-foreground">{isSignup ? "Already have an account?" : "New to Calvras?"} <button className="text-foreground underline underline-offset-4" onClick={() => { setIsSignup(!isSignup); setNotice(""); }}>{isSignup ? "Sign in" : "Sign up"}</button></p>
       </section>
     </main>

@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsPanel } from "../components/SettingsPanel";
 import { readPreferences, readPolicies } from "../lib/preferences";
+import { scopedKey } from "../lib/account";
 import { TOOL_NAMES } from "../lib/tool-catalog";
 
 const values = new Map<string, string>();
@@ -64,11 +65,13 @@ describe("settings", () => {
     window.removeEventListener("calvras:preferences", preferences);
   });
 
-  it("stores the queued delivery choice as a policy", () => {
+  it("stores the follow-up delivery choice as a policy", () => {
     render(<SettingsPanel open onOpenChange={vi.fn()} />);
-    fireEvent.click(within(screen.getByRole("group", { name: "Queued Messages" })).getByRole("button", { name: "Send Immediately" }));
+    const group = () => within(screen.getByRole("group", { name: "Follow-up messages" }));
+    expect(group().getByRole("button", { name: "Stop and Send" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(group().getByRole("button", { name: "Send Into This Task" }));
     expect(readPolicies().queuedDelivery).toBe("immediate");
-    expect(within(screen.getByRole("group", { name: "Queued Messages" })).getByRole("button", { name: "Send Immediately" })).toHaveAttribute("aria-pressed", "true");
+    expect(group().getByRole("button", { name: "Send Into This Task" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("applies appearance changes to the document", () => {
@@ -145,7 +148,7 @@ describe("settings", () => {
     goto("Provide Feedback");
     fireEvent.change(screen.getByLabelText("Feedback"), { target: { value: "The agent stopped early." } });
     fireEvent.click(screen.getByRole("button", { name: "Save note" }));
-    expect(JSON.parse(values.get("calvras_feedback") || "[]")[0]).toMatchObject({ text: "The agent stopped early." });
+    expect(JSON.parse(values.get(scopedKey("feedback")) || "[]")[0]).toMatchObject({ text: "The agent stopped early." });
     goto("Account");
     fireEvent.click(screen.getByRole("switch", { name: "Enable Telemetry" }));
     expect(readPolicies().telemetry).toBe(false);

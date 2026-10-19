@@ -65,7 +65,7 @@ try {
   const network = await call(page, "networkInfo");
   check(`restart: remote control reports its LAN address (${JSON.stringify(network)})`, network?.remoteControl === true && Boolean(network?.lanAddress));
   if (network?.lanAddress) {
-    const url = `http://${network.lanAddress}:${network.port}/app`;
+    const url = `http://${network.lanAddress}:${network.port}/`;
     const status = await fetch(url, { signal: AbortSignal.timeout(10_000) }).then((response) => response.status).catch((error) => String(error.message).slice(0, 60));
     check(`restart: the app answers on the network address (${url} → ${status})`, status === 200);
   } else {

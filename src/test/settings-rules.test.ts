@@ -61,9 +61,10 @@ describe("settings rules the agent cannot bypass", () => {
     expect(ask(scope, { type: "run_build" })).toBe("asked");
     expect(ask(scope, { type: "read_file", path: "a.ts" })).toBe("ran");
     scope.decision(scope.list()[0]!.id, "once");
-    // The plan is cleared, yet full access still asks before the first write — and one answer for
-    // the task carries that tool through the rest of the build.
-    expect(ask(scope, { type: "write_file", path: "a.ts", content: "x" })).toBe("asked");
+    // The plan is cleared and full access owns the workspace, so the write runs. What still stops
+    // for the user is the thing a quiet run cannot undo.
+    expect(ask(scope, { type: "write_file", path: "a.ts", content: "x" })).toBe("ran");
+    expect(ask(scope, { type: "delete_file", path: "a.ts" })).toBe("asked");
     scope.decision(scope.list().filter((item) => item.status === "pending").at(-1)!.id, "task");
     expect(ask(scope, { type: "write_file", path: "b.ts", content: "x" })).toBe("ran");
   });

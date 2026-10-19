@@ -1,5 +1,7 @@
 import { marketingHead } from "@/lib/marketing-seo";
 import { LandingPage } from "@/components/LandingPage";
+import { LaunchGate } from "@/components/LaunchScreen";
+import { servesWorkspace, workspaceHostFrom } from "@/lib/workspace-host";
 import { AgentActivity, type SubagentJob } from "@/components/AgentActivity";
 import { runAgent, type AgentAction } from "@/lib/agent-run";
 import { createFileRoute } from "@tanstack/react-router";
@@ -11,7 +13,6 @@ import type { AccessMode, ToolAction } from "@/lib/tool-catalog";
 import { TOOL_RISK } from "@/lib/tool-catalog";
 import type { ComposerRequest } from "@/components/ui/composer-access";
 import { TasksPanel, type ScheduledRunView, type TaskStep } from "@/components/TasksPanel";
-import { TerminalDock } from "@/components/TerminalDock";
 import { effectivePolicies, readPolicies, readPreferences, savePolicies, type Policies, type Preferences } from "@/lib/preferences";
 import { blockReason, urlHost } from "@/lib/policy-rules";
 import { fidelityNote } from "@/lib/image-fidelity";
@@ -23,6 +24,7 @@ import {
   type TraceNode,
 } from "@/components/ui/ai-agent-response";
 import { useProjects } from "@/lib/project-context";
+import { memoryKeyFor, readMemoryAt, writeMemoryAt, type StoredChat } from "@/lib/account";
 import { callAI, type MediaAttachment } from "@/lib/gemini";
 import { CALVRAS_SYSTEM_PROMPT, policyNotes } from "@/lib/system-prompt";
 import { playCompletionChimeWhenUnfocused } from "@/lib/completion-sound";
@@ -38,8 +40,17 @@ import { UpdatePill } from "@/components/UpdatePill";
 
 export const Route = createFileRoute("/")({
   head: () => marketingHead("/", "Calvras", "Build real projects with Calvras, a Windows x64 desktop AI coding agent for local files, commands, and visible change review."),
-  component: LandingPage,
+  loader: (context) => ({ workspace: servesWorkspace(workspaceHostFrom(context)) }),
+  component: Home,
 });
+
+/** One address, two products: the desktop runtime on this machine serves the workspace, while the
+ * public site that the same build answers on calvras.com is the marketing page only. */
+function Home() {
+  const { workspace } = Route.useLoaderData();
+  if (!workspace) return <LandingPage />;
+  return <LaunchGate><Index /></LaunchGate>;
+}
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * TYPES
@@ -228,22 +239,41 @@ async function requestImport(endpoint: string, body: BodyInit, headers?: Record<
   return { name: data.name, projectPath: data.projectPath };
 }
 
-const SESSION_MEMORY_KEY = "calvras_session_memory";
 const CONTEXT_COMPRESSION_SYSTEM_PROMPT = `You compress the working memory of Calvras, an AI agent. Merge the supplied earlier memory and the new conversation turns into one dense continuation brief. Preserve exactly: the user's goals and constraints, decisions made, completed work, files/paths/commands that matter, failures and unresolved problems, and the next steps for any unfinished task. Keep the user's wording for explicit preferences. Never invent results. Output plain text under 900 words.`;
 
-function readSessionMemory(): { summary: string; covered: number } {
-  try {
-    const value = JSON.parse(localStorage.getItem(SESSION_MEMORY_KEY) || "null");
-    if (value && typeof value.summary === "string") return { summary: value.summary, covered: Number(value.covered) || 0 };
-  } catch { /* storage unavailable */ }
+function readSessionMemory(key: string): { summary: string; covered: number } {
+  const value = readMemoryAt(key) as { summary?: unknown; covered?: unknown } | null;
+  if (value && typeof value.summary === "string") return { summary: value.summary, covered: Number(value.covered) || 0 };
   return { summary: "", covered: 0 };
 }
 
-function writeSessionMemory(memory: { summary: string; covered: number }) {
-  try {
-    if (memory.summary.trim()) localStorage.setItem(SESSION_MEMORY_KEY, JSON.stringify(memory));
-    else localStorage.removeItem(SESSION_MEMORY_KEY);
-  } catch { /* storage unavailable */ }
+function writeSessionMemory(key: string, memory: { summary: string; covered: number }) {
+  writeMemoryAt(key, memory);
+}
+
+/** A stored conversation comes back whole: every bubble is finished, because a run that was
+ * still going when the app closed cannot resume by itself. */
+function restoreTranscript(value: unknown): Message[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((raw) => {
+    const message = raw as Message;
+    // Reasoning rows are part of the reply format now, so they persist with the
+    // trace; a restored conversation still shows its Thought block.
+    const phases = (message.phases || []).map((phase) => ({ ...phase, trace: (phase.trace || []).map((node) => (node.type === "reasoning" && node.status === "running" ? { ...node, status: "completed" as const } : node)) }));
+    const hasResponse = phases.some((phase) => phase.message?.trim() || phase.trace.length);
+    const interrupted = !message.done || (Boolean(message.startedAt) && !message.endedAt && !hasResponse);
+    const lastRecordedTime = message.endedAt ?? Math.max(message.startedAt || 0, ...phases.map((phase) => phase.endedAt || phase.startedAt || 0));
+    return { ...message, phases, done: true, ...(lastRecordedTime ? { endedAt: lastRecordedTime } : {}), ...(interrupted ? { status: "stopped" as const, error: "This task was interrupted before a complete response was saved. Resume to continue." } : {}) };
+  });
+}
+
+/** Object URLs and pasted images expire or blow the storage quota, so a saved conversation
+ * keeps the words and the trace instead of the attachments themselves. */
+function storableTranscript(messages: Message[]): unknown[] {
+  return messages.map((message) => ({
+    ...message,
+    ...(message.attachments ? { attachments: message.attachments.map((file) => ({ ...file, url: file.url.startsWith("data:") ? "" : file.url })) } : {}),
+  }));
 }
 
 function digestTurn(message: Message): string {
@@ -427,14 +457,14 @@ export function Index() {
   useEffect(() => {
     if (typeof window !== "undefined") {
       (window as any).__calvrasNewChat = () => {
-        abortControllerRef.current?.abort(); void runtimeRef.current?.stop(); runtimeRef.current = null; setApprovalQueue([]); setIsLoading(false); setMessages([]); queuedRef.current = []; setQueued([]); writeSessionMemory({ summary: "", covered: 0 });
+        abortControllerRef.current?.abort(); void runtimeRef.current?.stop(); runtimeRef.current = null; setApprovalQueue([]); queuedRef.current = []; setQueued([]); startNewChat();
       };
     }
     return () => {
       if (typeof window !== "undefined") delete (window as any).__calvrasNewChat;
     };
   }, []);
-  const { activeProject, setActiveProject, addProject, addRecent, deleteProject, renameProject, newChatSignal } = useProjects();
+  const { activeProject, setActiveProject, addProject, addRecent, deleteProject, renameProject, activeChatId, chats, saveChat, triggerNewChat } = useProjects();
   const [messages, setMessages] = useState<Message[]>([]);
   const [projectPath, setProjectPath] = useState<string | null>(activeProject?.path || null);
   const [projectName, setProjectName] = useState<string | null>(activeProject?.name || null);
@@ -443,25 +473,23 @@ export function Index() {
   const [approvalQueue, setApprovalQueue] = useState<(ComposerRequest & { sessionId: string; local?: boolean; resolve?: (choice: string | undefined) => void })[]>([]);
   const [tasksOpen, setTasksOpen] = useState(false);
   const [sidechatOpen, setSidechatOpen] = useState(false);
-  const [terminalOpen, setTerminalOpen] = useState(false);
   const [browserAvailable, setBrowserAvailable] = useState(false);
   const [browserEverUsed, setBrowserEverUsed] = useState(false);
   const [browserActive, setBrowserActive] = useState(false);
-  // One right-hand surface for the whole workspace: the files the agent is editing, the running
-  // preview, the page it is driving, and the subagents it handed work to.
+  // One right-hand surface for the whole workspace: the files the agent is editing, the terminal
+  // it runs commands in, the page it is driving, and the subagents it handed work to.
   const [dockOpen, setDockOpen] = useState(false);
   const [dockTab, setDockTab] = useState<DockTab>("files");
   const [dockMounted, setDockMounted] = useState(false);
   const dockMountedRef = useRef(false);
   const serverPreviewUrlRef = useRef("");
-  const [previewUrl, setPreviewUrl] = useState("");
   // The most recent screenshot the user sent, kept across turns so a rebuilt screen can
   // always be measured against the picture it was supposed to match.
   const referenceImageRef = useRef("");
   // True once this conversation has asked for the screen in that image to be reproduced.
   const referenceTargetRef = useRef(false);
   // Mount the dock closed first so the first reveal slides in instead of popping.
-  const openDock = (next: DockTab) => {
+  const openDock = useCallback((next: DockTab) => {
     setDockTab(next);
     if (!dockMountedRef.current) {
       dockMountedRef.current = true;
@@ -471,7 +499,7 @@ export function Index() {
     } else {
       setDockOpen(true);
     }
-  };
+  }, []);
   const revealBrowserPanel = (lock: boolean) => {
     setBrowserActive(lock);
     setBrowserEverUsed(true);
@@ -585,7 +613,16 @@ export function Index() {
     window.addEventListener("calvras:policies", applied);
     return () => window.removeEventListener("calvras:policies", applied);
   }, [projectPath]);
-
+  // The composer labels its own send button with what pressing it will actually do, so the
+  // current delivery rule has to be in state rather than re-read from storage on submit.
+  const [sendPolicy, setSendPolicy] = useState<Policies["queuedDelivery"]>("interrupt");
+  useEffect(() => {
+    const sync = () => setSendPolicy(effectivePolicies(projectPath).queuedDelivery);
+    sync();
+    window.addEventListener("calvras:policies", sync);
+    window.addEventListener("calvras:preferences", sync);
+    return () => { window.removeEventListener("calvras:policies", sync); window.removeEventListener("calvras:preferences", sync); };
+  }, [projectPath]);
   const [folderError, setFolderError] = useState("");
   const [importing, setImporting] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -607,78 +644,51 @@ export function Index() {
     }
   }, [activeProject]);
 
-  // Storage keys for persisting conversation across page refresh
-  const CHAT_STORAGE_KEY = "calvras_chat_messages";
+  // The conversation on screen. History and New chat change it through the account store; the
+  // id stays null until a fresh chat gets its first message, so History only lists threads
+  // that actually have something in them.
+  const [chatId, setChatId] = useState<string | null>(null);
+  const chatIdRef = useRef<string | null>(null);
+  // Set while a transcript is being loaded so restoring a chat cannot re-save it as a change.
+  const loadedChatRef = useRef<string | null>(null);
+  const applyChatId = (id: string | null) => { chatIdRef.current = id; setChatId(id); };
+  const sessionMemoryKey = () => memoryKeyFor(chatIdRef.current);
+  const startNewChat = () => {
+    writeSessionMemory(memoryKeyFor(null), { summary: "", covered: 0 });
+    triggerNewChat();
+  };
 
-  // Hydrate messages from localStorage on client mount
-  const hasHydratedRef = useRef(false);
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(CHAT_STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setMessages(parsed.map((message: Message) => {
-            // Reasoning rows are part of the reply format now, so they persist with the
-            // trace; a restored conversation still shows its Thought block.
-            const phases = (message.phases || []).map((phase) => ({ ...phase, trace: (phase.trace || []).map((node) => (node.type === "reasoning" && node.status === "running" ? { ...node, status: "completed" as const } : node)) }));
-            const hasResponse = phases.some((phase) => phase.message?.trim() || phase.trace.length);
-            const interrupted = !message.done || (Boolean(message.startedAt) && !message.endedAt && !hasResponse);
-            const lastRecordedTime = message.endedAt ?? Math.max(message.startedAt || 0, ...phases.map((phase) => phase.endedAt || phase.startedAt || 0));
-            return { ...message, phases, done: true, ...(lastRecordedTime ? { endedAt: lastRecordedTime } : {}), ...(interrupted ? { status: "stopped", error: "This task was interrupted before a complete response was saved. Resume to continue." } : {}) };
-          }));
-        }
-      }
-      localStorage.removeItem("calvras_active_plan");
-    } catch (e) {
-      console.warn("Failed to restore chat from localStorage:", e);
-    } finally {
-      hasHydratedRef.current = true;
+    if (chatIdRef.current === activeChatId) return;
+    applyChatId(activeChatId);
+    const stored = activeChatId ? chats.find((chat) => chat.id === activeChatId) : undefined;
+    loadedChatRef.current = activeChatId;
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    setIsLoading(false);
+    setMessages(stored ? restoreTranscript(stored.messages) : []);
+    if (stored?.projectPath && stored?.projectName) {
+      setProjectPath(stored.projectPath);
+      setProjectName(stored.projectName);
     }
-  }, []);
-
-  // Persist messages to localStorage whenever they update (after hydration)
-  useEffect(() => {
-    if (!hasHydratedRef.current) return;
-    try {
-      if (messages.length > 0) {
-        // Strip out huge data: URLs from attachments to stay well within localStorage 5MB quota
-        const safeMessages = messages.map((m) => ({
-          ...m,
-          attachments: m.attachments?.map((a) => ({
-            ...a,
-            url: a.url && a.url.startsWith("data:") ? "" : a.url,
-          })),
-        }));
-        localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(safeMessages));
-      } else {
-        localStorage.removeItem(CHAT_STORAGE_KEY);
-      }
-    } catch (e) {
-      console.warn("Failed to persist chat:", e);
-    }
-  }, [messages]);
-
-  // Handle New Chat signal
-  const prevSignalRef = useRef(newChatSignal);
-  useEffect(() => {
-    if (newChatSignal !== prevSignalRef.current) {
-      prevSignalRef.current = newChatSignal;
-      setMessages([]);
-      try {
-        localStorage.removeItem(CHAT_STORAGE_KEY);
-        localStorage.removeItem(SESSION_MEMORY_KEY);
-      } catch {}
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-        abortControllerRef.current = null;
-      }
-      setIsLoading(false);
+    if (!activeChatId) {
       // A new conversation starts with no screenshot and no screen to reproduce.
       referenceImageRef.current = "";
       referenceTargetRef.current = false;
     }
-  }, [newChatSignal]);
+  }, [activeChatId, chats]);
+
+  useEffect(() => { localStorage.removeItem("calvras_active_plan"); }, []);
+
+  // Every turn is written back to the account's chat store under this conversation's id, so
+  // leaving for History and coming back returns the same thread.
+  useEffect(() => {
+    if (!chatId || !messages.length) return;
+    if (loadedChatRef.current === chatId) { loadedChatRef.current = null; return; }
+    saveChat(chatId, { messages: storableTranscript(messages), ...(projectPath && projectName ? { projectPath, projectName } : {}) });
+    // saveChat comes from context and is a new function every render; the transcript itself is
+    // the only thing that should trigger a write.
+  }, [messages, chatId, projectPath, projectName]);
 
   // Auto-scroll on new message
   useEffect(() => {
@@ -743,15 +753,22 @@ export function Index() {
       if (!text && (!attachmentFiles || attachmentFiles.length === 0)) return;
       if (isLoading) {
         const item = { id: crypto.randomUUID(), text, ...(attachmentFiles?.length ? { files: attachmentFiles } : {}), effort, ...(directive ? { directive } : {}) };
+        const delivery = effectivePolicies(projectPath).queuedDelivery;
         // "Send Immediately" hands the message to the turn that is already running.
         // Attachments and slash directives still wait, because steering carries text only.
-        if (text && !item.files && !directive && effectivePolicies(projectPath).queuedDelivery === "immediate") {
+        if (delivery === "immediate" && text && !item.files && !directive) {
           steeringRef.current.push(text);
           setMessages((previous) => [...previous, { id: Date.now(), text, phases: [], done: true, role: "user", status: "finished" }]);
           return;
         }
-        writeQueue([...queuedRef.current, item]);
-        return;
+        // The default takes over. A new prompt while a task runs means the task on screen is no
+        // longer the one they want, so it stops where it stands and this turn starts. "Queue"
+        // in Settings keeps the old behaviour of holding it above the input until the run ends.
+        if (delivery === "queue") {
+          writeQueue([...queuedRef.current, item]);
+          return;
+        }
+        handleStop();
       }
       if (runtimeRef.current && !await runtimeRef.current.preserveWorkersFor(projectPath)) runtimeRef.current = null;
       steeringRef.current = [];
@@ -767,13 +784,18 @@ export function Index() {
         url: a.url,
       }));
 
-      // Add to recents
-      addRecent({
-        id: `chat-${Date.now()}`,
-        label: (text || attachedForBubble[0]?.name || "Attachment").slice(0, 32) + ((text.length > 32) ? "…" : ""),
-        ...(projectPath ? { projectPath } : {}),
-        ...(projectName ? { projectName } : {}),
-      });
+      // The first message names the conversation and puts it in History. Later turns keep
+      // writing to that same entry, so one chat is one item the user can come back to.
+      if (chatIdRef.current === null) {
+        const id = `chat-${Date.now()}`;
+        applyChatId(id);
+        addRecent({
+          id,
+          label: (text || attachedForBubble[0]?.name || "Attachment").slice(0, 32) + ((text.length > 32) ? "…" : ""),
+          ...(projectPath ? { projectPath } : {}),
+          ...(projectName ? { projectName } : {}),
+        });
+      }
 
       // Auto-create project folder if needed
       let activePath = projectPath;
@@ -949,7 +971,7 @@ export function Index() {
 
       // Cross-turn memory: genuinely compress older turns before they fall out of the
       // verbatim window, so a long chat keeps its plan, decisions and unfinished work.
-      let sessionMemory = readSessionMemory();
+      let sessionMemory = readSessionMemory(sessionMemoryKey());
       const uncovered = olderTurns.slice(Math.min(sessionMemory.covered, olderTurns.length));
       const uncoveredChars = uncovered.reduce((total, turn) => total + turn.text.length + turn.phases.reduce((sum, phase) => sum + (phase.message?.length || 0), 0), 0);
       if (uncovered.length >= 4 || uncoveredChars > 18_000) {
@@ -968,7 +990,7 @@ export function Index() {
           if (controller.signal.aborted) throw error;
         }
         sessionMemory = { summary: (summary || fallbackSessionSummary(sessionMemory.summary, uncovered)).slice(0, 16_000), covered: olderTurns.length };
-        writeSessionMemory(sessionMemory);
+        writeSessionMemory(sessionMemoryKey(), sessionMemory);
         divider.divider = { state: "compressed" };
         divider.endedAt = Date.now();
         const resumed: AgentPhase = { trace: [], startedAt: Date.now(), activity: "thinking" };
@@ -1319,7 +1341,6 @@ export function Index() {
               if (serverTool && ok && data.ready === true && typeof data.url === "string" && data.url && hasInAppBrowser()) {
                 const firstReady = serverPreviewUrlRef.current !== data.url;
                 serverPreviewUrlRef.current = data.url;
-                setPreviewUrl(data.url);
                 // A check_server poll only reveals the panel the first time this URL
                 // becomes ready, so closing the preview does not fight the user.
                 if (firstReady || action.type !== "check_server") {
@@ -1417,7 +1438,7 @@ export function Index() {
       }
       if (outcome.status === "finished") void (runtimeRef.current as RuntimeClient | null)?.update({ finished: true });
     },
-    [projectPath, projectName, isLoading, addProject, addRecent, messages, ensureRuntime, writeQueue]
+    [projectPath, projectName, isLoading, addProject, addRecent, messages, ensureRuntime, writeQueue, handleStop]
   );
   const handleSubmitRef = useRef(handleSubmit);
   handleSubmitRef.current = handleSubmit;
@@ -1565,22 +1586,22 @@ export function Index() {
     runtimeRef.current = null;
     setApprovalQueue([]);
     setIsLoading(false);
-    setMessages([]);
     writeQueue([]);
-    writeSessionMemory({ summary: "", covered: 0 });
-    try { localStorage.removeItem("calvras_chat_messages"); } catch { /* storage unavailable */ }
+    // The conversation being left behind stays in History with its own transcript; this only
+    // starts a fresh one.
+    startNewChat();
   }, [writeQueue]);
 
   const handleSlashAction = useCallback((id: string) => {
     if (id === "new-chat") { resetConversation(); return; }
     if (id === "tasks") { setTasksOpen(true); setSidechatOpen(false); return; }
     if (id === "sidechat") { setSidechatOpen(true); setTasksOpen(false); return; }
-    if (id === "terminal") { setTerminalOpen(true); return; }
+    if (id === "terminal") { setTasksOpen(false); openDock("terminal"); return; }
     if (id === "browser") {
       if (browserAvailable) revealBrowserPanel(false);
       else setFolderError("The browser panel is only available in the desktop app.");
     }
-  }, [browserAvailable, resetConversation]);
+  }, [browserAvailable, openDock, resetConversation]);
 
   const latestSteps: TaskStep[] = (() => {
     const withTrace = [...messages].reverse().find((message) => message.phases.some((phase) => phase.trace.length));
@@ -1699,9 +1720,13 @@ export function Index() {
           type="button"
           aria-label="Terminal"
           title="Terminal"
-          aria-pressed={terminalOpen}
-          onClick={() => setTerminalOpen((open) => !open)}
-          className={cn("shell-icon-button", terminalOpen && "is-selected")}
+          aria-pressed={dockOpen && dockTab === "terminal"}
+          onClick={() => {
+            if (dockOpen && dockTab === "terminal") { setDockOpen(false); return; }
+            setTasksOpen(false);
+            openDock("terminal");
+          }}
+          className={cn("shell-icon-button", dockOpen && dockTab === "terminal" && "is-selected")}
         >
           <SquareTerminal className="size-4" />
         </button>
@@ -1722,9 +1747,6 @@ export function Index() {
           execute={workspaceExecute}
           onClose={() => setTasksOpen(false)}
         />
-      )}
-      {terminalOpen && (
-        <TerminalDock projectPath={projectPath} projectName={projectName} onClose={() => setTerminalOpen(false)} />
       )}
       {sidechatOpen && (
         <SideChat onClose={() => setSidechatOpen(false)} getProgress={getProgress} agentBusy={isLoading} />
@@ -1798,7 +1820,7 @@ export function Index() {
           projectName={projectName} projectPath={projectPath}
           folderBusy={importing} folderError={folderError}
           folderLocked={messages.length > 0}
-          queued={queued} onSendQueuedNow={sendQueuedNow} onRemoveQueued={discardQueued}
+          queued={queued} onSendQueuedNow={sendQueuedNow} onRemoveQueued={discardQueued} sendWhileThinking={sendPolicy}
           onFolderFiles={(files) => void importFolderFiles(files)}
           {...(typeof window !== "undefined" && (window as any).__electron?.pickFolder ? { onPickFolder: () => void pickProjectFolder() } : {})}
           onNewChatWithFolder={resetConversation}
@@ -1816,7 +1838,6 @@ export function Index() {
           onClose={() => setDockOpen(false)}
           projectPath={projectPath}
           projectName={projectName}
-          previewUrl={previewUrl}
           {...(typeof window !== "undefined" && (window as any).__electron?.pickFolder ? { onPickFolder: () => void pickProjectFolder() } : {})}
           showBrowser={browserEverUsed}
           showAgents={(runtimeState.agents || []).some((group: any) => Array.isArray(group.jobs) && group.jobs.length > 0)}

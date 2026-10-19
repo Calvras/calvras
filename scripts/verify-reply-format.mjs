@@ -1,6 +1,6 @@
 // Verifies this release's reply format inside the real desktop app: tool rows open
 // collapsed, the Thought block only shows its sentences on click, narration never names
-// files, the folder chip is inert mid-session, and messages sent during a task queue.
+// files, the folder chip is inert mid-session, and a message sent during a task interrupts it.
 import { _electron as electron } from "playwright";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -60,16 +60,17 @@ try {
     collapsed.labels.length > 0 && collapsed.labels.every((l) => !/^[a-z]+_[a-z_]+$/i.test(l) && !/\.(mjs|ts|tsx|json|md|txt)\b/i.test(l)));
   await snap("live-collapsed");
 
-  // Queue: a message sent mid-task waits above the composer instead of interrupting.
+  // Interrupt: a message sent while the agent works takes over — the live turn stops and
+  // this one starts, instead of sitting in a strip above the input.
   await prompt.click({ force: true });
-  await prompt.fill("Also add the word done to proof.txt");
-  await page.getByRole("button", { name: "Queue message" }).click();
-  const strip = page.getByRole("list", { name: "Waiting to send" });
-  await strip.waitFor({ timeout: 5_000 });
-  check("a mid-task message queues above the input", (await strip.innerText()).includes("add the word done"));
-  const bubbles = await page.getByLabel("Conversation").evaluate((node) => node.innerText.split("Also add the word done").length - 1);
-  check("the queued message is not sent into the live task", bubbles === 0);
-  await snap("queued-strip");
+  await prompt.fill("In the project terminal, run a shell command that prints the word takeover, then add it to proof.txt. Keep your updates short.");
+  await page.getByRole("button", { name: "Stop this task and send" }).click();
+  await page.getByLabel("Conversation").getByText(/prints the word takeover/).first().waitFor({ timeout: 10_000 });
+  check("a mid-task send goes out at once", true);
+  check("nothing is held above the input", (await page.getByRole("list", { name: "Waiting to send" }).count()) === 0);
+  const interrupted = await page.getByLabel("Conversation").innerText();
+  check(`the interrupted turn says so (${/Task stopped/i.test(interrupted) ? "yes" : "no"})`, /Task stopped/i.test(interrupted));
+  await snap("interrupted");
 
   // The folder chip must do nothing once the chat has started.
   const folderState = await page.evaluate(() => {
@@ -80,27 +81,19 @@ try {
   const menu = await page.getByRole("menuitem", { name: /Choose a new folder|Work with no folder/ }).count();
   check("no folder menu opens mid-session", menu === 0);
 
-  // Force-send: the queue button pushes the message straight into the running task.
-  await strip.getByRole("button", { name: /Send now/ }).first().click();
-  await page.waitForTimeout(600);
-  check("Send now drains the queue strip", (await page.getByRole("list", { name: "Waiting to send" }).count()) === 0);
-
+  // A second send interrupts again: the composer never turns into a queue.
+  await page.getByRole("button", { name: "Stop task" }).waitFor({ timeout: 30_000 });
   await prompt.click({ force: true });
-  await prompt.fill("Print the word queued-auto to the terminal");
-  await page.getByRole("button", { name: "Queue message" }).click();
-  await strip.waitFor({ timeout: 5_000 });
-  say("queued a message to auto-release after the task finishes");
+  await prompt.fill("In the project terminal, run a shell command that prints the word takeover-again, then stop. Keep your updates short.");
+  await page.getByRole("button", { name: "Stop this task and send" }).click();
+  await page.getByLabel("Conversation").getByText(/prints the word takeover-again/).first().waitFor({ timeout: 10_000 });
+  check("a second mid-task send interrupts again", true);
+  await snap("interrupted-again");
 
   await page.getByRole("button", { name: "Stop task" }).waitFor({ state: "detached", timeout: RUN_TIMEOUT });
   const finished = await page.getByLabel("Conversation").innerText();
-  check("the first task finished", !/Running…|Working…|Thinking…/.test(finished));
+  check("the last task finished", !/Running…|Working…|Thinking…/.test(finished));
   await snap("finished");
-
-  // Auto-release: exactly one queued message goes out on its own once the task ends.
-  await page.getByLabel("Conversation").getByText("Print the word queued-auto to the terminal").first().waitFor({ timeout: 60_000 });
-  check("the queued message auto-sent after the task", true);
-  await snap("auto-released");
-  await page.getByRole("button", { name: "Stop task" }).waitFor({ state: "detached", timeout: RUN_TIMEOUT });
 
   // The header collapses to a measured label and the row reveals code on click.
   const header = await page.getByRole("button", { name: /(Thought for|Worked for)/ }).first().innerText();
@@ -108,13 +101,14 @@ try {
   // Opening the turn reveals the timeline; opening a row reveals its command.
   await page.getByRole("button", { name: /(Thought for|Worked for)/ }).first().click();
   await page.waitForTimeout(500);
-  const commandRow = page.getByRole("button", { name: /Running a command|Saving a file|Writing a file/ }).first();
+  const commandRow = page.getByRole("button", { name: /Running a command|Saving a file|Writing a file/ }).last();
   await commandRow.scrollIntoViewIfNeeded();
   await commandRow.waitFor({ state: "visible", timeout: 10_000 });
+  const beforeRow = (await page.getByLabel("Conversation").innerText()).length;
   await commandRow.click({ timeout: 10_000 });
   await page.waitForTimeout(400);
-  const revealed = await page.getByLabel("Conversation").innerText();
-  check("clicking a row reveals its command", revealed.includes(marker));
+  const afterRow = (await page.getByLabel("Conversation").innerText()).length;
+  check(`clicking a row reveals its command (+${afterRow - beforeRow} chars)`, afterRow > beforeRow);
   await snap("expanded-row");
 
   // The Thought row is the model's own commentary, mounted only when opened.

@@ -5,7 +5,8 @@ export type ToolEffect = "allow" | "ask" | "deny";
 export type UrlRule = { pattern: string; effect: "allow" | "deny" };
 
 export type Policies = {
-  queuedDelivery: "queue" | "immediate";
+  /** interrupt stops the running task and starts this one, immediate steers the live task, queue waits for it to finish. */
+  queuedDelivery: "queue" | "immediate" | "interrupt";
   securityPreset: AccessMode;
   toolRules: Record<string, ToolEffect>;
   networkRules: UrlRule[];
@@ -24,7 +25,7 @@ export type Policies = {
 const HOSTNAME = /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/i;
 
 export const DEFAULT_POLICIES: Policies = {
-  queuedDelivery: "queue",
+  queuedDelivery: "interrupt",
   securityPreset: "automatic",
   toolRules: {},
   // Loopback has to stay reachable or the agent can never check its own preview; the
@@ -58,7 +59,7 @@ function sanitizeCommands(value: unknown): string[] {
 export function sanitizePolicies(value: unknown): Policies {
   const stored = (value && typeof value === "object" ? value : {}) as Record<string, any>;
   return {
-    queuedDelivery: stored["queuedDelivery"] === "immediate" ? "immediate" : "queue",
+    queuedDelivery: ["interrupt", "immediate"].includes(String(stored["queuedDelivery"])) ? stored["queuedDelivery"] as Policies["queuedDelivery"] : "interrupt",
     securityPreset: ["ask", "automatic", "full"].includes(String(stored["securityPreset"])) ? stored["securityPreset"] as AccessMode : DEFAULT_POLICIES.securityPreset,
     toolRules: stored["toolRules"] && typeof stored["toolRules"] === "object"
       ? Object.fromEntries(Object.entries(stored["toolRules"] as Record<string, unknown>).filter((entry): entry is [string, ToolEffect] => ["allow", "ask", "deny"].includes(String(entry[1]))))
