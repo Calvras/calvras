@@ -21,6 +21,9 @@ const config = {
   account_id: "6731a2cf3ac3e76d3f399f505a7e5c11",
   workers_dev: true,
   routes: [{ pattern: "calvras.com", custom_domain: true }],
+  // Cloudflare's git build is configured with no build step, only `npx wrangler deploy`, so the
+  // config has to trigger the build itself or it uploads an entry point that was never written.
+  build: { command: "npm run build" },
 };
 
 delete config.custom_domains;

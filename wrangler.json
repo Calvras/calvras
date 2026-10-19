@@ -26,5 +26,8 @@
       "custom_domain": true
     }
   ],
-  "account_id": "6731a2cf3ac3e76d3f399f505a7e5c11"
+  "account_id": "6731a2cf3ac3e76d3f399f505a7e5c11",
+  "build": {
+    "command": "npm run build"
+  }
 }
