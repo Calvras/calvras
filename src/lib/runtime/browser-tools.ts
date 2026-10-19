@@ -1,9 +1,19 @@
-import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
+import type { Browser, BrowserContext, Page } from 'playwright';
 import { mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { safeProjectPath } from './file-tools';
+
+// Loaded only when a browser tool actually runs, and kept out of the bundle: the hosted build has no
+// browser to launch, and dragging playwright (plus the electron it references) into the server output
+// costs ~7 MB and a 269 MB file lock. prepare-electron-runtime.mjs ships the real package beside the
+// desktop server so this import resolves from disk there.
+async function launchChromium() {
+  const specifier = 'playwright';
+  const { chromium } = (await import(/* @vite-ignore */ specifier)) as typeof import('playwright');
+  return chromium.launch({ headless: true });
+}
 
 export const BROWSER_TOOLS = ['open_browser', 'navigate_browser', 'take_screenshot', 'click_element', 'fill_input', 'inspect_element', 'check_console_errors', 'test_responsive_layout', 'read_page', 'scroll_page', 'press_page_key', 'go_back', 'wait_for_element', 'upload_file_to_page', 'run_page_script'];
 type Session = { context: BrowserContext; page: Page; errors: string[]; allowedOrigins: Set<string>; externalNetworkApproved: boolean };
@@ -21,7 +31,7 @@ async function getSession(projectPath: string): Promise<Session> {
   const key = path.resolve(projectPath);
   if (!sessions.has(key)) {
     const pending = (async () => {
-      browser ??= chromium.launch({ headless: true }).catch((error) => {
+      browser ??= launchChromium().catch((error) => {
         browser = undefined;
         throw new Error(`Browser launch failed. Install the browser with npx playwright install chromium. ${error.message}`);
       });

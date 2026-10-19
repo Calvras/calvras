@@ -1,0 +1,30 @@
+{
+  "compatibility_date": "2026-10-13",
+  "main": ".output/server/index.mjs",
+  "assets": {
+    "binding": "ASSETS",
+    "directory": ".output/public"
+  },
+  "name": "calvras",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "no_bundle": true,
+  "rules": [
+    {
+      "type": "ESModule",
+      "globs": [
+        "**/*.mjs",
+        "**/*.js"
+      ]
+    }
+  ],
+  "workers_dev": true,
+  "routes": [
+    {
+      "pattern": "calvras.com",
+      "custom_domain": true
+    }
+  ],
+  "account_id": "6731a2cf3ac3e76d3f399f505a7e5c11"
+}
