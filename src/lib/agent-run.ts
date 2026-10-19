@@ -201,7 +201,7 @@ export async function runAgent(options: {
       if (result.action.type === "stop_dev_server") serverReadyProof = false;
       // Once a rendered UI is on screen, edits invalidate it: the agent has to drive the real
       // interface — type into it, click it, look at what came back — before it can finish.
-      const uiProof = ["inspect_element", "take_screenshot", "test_responsive_layout", "fill_input", "click_element", "press_page_key", "upload_file_to_page"];
+      const uiProof = ["inspect_element", "take_screenshot", "test_responsive_layout", "fill_input", "click_element", "press_page_key", "upload_file_to_page", "click_at", "hover_at", "drag_at", "type_into_page"];
       if (result.ok && ["open_browser", "navigate_browser"].includes(result.action.type)) { uiIsOpen = true; browserNeedsVerification = true; }
       if (result.ok && uiProof.includes(result.action.type)) browserNeedsVerification = false;
       if (result.ok && TOOL_RISK[result.action.type] === "edit" && uiIsOpen) browserNeedsVerification = true;

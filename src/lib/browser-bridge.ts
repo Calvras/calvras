@@ -1,4 +1,5 @@
 import { pixelDiffScript, summarizeFidelity } from "./image-fidelity";
+import { CLEAR_MARKS_SOURCE, COLLECT_TARGETS_SOURCE, PAGE_MEDIA_SOURCE, formatTargets, targetSummary, type PageView } from "./runtime/page-localizer";
 
 /**
  * Drives the visible <webview> browser panel from the same tool calls the agent
@@ -33,6 +34,7 @@ const IN_APP_BROWSER_TOOLS = new Set([
   "open_browser", "navigate_browser", "read_page", "take_screenshot", "click_element",
   "fill_input", "inspect_element", "check_console_errors", "scroll_page", "press_page_key",
   "go_back", "wait_for_element", "upload_file_to_page", "run_page_script",
+  "click_at", "hover_at", "drag_at", "type_into_page",
 ]);
 
 export function isInAppBrowserTool(type: string): boolean {
@@ -60,8 +62,19 @@ const KEY_NAMES: Record<string, string> = {
   ctrl: "Control", control: "Control", cmd: "Meta", meta: "Meta", alt: "Alt", shift: "Shift",
   enter: "Enter", return: "Enter", esc: "Escape", escape: "Escape", tab: "Tab", space: "Space",
   backspace: "Backspace", delete: "Delete", up: "ArrowUp", down: "ArrowDown", left: "ArrowLeft",
-  right: "ArrowRight", pageup: "PageUp", pagedown: "PageDown", home: "Home", end: "End",
+  right: "ArrowRight", arrowup: "ArrowUp", arrowdown: "ArrowDown", arrowleft: "ArrowLeft", arrowright: "ArrowRight",
+  pageup: "PageUp", pagedown: "PageDown", home: "Home", end: "End",
 };
+
+/** A pointer position the model read off its own numbered screenshot, checked before it reaches the mouse. */
+function spot(args: Record<string, any>, xKey = "x", yKey = "y") {
+  const x = Number(args[xKey]);
+  const y = Number(args[yKey]);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x > 20000 || y > 20000) {
+    throw new Error(`${xKey} and ${yKey} must be coordinates from the numbered screenshot. Take one with take_screenshot if you do not have them.`);
+  }
+  return { x: Math.round(x), y: Math.round(y) };
+}
 
 class BrowserBridge {
   private element: WebviewElement | null = null;
@@ -255,7 +268,8 @@ class BrowserBridge {
       text: (document.body?.innerText ?? "").slice(0, 30000),
       links: [...document.querySelectorAll("a[href]")].slice(0, 80).map((anchor) => ({ text: (anchor.textContent ?? "").trim().slice(0, 120), href: anchor.href }))
     }))()`);
-    return { ok: true, ...page };
+    const media = await element.executeJavaScript(PAGE_MEDIA_SOURCE).catch(() => null);
+    return { ok: true, ...page, ...(media ? { media } : {}) };
   }
 
   /** Layout facts used to judge whether a preview is blank, unstyled, or erroring. */
@@ -374,13 +388,95 @@ class BrowserBridge {
     })()`).catch((error: any) => { throw new Error(error?.message || `No element matches ${selector}`); });
   }
 
-  async screenshot(fullPage = true): Promise<any> {
+  async screenshot(fullPage = false): Promise<any> {
     const element = await this.requirePage();
     let id = 0;
     try { id = element.getWebContentsId(); } catch { /* not attached yet */ }
     if (!id) throw new Error("The browser surface is not ready for screenshots yet. Wait for the page and try again.");
+    // Numbering happens before the capture so the image the model reads carries the same numbers it
+    // is told to click; the overlay comes straight back off so the user sees the real page.
+    const view = fullPage ? null : (await element.executeJavaScript(COLLECT_TARGETS_SOURCE).catch(() => null)) as PageView | null;
     const shot = await (window as any).__electron.browserCapturePage(id, fullPage);
-    return { ok: true, url: element.getURL(), title: element.getTitle(), mimeType: "image/png", image: shot.image };
+    if (view) await element.executeJavaScript(CLEAR_MARKS_SOURCE).catch(() => {});
+    const framing = fullPage
+      ? { framing: "whole page — nothing is numbered here, and click_at needs a viewport screenshot. Take the default take_screenshot to act on the page." }
+      : { framing: "viewport — every numbered box below is inside this image at the coordinates given, so click_at can use them as they are." };
+    return {
+      ok: true, url: element.getURL(), title: element.getTitle(), mimeType: "image/png", image: shot.image,
+      ...framing, view: view ? targetSummary(view) : null, ...(view ? { numbered: formatTargets(view) } : {}),
+    };
+  }
+
+  /** Slide the real cursor to a spot in a few steps, the way a hand moves a mouse across a page. */
+  private async glide(element: WebviewElement, x: number, y: number) {
+    const start = await element.executeJavaScript("(() => { const el = document.querySelector('body'); return { x: (window.__calvrasPointer && window.__calvrasPointer.x) || 0, y: (window.__calvrasPointer && window.__calvrasPointer.y) || 0 }; })()").catch(() => ({ x: 0, y: 0 }));
+    const from = { x: Number(start?.x) || 0, y: Number(start?.y) || 0 };
+    const steps = 8;
+    for (let step = 1; step <= steps; step += 1) {
+      element.sendInputEvent({
+        type: "mouseMove",
+        x: Math.round(from.x + (x - from.x) * (step / steps)),
+        y: Math.round(from.y + (y - from.y) * (step / steps)),
+      });
+      await sleep(8);
+    }
+    element.executeJavaScript(`(() => { window.__calvrasPointer = { x: ${x}, y: ${y} }; return true; })()`).catch(() => {});
+  }
+
+  async clickAt(x: number, y: number, options?: { button?: string; double?: boolean }): Promise<any> {
+    const element = await this.requirePage();
+    await this.glide(element, x, y);
+    const button = options?.button === "right" ? "right" : "left";
+    const clickCount = options?.double ? 2 : 1;
+    element.sendInputEvent({ type: "mouseDown", x, y, button, clickCount });
+    await sleep(40);
+    element.sendInputEvent({ type: "mouseUp", x, y, button, clickCount });
+    await sleep(400);
+    return { ok: true, clicked: { x, y }, url: element.getURL(), title: element.getTitle() };
+  }
+
+  async hoverAt(x: number, y: number): Promise<any> {
+    const element = await this.requirePage();
+    await this.glide(element, x, y);
+    await sleep(250);
+    return { ok: true, hovered: { x, y }, url: element.getURL() };
+  }
+
+  async dragAt(fromX: number, fromY: number, toX: number, toY: number): Promise<any> {
+    const element = await this.requirePage();
+    await this.glide(element, fromX, fromY);
+    element.sendInputEvent({ type: "mouseDown", x: fromX, y: fromY, button: "left", clickCount: 1 });
+    await sleep(60);
+    const steps = 14;
+    for (let step = 1; step <= steps; step += 1) {
+      element.sendInputEvent({
+        type: "mouseMove",
+        x: Math.round(fromX + (toX - fromX) * (step / steps)),
+        y: Math.round(fromY + (toY - fromY) * (step / steps)),
+      });
+      await sleep(14);
+    }
+    element.sendInputEvent({ type: "mouseUp", x: toX, y: toY, button: "left", clickCount: 1 });
+    await sleep(300);
+    return { ok: true, from: { x: fromX, y: fromY }, to: { x: toX, y: toY }, url: element.getURL() };
+  }
+
+  /** Types through the keyboard into whatever the agent just clicked, character by character. */
+  async typeIntoPage(text: string): Promise<any> {
+    if (!text) throw new Error("Provide the text to type into the focused field.");
+    if (text.length > 6000) throw new Error("Keep typed text under 6000 characters.");
+    const element = await this.requirePage();
+    for (const character of text) {
+      if (character === "\n") {
+        element.sendInputEvent({ type: "keyDown", keyCode: "Return" });
+        element.sendInputEvent({ type: "keyUp", keyCode: "Return" });
+      } else {
+        element.sendInputEvent({ type: "char", keyCode: character });
+      }
+      await sleep(12);
+    }
+    await sleep(200);
+    return { ok: true, typed: text.length, url: element.getURL() };
   }
 
   /** Renders the live page and measures it against the screenshot the user sent. */
@@ -463,7 +559,7 @@ class BrowserBridge {
       if (found) return { ok: true, selector, url: element.getURL(), title: element.getTitle() };
       await sleep(350);
     }
-    throw new Error(`No visible element matched "${selector}" within ${timeout}ms. Use read_page to inspect the current page.`);
+    throw new Error(`No visible element matched "${selector}" within ${timeout}ms. Take a take_screenshot and click the numbered spot instead of waiting on a selector.`);
   }
 
   /** Runs the agent's own script body in the page. Gated by the Browser JavaScript policy. */
@@ -494,7 +590,11 @@ class BrowserBridge {
       case "click_element": data = await this.click(String(args["selector"] ?? "")); break;
       case "fill_input": data = await this.fill(String(args["selector"] ?? ""), String(args["value"] ?? args["text"] ?? "")); break;
       case "inspect_element": data = await this.inspect(String(args["selector"] ?? "")); break;
-      case "take_screenshot": data = await this.screenshot(args["fullPage"] !== false); break;
+      case "take_screenshot": data = await this.screenshot(args["fullPage"] === true); break;
+      case "click_at": { const at = spot(args); data = await this.clickAt(at.x, at.y, { button: String(args["button"] ?? ""), double: args["double"] === true || Number(args["clicks"]) >= 2 }); break; }
+      case "hover_at": { const at = spot(args); data = await this.hoverAt(at.x, at.y); break; }
+      case "drag_at": { const from = spot(args, "fromX", "fromY"); const to = spot(args, "toX", "toY"); data = await this.dragAt(from.x, from.y, to.x, to.y); break; }
+      case "type_into_page": data = await this.typeIntoPage(String(args["text"] ?? args["value"] ?? "")); break;
       case "check_console_errors": {
         const errors = this.getConsoleErrors();
         if (args["clear"] === true) this.clearConsoleErrors();

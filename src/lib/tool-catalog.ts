@@ -5,7 +5,7 @@ const groups = {
   edit: ["write_file", "create_file", "rename_file", "move_file", "copy_file", "search_replace", "multi_replace", "insert_code", "delete_lines", "undo_edit", "apply_patch", "apply_diff", "format_file", "format_code", "organize_imports", "multi_file_edit", "refactor_code", "generate_tests", "resolve_imports", "generate_documentation", "write_memory", "create_checkpoint", "use_user_file", "resolve_worker"],
   execute: ["run_command", "run_terminal", "run_code", "install_dependencies", "install_deps", "start_dev_server", "start_server", "stop_dev_server", "run_background_process", "run_tests", "run_single_test", "run_linter", "run_lint", "run_typecheck", "run_build", "debug_code", "verify_changes", "detect_security_issues", "git_add", "git_commit", "manage_environment_variables"],
   destructive: ["delete_file", "git_checkout", "git_restore", "rollback_changes"],
-  external: ["git_push", "git_clone", "open_browser", "navigate_browser", "take_screenshot", "click_element", "fill_input", "test_responsive_layout", "search_documentation", "github_request", "deploy_application", "configure_mcp", "call_mcp_tool", "web_search", "take_screen_screenshot", "move_mouse", "click_mouse", "type_text", "press_keys", "open_app", "wait_for_window", "focus_window", "scroll_page", "press_page_key", "go_back", "upload_file_to_page", "probe_key", "run_page_script"],
+  external: ["git_push", "git_clone", "open_browser", "navigate_browser", "take_screenshot", "click_element", "fill_input", "test_responsive_layout", "search_documentation", "github_request", "deploy_application", "configure_mcp", "call_mcp_tool", "web_search", "take_screen_screenshot", "move_mouse", "click_mouse", "type_text", "press_keys", "open_app", "wait_for_window", "focus_window", "scroll_page", "press_page_key", "go_back", "upload_file_to_page", "probe_key", "run_page_script", "click_at", "hover_at", "drag_at", "type_into_page"],
   agent: ["plan_tasks", "create_task_list", "delegate_task", "ask_subagent", "request_user_approval", "ask_user", "cancel_agent", "schedule_run", "cancel_scheduled", "build_knowledge"],
 } as const;
 export type ToolName = (typeof groups)[keyof typeof groups][number];
@@ -62,6 +62,9 @@ export function validateToolAction(value: Record<string, any>): ToolAction {
   if (type === "report_batch") { require("id", "batch target id"); if (!["queued", "running", "done", "blocked", "skipped"].includes(String(value["status"]))) throw new Error("A batch target ends as done, blocked, or skipped."); }
   if (["open_browser", "navigate_browser"].includes(type)) require("url", "URL");
   if (["click_element", "fill_input", "inspect_element", "wait_for_element", "upload_file_to_page"].includes(type)) require("selector", "CSS selector");
+  if (["click_at", "hover_at"].includes(type) && (value["x"] === undefined || value["y"] === undefined)) throw new Error(`${type} needs the x and y of a numbered spot from take_screenshot.`);
+  if (type === "drag_at" && [value["fromX"], value["fromY"], value["toX"], value["toY"]].some((n) => n === undefined)) throw new Error("drag_at needs fromX, fromY, toX and toY from the numbered screenshot.");
+  if (type === "type_into_page" && typeof value["text"] !== "string") throw new Error("Missing text to type.");
   if (type === "fill_input" && typeof (value["value"] ?? value["text"]) !== "string") throw new Error("Missing text to fill in.");
   if (type === "press_page_key" && typeof value["keys"] !== "string") throw new Error("Missing keys to press.");
   if (type === "upload_file_to_page") require("path", "file path");

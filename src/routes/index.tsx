@@ -135,6 +135,10 @@ const TOOL_NARRATION: Record<string, string> = {
   open_browser: "Opening the page",
   navigate_browser: "Loading the page",
   click_element: "Clicking on the page",
+  click_at: "Clicking the spot it is looking at",
+  hover_at: "Moving the pointer over the page",
+  drag_at: "Dragging across the page",
+  type_into_page: "Typing into the page",
   fill_input: "Typing into the page",
   press_page_key: "Pressing a key on the page",
   scroll_page: "Scrolling the page",
@@ -1061,7 +1065,9 @@ export function Index() {
         ].filter(Boolean).join("\n");
         if (shot?.image) {
           node.image = shot.image;
-          if (mediaList.length >= 3) mediaList.pop();
+          // Drop the oldest picture, never the newest: the last screenshots are the ones that
+          // describe the page as it is now, and losing them sends the agent back to searching.
+          if (mediaList.length >= 3) mediaList.shift();
           mediaList.push({ mimeType: shot.mimeType || "image/png", data: shot.image });
         }
         publish();
@@ -1305,7 +1311,7 @@ export function Index() {
               if (data.checkpointId) node.checkpointId = data.checkpointId;
               if (data.image) {
                 node.image = data.image;
-                if (mediaList.length >= 3) mediaList.pop();
+                if (mediaList.length >= 3) mediaList.shift();
                 mediaList.push({ mimeType: data.mimeType || "image/png", data: data.image });
               }
               if (data.url && data.ready) node.previewUrl = data.url;

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { safeProjectPath } from './file-tools';
+import { CLEAR_MARKS_SOURCE, COLLECT_TARGETS_SOURCE, PAGE_MEDIA_SOURCE, formatTargets, targetSummary, type PageView } from './page-localizer';
 
 // Loaded only when a browser tool actually runs, and kept out of the bundle: the hosted build has no
 // browser to launch, and dragging playwright (plus the electron it references) into the server output
@@ -15,7 +16,7 @@ async function launchChromium() {
   return chromium.launch({ headless: true });
 }
 
-export const BROWSER_TOOLS = ['open_browser', 'navigate_browser', 'take_screenshot', 'click_element', 'fill_input', 'inspect_element', 'check_console_errors', 'test_responsive_layout', 'read_page', 'scroll_page', 'press_page_key', 'go_back', 'wait_for_element', 'upload_file_to_page', 'run_page_script'];
+export const BROWSER_TOOLS = ['open_browser', 'navigate_browser', 'take_screenshot', 'click_element', 'fill_input', 'inspect_element', 'check_console_errors', 'test_responsive_layout', 'read_page', 'scroll_page', 'press_page_key', 'go_back', 'wait_for_element', 'upload_file_to_page', 'run_page_script', 'click_at', 'hover_at', 'drag_at', 'type_into_page'];
 type Session = { context: BrowserContext; page: Page; errors: string[]; allowedOrigins: Set<string>; externalNetworkApproved: boolean };
 const sessions = new Map<string, Promise<Session>>();
 const queues = new Map<string, Promise<unknown>>();
@@ -78,6 +79,30 @@ async function screenshot(page: Page, fullPage = true) {
   return { path: filePath, mimeType: 'image/png', image: `data:image/png;base64,${bytes.toString('base64')}` };
 }
 
+/** A coordinate the model read off its own numbered screenshot, checked before it reaches the mouse. */
+function point(args: Record<string, unknown>, xKey = 'x', yKey = 'y') {
+  const x = Number(args[xKey]);
+  const y = Number(args[yKey]);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x > 20000 || y > 20000) {
+    throw new Error(`${xKey} and ${yKey} must be coordinates from the numbered screenshot. Take one with take_screenshot if you do not have them.`);
+  }
+  return { x: Math.round(x), y: Math.round(y) };
+}
+
+/**
+ * Number the clickable things, capture the page with the numbers on it, then take them back off.
+ * A viewport capture is the default because that is the space its own coordinates live in.
+ */
+async function captureView(page: Page, fullPage: boolean) {
+  const view = fullPage ? null : (await page.evaluate(COLLECT_TARGETS_SOURCE)) as PageView;
+  const shot = await screenshot(page, fullPage);
+  if (view) await page.evaluate(CLEAR_MARKS_SOURCE).catch(() => {});
+  const framing = fullPage
+    ? { framing: 'whole page — nothing is numbered here, and click_at needs a viewport capture. Take the default take_screenshot to act on the page.' }
+    : { framing: 'viewport — every numbered box below is inside this image at the coordinates given, so click_at can use them as they are.' };
+  return { ...shot, ...framing, view: targetSummary(view), ...(view ? { numbered: formatTargets(view) } : {}) };
+}
+
 /** The runtime must authorize network access before calling this executor. */
 export async function executeBrowserTool(type: string, args: Record<string, unknown>, projectPath: string): Promise<any> {
   // A project owns one page. Serialize its actions to prevent concurrent agents
@@ -103,14 +128,52 @@ async function executeAction(type: string, args: Record<string, unknown>, projec
     return { url: page.url(), title: await page.title(), status: response?.status() ?? null };
   }
   if (page.url() === 'about:blank') throw new Error('Open a website with open_browser before using this tool.');
-  if (type === 'take_screenshot') return { url: page.url(), ...await screenshot(page, args['fullPage'] !== false) };
+  if (type === 'take_screenshot') return { ok: true, ...await captureView(page, args['fullPage'] === true) };
   if (type === 'read_page') {
     const pageData = await page.evaluate(() => ({
       title: document.title, url: location.href,
       text: (document.body?.innerText ?? '').slice(0, 30000),
       links: [...document.querySelectorAll('a[href]')].slice(0, 80).map((anchor) => ({ text: (anchor.textContent ?? '').trim().slice(0, 120), href: (anchor as HTMLAnchorElement).href })),
     }));
-    return { ok: true, ...pageData };
+    const media = await page.evaluate(PAGE_MEDIA_SOURCE).catch(() => null);
+    return { ok: true, ...pageData, ...(media ? { media } : {}) };
+  }
+  if (type === 'click_at') {
+    const at = point(args);
+    // Travel to the spot instead of teleporting: menus, tooltips and card hover states only open
+    // when the pointer actually passes over them, which is what a person on a laptop gets.
+    await page.mouse.move(at.x, at.y, { steps: 10 });
+    await page.mouse.click(at.x, at.y, {
+      button: String(args['button']).toLowerCase() === 'right' ? 'right' : 'left',
+      clickCount: args['double'] === true || Number(args['clicks']) >= 2 ? 2 : 1,
+    });
+    await page.waitForTimeout(400);
+    return { ok: true, clicked: at, url: page.url(), title: await page.title() };
+  }
+  if (type === 'hover_at') {
+    const at = point(args);
+    await page.mouse.move(at.x, at.y, { steps: 10 });
+    await page.waitForTimeout(250);
+    return { ok: true, hovered: at, url: page.url() };
+  }
+  if (type === 'drag_at') {
+    const from = point(args, 'fromX', 'fromY');
+    const to = point(args, 'toX', 'toY');
+    await page.mouse.move(from.x, from.y, { steps: 6 });
+    await page.mouse.down();
+    await page.mouse.move(to.x, to.y, { steps: 14 });
+    await page.waitForTimeout(120);
+    await page.mouse.up();
+    await page.waitForTimeout(300);
+    return { ok: true, from, to, url: page.url() };
+  }
+  if (type === 'type_into_page') {
+    const text = String(args['text'] ?? args['value'] ?? '');
+    if (!text) throw new Error('Provide the text to type into the focused field.');
+    if (text.length > 6000) throw new Error('Keep typed text under 6000 characters.');
+    await page.keyboard.type(text, { delay: 12 });
+    await page.waitForTimeout(200);
+    return { ok: true, typed: text.length, url: page.url() };
   }
   if (type === 'run_page_script') {
     const code = String(args['code'] || '');
@@ -129,8 +192,9 @@ async function executeAction(type: string, args: Record<string, unknown>, projec
     if (typeof args['keys'] !== 'string' || !args['keys'].trim()) throw new Error('Provide keys to press, for example Enter or Control+A.');
     const keys = args['keys'].split('+').map((part) => {
       const key = part.trim().toLowerCase();
-      const named: Record<string, string> = { ctrl: 'Control', control: 'Control', cmd: 'Meta', meta: 'Meta', alt: 'Alt', shift: 'Shift', enter: 'Enter', return: 'Enter', esc: 'Escape', escape: 'Escape', tab: 'Tab', space: 'Space', backspace: 'Backspace', delete: 'Delete', up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight', pageup: 'PageUp', pagedown: 'PageDown', home: 'Home', end: 'End' };
-      return named[key] || (key.length === 1 ? key.toUpperCase() : key.charAt(0).toUpperCase() + key.slice(1));
+      const named: Record<string, string> = { ctrl: 'Control', control: 'Control', cmd: 'Meta', meta: 'Meta', alt: 'Alt', shift: 'Shift', enter: 'Enter', return: 'Enter', esc: 'Escape', escape: 'Escape', tab: 'Tab', space: 'Space', backspace: 'Backspace', delete: 'Delete', up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight', arrowup: 'ArrowUp', arrowdown: 'ArrowDown', arrowleft: 'ArrowLeft', arrowright: 'ArrowRight', pageup: 'PageUp', pagedown: 'PageDown', home: 'Home', end: 'End' };
+      const word = key.replace(/[^a-z0-9]/g, "");
+      return named[key] || (word.length === 1 ? word.toUpperCase() : word.charAt(0).toUpperCase() + word.slice(1));
     });
     if (keys.length > 5) throw new Error('Provide at most 5 keys joined with +.');
     await page.keyboard.press(keys.join('+'));
@@ -186,7 +250,7 @@ async function executeAction(type: string, args: Record<string, unknown>, projec
     await locator.fill(String(args['value'] ?? args['text'] ?? ''));
     return { filled: selector };
   }
-  return locator.evaluate((element) => ({ tag: element.tagName.toLowerCase(), text: (element.textContent ?? '').slice(0, 12000), html: element.outerHTML.slice(0, 20000), attributes: Object.fromEntries([...element.attributes].map((attr) => [attr.name, attr.value])), bounds: element.getBoundingClientRect().toJSON(), styles: { display: getComputedStyle(element).display, color: getComputedStyle(element).color, background: getComputedStyle(element).backgroundColor } }));
+  return locator.evaluate((element) => { const field = element as HTMLElement & { value?: unknown; checked?: unknown; disabled?: unknown; placeholder?: unknown }; return ({ tag: element.tagName.toLowerCase(), text: (element.textContent ?? '').slice(0, 12000), html: element.outerHTML.slice(0, 20000), attributes: Object.fromEntries([...element.attributes].map((attr) => [attr.name, attr.value])), value: field.value ?? null, checked: field.checked ?? null, disabled: field.disabled ?? null, placeholder: field.placeholder ?? null, bounds: element.getBoundingClientRect().toJSON(), styles: { display: getComputedStyle(element).display, color: getComputedStyle(element).color, background: getComputedStyle(element).backgroundColor } }); });
 }
 
 export async function closeBrowserSessions(projectPath?: string): Promise<void> {

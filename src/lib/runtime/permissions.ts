@@ -23,14 +23,14 @@ export function actionRisk(action: ToolAction): { ask: boolean; reason: string; 
   const outside = /(?:\b(?:curl|wget|Invoke-WebRequest|ssh|scp|docker|npx|npm\s+(?:install|i\b))\b|https?:\/\/|\b(?:git\s+(?:push|clone))\b|\b(?:vercel|netlify|wrangler|flyctl)\b)/i.test(command);
   const networkTypes = ["install_dependencies", "install_deps", "deploy_application", "github_request", "configure_mcp", "call_mcp_tool", "git_push", "git_clone", "search_documentation", "probe_key"];
   let external = outside || networkTypes.includes(action.type);
-  if (["open_browser", "navigate_browser", "click_element", "fill_input"].includes(action.type)) {
+  if (["open_browser", "navigate_browser", "click_element", "fill_input", "click_at", "drag_at", "type_into_page"].includes(action.type)) {
     try { external = !["localhost", "127.0.0.1", "[::1]"].includes(new URL(String(action['url'])).hostname); } catch { external = true; }
   }
   const unknownShell = ["run_command", "run_terminal", "run_background_process", "run_code", "debug_code"].includes(action.type);
   return { ask: destructive || external || action.type === "request_user_approval" || unknownShell, reason: destructive ? "This operation can remove or replace existing work." : external ? "This action accesses an external service or downloads executable code." : unknownShell ? "This command can act with your operating-system permissions." : "", external, destructive };
 }
 const SHELL_TOOLS = ["run_command", "run_terminal", "run_background_process", "run_code", "debug_code"];
-const ACTUATION_TOOLS = ["open_browser", "navigate_browser", "click_element", "fill_input", "upload_file_to_page", "press_page_key", "scroll_page", "go_back", "test_responsive_layout"];
+const ACTUATION_TOOLS = ["open_browser", "navigate_browser", "click_element", "fill_input", "upload_file_to_page", "press_page_key", "scroll_page", "go_back", "test_responsive_layout", "click_at", "hover_at", "drag_at", "type_into_page"];
 const SCRIPT_TOOLS = ["run_page_script"];
 
 /** The remote host an action reaches, whether it names one directly or hides one inside a command. */
