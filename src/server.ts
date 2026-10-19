@@ -35,6 +35,7 @@ export function isLocalRuntime(url: URL) {
 }
 
 import { updateManifest } from "./lib/release";
+import { handleSiteApi, type SiteEnv } from "./lib/site-api";
 import { inferStreaming, PROFILE_MAX_TOKENS } from "./lib/inference";
 
 // One inference request, real upstream streaming, bounded provider fallbacks.
@@ -75,8 +76,12 @@ async function handleChatCompletions(request: Request): Promise<Response> {
   }
 }
 // All agent filesystem, terminal, Git, browser, and worker operations use scoped sessions.
-async function handleApi(request: Request): Promise<Response | null> {
+async function handleApi(request: Request, env: SiteEnv): Promise<Response | null> {
   const url = new URL(request.url);
+  // The account ledger is the one API that is meant to answer the public domain: it reads a D1
+  // database attached to the deployment, never this machine. So it is tried before the loopback gate.
+  const site = await handleSiteApi(request, env);
+  if (site) return site;
   // The desktop workspace, terminal, and payment-store routes exist for the app on this computer.
   // Off the loopback they answer nothing at all, not even which of them exist.
   if (!isLocalRuntime(url) && (url.pathname.startsWith("/api/agent") || url.pathname.startsWith("/api/fs") || url.pathname.startsWith("/api/terminal"))) {
@@ -161,7 +166,7 @@ function isH3SwallowedErrorBody(body: string): boolean {
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
-      const apiResponse = await handleApi(request);
+      const apiResponse = await handleApi(request, (env || {}) as SiteEnv);
       if (apiResponse) return apiResponse;
 
       const handler = await getServerEntry();

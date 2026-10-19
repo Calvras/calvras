@@ -6,6 +6,10 @@ import { resolve } from "node:path";
 
 const root = process.cwd();
 const generated = resolve(root, ".output/server/wrangler.json");
+// Recorded by `node scripts/link-d1.mjs <database_id>` once the account ledger database exists on
+// the Cloudflare account. It is not committed, because a placeholder id would deploy a Worker with
+// its ledger bound to a database that does not exist.
+const ledger = resolve(root, "d1.json");
 
 if (!existsSync(generated)) {
   console.error(`write-root-wrangler: no ${generated} — run the build first.`);
@@ -26,9 +30,16 @@ const config = {
   build: { command: "npm run build" },
 };
 
+if (existsSync(ledger)) {
+  const { database_id: databaseId } = JSON.parse(readFileSync(ledger, "utf8"));
+  if (databaseId) {
+    config.d1_databases = [{ binding: "CALVRAS_DB", database_name: "calvras-ledger", database_id: String(databaseId), migrations_dir: "migrations" }];
+  }
+}
+
 delete config.custom_domains;
 
 writeFileSync(resolve(root, "wrangler.json"), `${JSON.stringify(config, null, 2)}\n`);
 console.log(
-  `wrangler.json → ${config.name} · main ${config.main} · assets ${config.assets.directory} · routes ${(config.routes ?? []).map((r) => r.pattern).join(", ") || "workers.dev"}`,
+  `wrangler.json → ${config.name} · main ${config.main} · assets ${config.assets.directory} · routes ${(config.routes ?? []).map((r) => r.pattern).join(", ") || "workers.dev"} · ledger ${config.d1_databases ? "bound" : "not bound"}`,
 );

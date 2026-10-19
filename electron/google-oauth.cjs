@@ -119,7 +119,14 @@ async function signInWithGoogle({ clientId, clientSecret, openBrowser, onReturn,
     const profile = await profileResponse.json().catch(() => ({}));
     if (!profileResponse.ok || !profile.email) throw new Error('Google did not return an account.');
 
-    return { email: profile.email, name: profile.name || String(profile.email).split('@')[0], picture: profile.picture || null };
+    // The id token is Google's own signed statement about this person. It is handed to the renderer
+    // for one POST to the site and then dropped — it is never written to the local user record.
+    return {
+      email: profile.email,
+      name: profile.name || String(profile.email).split('@')[0],
+      picture: profile.picture || null,
+      idToken: typeof token.id_token === 'string' ? token.id_token : null,
+    };
   } finally {
     server.close();
   }

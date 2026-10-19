@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -14,6 +14,7 @@ type DeployConfig = {
   account_id: string;
   routes: { pattern: string; custom_domain: boolean }[];
   build?: { command?: string };
+  d1_databases?: { binding: string; database_name: string; database_id: string; migrations_dir: string }[];
 };
 
 /**
@@ -45,6 +46,24 @@ describe("the hosted deploy config", () => {
     const scripts = read<{ scripts: Record<string, string> }>("package.json").scripts;
     expect(scripts["build"]).toContain("node scripts/write-root-wrangler.mjs");
     expect(scripts["deploy"]).toBe("npm run build && npx wrangler deploy");
+  });
+
+  /**
+   * The account ledger lives in a D1 database, and the Worker only sees it when the generated config
+   * carries the binding. The id comes from d1.json, which is not committed: a placeholder binding
+   * would deploy a Worker whose console promises a ledger it cannot reach.
+   */
+  it("binds the ledger database when its id is on the machine", () => {
+    const writer = readFileSync(path.resolve(root, "scripts/write-root-wrangler.mjs"), "utf8");
+    expect(writer).toMatch(/d1\.json/);
+    expect(writer).toMatch(/binding: "CALVRAS_DB"/);
+    expect(writer).toMatch(/migrations_dir: "migrations"/);
+    expect(existsSync(path.resolve(root, "migrations/0001_ledger.sql"))).toBe(true);
+    if (existsSync(path.resolve(root, "d1.json"))) {
+      expect(config.d1_databases).toEqual([{ binding: "CALVRAS_DB", database_name: "calvras-ledger", database_id: expect.any(String), migrations_dir: "migrations" }]);
+    } else {
+      expect(config.d1_databases).toBeUndefined();
+    }
   });
 });
 

@@ -30,6 +30,9 @@ archive/CalvrasDesktop-avalonia/**/obj/
 # Wrangler / Cloudflare
 .wrangler/
 .dev.vars
+# The ledger database id belongs to this machine's Cloudflare account, so the build writes the
+# binding only where it exists. A committed placeholder would deploy a Worker bound to nothing.
+d1.json
 
 # Editor directories and files
 .vscode/*

@@ -13,8 +13,9 @@ import { Dialog, DialogContent, DialogTitle } from "./ui/dialog";
 import { cn } from "@/lib/utils";
 
 const USER_KEY = "calvras_user";
+const planLabel = (plan: string) => plan.charAt(0).toUpperCase() + plan.slice(1);
 const SUPPORT_EMAIL = "calvrasnoreply@gmail.com";
-type Profile = { provider?: string; email?: string; name?: string; picture?: string; joinedAt?: number };
+type Profile = { provider?: string; email?: string; name?: string; picture?: string; plan?: string; joinedAt?: number };
 type RememberedProject = { name: string; path?: string; tasks?: string[] };
 type Page = "general" | "application" | "appearance" | "projects" | "not-in-project" | "conversations" | "usage" | "shortcuts" | "feedback" | "account";
 type Route = { page: Page; project?: string };
@@ -537,7 +538,7 @@ export function SettingsPanel({ open, onOpenChange }: { open: boolean; onOpenCha
           {route.page === "usage" && <>
             <Group label="Plan">
               <Card>
-                <Row title="Your plan: Calvras Local" description="This install runs on this computer. Paid tiers are sold by Payments AI, which acts as the merchant of record for the card.">
+                <Row title={`Your plan: ${profile.plan ? planLabel(profile.plan) : "Calvras Local"}`} description={profile.plan ? `Set on calvras.com for ${profile.email || "this account"}. Signing in again refreshes it.` : "This install runs on this computer. Paid tiers are sold by Payments AI, which acts as the merchant of record for the card."}>
                   <button type="button" className="settings-milk" onClick={openPricing}>Upgrade plan</button>
                 </Row>
                 {paidPlans.map((plan) => { const checkout = checkoutFor(plan.name); return (

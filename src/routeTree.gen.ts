@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AboutRouteImport } from './routes/about'
+import { Route as AdminCalvrasRouteImport } from './routes/admin-calvras'
 import { Route as AppRouteImport } from './routes/app'
 import { Route as CapabilitiesRouteImport } from './routes/capabilities'
 import { Route as ChangelogRouteImport } from './routes/changelog'
@@ -31,6 +32,11 @@ const IndexRoute = IndexRouteImport.update({
 const AboutRoute = AboutRouteImport.update({
   id: '/about',
   path: '/about',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminCalvrasRoute = AdminCalvrasRouteImport.update({
+  id: '/admin-calvras',
+  path: '/admin-calvras',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppRoute = AppRouteImport.update({
@@ -92,6 +98,7 @@ const TermsRoute = TermsRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/admin-calvras': typeof AdminCalvrasRoute
   '/app': typeof AppRoute
   '/capabilities': typeof CapabilitiesRoute
   '/changelog': typeof ChangelogRoute
@@ -107,6 +114,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/admin-calvras': typeof AdminCalvrasRoute
   '/app': typeof AppRoute
   '/capabilities': typeof CapabilitiesRoute
   '/changelog': typeof ChangelogRoute
@@ -123,6 +131,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/admin-calvras': typeof AdminCalvrasRoute
   '/app': typeof AppRoute
   '/capabilities': typeof CapabilitiesRoute
   '/changelog': typeof ChangelogRoute
@@ -140,6 +149,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/about'
+    | '/admin-calvras'
     | '/app'
     | '/capabilities'
     | '/changelog'
@@ -155,6 +165,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/about'
+    | '/admin-calvras'
     | '/app'
     | '/capabilities'
     | '/changelog'
@@ -170,6 +181,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/about'
+    | '/admin-calvras'
     | '/app'
     | '/capabilities'
     | '/changelog'
@@ -186,6 +198,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
+  AdminCalvrasRoute: typeof AdminCalvrasRoute
   AppRoute: typeof AppRoute
   CapabilitiesRoute: typeof CapabilitiesRoute
   ChangelogRoute: typeof ChangelogRoute
@@ -213,6 +226,13 @@ declare module '@tanstack/react-router' {
       path: '/about'
       fullPath: '/about'
       preLoaderRoute: typeof AboutRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin-calvras': {
+      id: '/admin-calvras'
+      path: '/admin-calvras'
+      fullPath: '/admin-calvras'
+      preLoaderRoute: typeof AdminCalvrasRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/app': {
@@ -298,6 +318,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
+  AdminCalvrasRoute: AdminCalvrasRoute,
   AppRoute: AppRoute,
   CapabilitiesRoute: CapabilitiesRoute,
   ChangelogRoute: ChangelogRoute,

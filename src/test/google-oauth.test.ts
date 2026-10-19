@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 const { signInWithGoogle } = createRequire(import.meta.url)("../../electron/google-oauth.cjs") as {
-  signInWithGoogle: (options: { clientId?: string; clientSecret?: string; openBrowser: (url: string) => Promise<void> | void; onReturn?: () => void; fetchImpl?: typeof fetch; timeoutMs?: number }) => Promise<{ email: string; name: string; picture: string | null }>;
+  signInWithGoogle: (options: { clientId?: string; clientSecret?: string; openBrowser: (url: string) => Promise<void> | void; onReturn?: () => void; fetchImpl?: typeof fetch; timeoutMs?: number }) => Promise<{ email: string; name: string; picture: string | null; idToken: string | null }>;
 };
 
 const base64url = (bytes: Buffer) => bytes.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -19,7 +19,7 @@ function google(expectations: (search: URLSearchParams, token: URLSearchParams |
     if (String(url).startsWith("https://oauth2.googleapis.com/token")) {
       calls.token = new URLSearchParams(String(init?.body ?? ""));
       expectations(calls.authorize!, calls.token);
-      return Response.json({ access_token: "at-fixture" });
+      return Response.json({ access_token: "at-fixture", ...(process.env["OMIT_ID_TOKEN"] === "1" ? {} : { id_token: "idt-fixture" }) });
     }
     calls.bearer = new Headers(init?.headers).get("authorization");
     return Response.json({ email: "hello@calvras.com", name: "Shikari", picture: "https://lh3.googleusercontent.com/a" });
@@ -66,7 +66,7 @@ describe("signing in to the desktop app with Google", () => {
     expect(calls.token!.get("client_id")).toBe("fixture.apps.googleusercontent.com");
     expect(calls.token!.has("client_secret")).toBe(false);
     expect(calls.bearer).toBe("Bearer at-fixture");
-    expect(profile).toEqual({ email: "hello@calvras.com", name: "Shikari", picture: "https://lh3.googleusercontent.com/a" });
+    expect(profile).toEqual({ email: "hello@calvras.com", name: "Shikari", picture: "https://lh3.googleusercontent.com/a", idToken: "idt-fixture" });
   });
 
   it("sends Google's desktop-client secret only when this install has one", async () => {

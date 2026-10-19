@@ -1,18 +1,31 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 import { WindowControls } from "./TitleBar";
+import { reportSignIn } from "@/lib/site-session";
 
 const USER_KEY = "calvras_user";
 const SPLASH_MS = 2000;
 
+type DesktopBridge = {
+  minimize?: () => void;
+  maximize?: () => void;
+  close?: () => void;
+  appVersion?: () => Promise<string>;
+  googleSignIn?: () => Promise<GoogleAnswer>;
+};
+
 /** Present only in the desktop build, where the window has no frame of its own to lean on. */
 const desktopBridge = () => typeof window !== "undefined"
-  ? (window as unknown as { __electron?: { minimize?: () => void; maximize?: () => void; close?: () => void } }).__electron
+  ? (window as unknown as { __electron?: DesktopBridge }).__electron
   : undefined;
 
-export type CalvrasUser = { provider: "google"; email?: string; name?: string; picture?: string; joinedAt: number };
+const installedVersion = async () => {
+  try { return String((await desktopBridge()?.appVersion?.()) || ""); } catch { return ""; }
+};
 
-type GoogleAnswer = { ok?: boolean; email?: string; name?: string; picture?: string; error?: string };
+export type CalvrasUser = { provider: "google"; email?: string; name?: string; picture?: string; plan?: string; joinedAt: number };
+
+type GoogleAnswer = { ok?: boolean; email?: string; name?: string; picture?: string; idToken?: string | null; error?: string };
 
 export function SplashScreen() {
   return (
@@ -31,7 +44,7 @@ export function AuthScreen({ onContinue }: { onContinue: (user: CalvrasUser) => 
 
   const google = async () => {
     setError("");
-    const bridge = typeof window !== "undefined" ? (window as unknown as { __electron?: { googleSignIn?: () => Promise<GoogleAnswer> } }).__electron : undefined;
+    const bridge = desktopBridge();
     if (!bridge?.googleSignIn) {
       setError("Google sign-in runs in the Calvras desktop app.");
       return;
@@ -43,7 +56,11 @@ export function AuthScreen({ onContinue }: { onContinue: (user: CalvrasUser) => 
       setError(answer?.error || "Google sign-in failed.");
       return;
     }
-    onContinue({ provider: "google", email: answer.email, name: answer.name ?? answer.email, ...(answer.picture ? { picture: answer.picture } : {}), joinedAt: Date.now() });
+    // Tell the site this person signed in, so the owner's console sees them and so a plan the owner
+    // granted comes back with them. A site that cannot be reached does not lock anyone out.
+    const session = await reportSignIn({ ...(answer.idToken ? { idToken: answer.idToken } : {}), platform: navigator.platform, version: await installedVersion() }).catch(() => ({ ok: false } as const));
+    const plan = session?.ok && session.plan ? session.plan : undefined;
+    onContinue({ provider: "google", email: answer.email, name: answer.name ?? answer.email, ...(answer.picture ? { picture: answer.picture } : {}), ...(plan ? { plan } : {}), joinedAt: Date.now() });
   };
 
   return (
