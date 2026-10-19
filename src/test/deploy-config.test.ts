@@ -61,4 +61,10 @@ describe("the server bundle stays free of the desktop browser", () => {
     const prep = readFileSync(path.resolve(root, "scripts/prepare-electron-runtime.mjs"), "utf8");
     expect(prep).toMatch(/"typescript", "playwright", "playwright-core"/);
   });
+
+  it("does not resolve the compiler while the server module loads", () => {
+    const intelligence = readFileSync(path.resolve(root, "src/lib/runtime/code-intelligence.ts"), "utf8");
+    expect(intelligence).toMatch(/const ts = new Proxy/);
+    expect(intelligence).not.toMatch(/^const ts: typeof TypeScript = runtimeRequire\("typescript"\);$/m);
+  });
 });
