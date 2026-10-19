@@ -38,7 +38,8 @@ export async function checkForUpdate(current: string, fetchImpl: typeof fetch = 
   try {
     const response = await fetchImpl(url, { headers: { accept: "application/json" }, signal: controller.signal });
     if (!response.ok) throw new Error(`The update feed answered ${response.status}.`);
-    // Until the feed is actually deployed, calvras.com answers this path with the landing page.
+    // A misconfigured deploy answers this path with the landing page, which would parse as a release
+    // that does not exist. Only a JSON feed can offer an update.
     if (!(response.headers.get("content-type") || "").includes("json")) throw new Error("The published update feed is not readable yet, so Calvras stayed put.");
     const release = readRelease(await response.json());
     return isNewerSemver(release.version, current) ? { state: "available", current, release } : { state: "latest", current };
