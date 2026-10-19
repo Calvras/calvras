@@ -42,6 +42,19 @@ async function body(request: Request): Promise<Record<string, unknown>> {
   return (await request.json().catch(() => ({}))) as Record<string, unknown>;
 }
 
+/** Cloudflare tags every request it proxies with where the visitor roughly is: a country code always,
+ * a city when the plan exposes it. The owner console reads this to spot a sign-in from somewhere
+ * unexpected. The IP address itself is never stored. */
+function signInLocation(request: Request): { city: string; country: string } {
+  const cf = (request as Request & { cf?: { city?: unknown; country?: unknown } }).cf;
+  const decode = (value: unknown) => {
+    try { return decodeURIComponent(String(value ?? "").trim()); } catch { return ""; }
+  };
+  const city = decode(request.headers.get("cf-ipcity")) || decode(cf?.city);
+  const country = decode(request.headers.get("cf-ipcountry")) || String(cf?.country ?? "");
+  return { city: city.slice(0, 60), country: country.toUpperCase().slice(0, 2) };
+}
+
 /**
  * Sales are read from Payments AI, never copied into this database. Their transaction payload is
  * theirs, so each field is taken from whichever name the response actually uses and left blank when
@@ -85,7 +98,8 @@ export async function handleSiteApi(request: Request, env: SiteEnv): Promise<Res
       const identity = await verifyGoogleIdentity(idToken, env.GOOGLE_CLIENT_ID);
       const account = await recordSignIn(db, {
         email: identity.email, subject: identity.subject, name: identity.name, picture: identity.picture,
-        platform: String(payload["platform"] || "").slice(0, 40), version: String(payload["version"] || "").slice(0, 40), at: Date.now(),
+        platform: String(payload["platform"] || "").slice(0, 40), version: String(payload["version"] || "").slice(0, 40),
+        ...signInLocation(request), at: Date.now(),
       });
       return json({ ok: true, email: account.email, plan: account.plan, firstSeen: account.first_seen, lastSeen: account.last_seen, signins: account.signins });
     } catch (error) {

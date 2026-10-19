@@ -29,7 +29,10 @@ beforeAll(async () => {
   const now = Date.now();
   for (const [index, email] of ["shikari@calvras.com", "ada@calvras.com", "linus@calvras.com"].entries()) {
     const name = email.split("@")[0] || email;
-    await recordSignIn(env.CALVRAS_DB!, { email, name, subject: `sub-${index}`, platform: "Win32", version: "10.0.3", at: now - index * 60_000 });
+    // Two of the three arrive with Cloudflare geolocation, the third with none — the console has to
+    // show a place for the first and an em dash for the last instead of blanking the row.
+    const where = index === 0 ? { city: "Lahore", country: "PK" } : index === 1 ? { country: "DE" } : {};
+    await recordSignIn(env.CALVRAS_DB!, { email, name, subject: `sub-${index}`, platform: "Win32", version: "10.0.3", ...where, at: now - index * 60_000 });
   }
   await grantPlan(env.CALVRAS_DB!, "ada@calvras.com", "ultra", "owner", now);
 
@@ -62,13 +65,20 @@ describe("the owner console in a browser", { timeout: 120_000 }, () => {
         window.localStorage.setItem("calvras_site_base", base as string);
         window.localStorage.setItem("calvras_admin_token", ownerToken as string);
       }, [site.base, token]);
-      await page.reload({ waitUntil: "networkidle" });
+      // The dev server keeps its HMR socket open, so "networkidle" never lands; load plus the wait for
+      // the heading below is what proves the page hydrated against the test ledger.
+      await page.reload({ waitUntil: "load" });
 
       // The token in storage unlocks the console without a keystroke.
-      await page.getByRole("heading", { name: "Accounts" }).waitFor({ timeout: 20_000 });
-      await page.getByRole("cell", { name: /shikari@calvras\.com/ }).first().waitFor({ timeout: 20_000 });
+      await page.getByRole("heading", { name: "Accounts" }).waitFor({ timeout: 40_000 });
+      await page.getByRole("cell", { name: /shikari@calvras\.com/ }).first().waitFor({ timeout: 40_000 });
       expect(await page.getByRole("heading", { name: "Signed in" }).count()).toBe(1);
       expect(await page.locator("table").filter({ hasText: "ada@calvras.com" }).getByText("ultra", { exact: false }).first().isVisible()).toBe(true);
+      // The owner reads where each account signed in from: city plus country, country alone, or nothing.
+      for (const [email, place] of [["shikari@calvras.com", "Lahore, PK"], ["ada@calvras.com", "DE"], ["linus@calvras.com", "—"]] as [string, string][]) {
+        const row = page.locator("tr", { hasText: email }).first();
+        expect((await row.locator("td").nth(5).innerText()).trim(), email).toBe(place);
+      }
       await page.screenshot({ path: path.join(shots, "console-open.png"), fullPage: true });
 
       // Grant Pro to the free account by pressing the chip the owner would press.

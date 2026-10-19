@@ -20,10 +20,18 @@ beforeEach(() => {
 });
 
 describe("ledger schema", () => {
-  it("is the SQL the deployed migration applies", () => {
-    const migration = readFileSync(resolve(process.cwd(), "migrations/0001_ledger.sql"), "utf8");
-    const statements = (text: string) => text.split("\n").filter((line) => !line.trim().startsWith("--")).join("\n").split(";").map((s) => s.trim()).filter(Boolean).sort();
-    expect(statements(migration)).toEqual(statements(LEDGER_SCHEMA));
+  it("is the SQL the deployed migrations apply", () => {
+    const read = (name: string) => readFileSync(resolve(process.cwd(), "migrations", name), "utf8");
+    const deployed = new DatabaseSync(":memory:");
+    deployed.exec(read("0001_ledger.sql"));
+    deployed.exec(read("0002_account_location.sql"));
+    const shape = (handle: DatabaseSync) =>
+      [
+        ...["accounts", "events"].flatMap((table) => (handle.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((column) => `${table}.${column["name"]}`)),
+        ...(handle.prepare("PRAGMA index_list(events)").all() as { name: string }[]).map((index) => `events.index.${index["name"]}`),
+      ].sort();
+    expect(shape(deployed)).toEqual(shape(sqlite));
+    deployed.close();
   });
 
   it("names plans in the three the app sells", () => {
@@ -59,6 +67,15 @@ describe("sign-ins", () => {
     expect(again.last_seen).toBe(2_000);
     expect(again.signins).toBe(2);
     expect(again.name).toBe("Dev Renamed");
+  });
+
+  it("notes where the sign-in came from and keeps the last known place", async () => {
+    const first = await recordSignIn(db, { email: "dev@calvras.com", at: 1_000, city: "lahore", country: "pk" });
+    expect(first.city).toBe("lahore");
+    expect(first.country).toBe("PK");
+    expect((await recentEvents(db))[0]?.detail).toBe("from lahore, PK");
+    const second = await recordSignIn(db, { email: "dev@calvras.com", at: 2_000 });
+    expect([second.city, second.country]).toEqual(["lahore", "PK"]);
   });
 });
 

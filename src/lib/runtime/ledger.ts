@@ -14,7 +14,7 @@ export type D1Database = { prepare(sql: string): D1Statement };
 export type AccountRow = {
   email: string; subject: string; name: string; picture: string; plan: string;
   plan_set_by: string; plan_set_at: number; first_seen: number; last_seen: number;
-  signins: number; platform: string; version: string;
+  signins: number; platform: string; version: string; city: string; country: string;
 };
 export type EventRow = { id: number; email: string; kind: string; detail: string; at: number };
 
@@ -32,7 +32,9 @@ CREATE TABLE IF NOT EXISTS accounts (
   last_seen INTEGER NOT NULL,
   signins INTEGER NOT NULL DEFAULT 1,
   platform TEXT NOT NULL DEFAULT '',
-  version TEXT NOT NULL DEFAULT ''
+  version TEXT NOT NULL DEFAULT '',
+  city TEXT NOT NULL DEFAULT '',
+  country TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -64,16 +66,21 @@ export function accountEmail(value: unknown): string {
 
 /**
  * One sign-in, recorded once. A returning account keeps its first_seen and its plan: a grant the
- * owner made by hand must never be wiped by the person signing in again the next day.
+ * owner made by hand must never be wiped by the person signing in again the next day. A sign-in that
+ * arrives with no geolocation at all keeps the last place the console saw them from.
  */
-export async function recordSignIn(db: D1Database, input: { email: string; subject?: string; name?: string; picture?: string; platform?: string; version?: string; at: number }): Promise<AccountRow> {
+export async function recordSignIn(db: D1Database, input: { email: string; subject?: string; name?: string; picture?: string; platform?: string; version?: string; city?: string; country?: string; at: number }): Promise<AccountRow> {
   const email = accountEmail(input.email);
-  await db.prepare(`INSERT INTO accounts (email, subject, name, picture, plan, first_seen, last_seen, signins, platform, version)
-    VALUES (?, ?, ?, ?, 'free', ?, ?, 1, ?, ?)
+  const city = text(input.city, 60);
+  const country = text(input.country, 2).toUpperCase();
+  const from = [city, country].filter(Boolean).join(", ");
+  await db.prepare(`INSERT INTO accounts (email, subject, name, picture, plan, first_seen, last_seen, signins, platform, version, city, country)
+    VALUES (?, ?, ?, ?, 'free', ?, ?, 1, ?, ?, ?, ?)
     ON CONFLICT(email) DO UPDATE SET subject = excluded.subject, name = excluded.name, picture = excluded.picture,
-      last_seen = excluded.last_seen, signins = signins + 1, platform = excluded.platform, version = excluded.version`)
-    .bind(email, text(input.subject, 100), text(input.name, 120), text(input.picture, 500), input.at, input.at, text(input.platform, 40), text(input.version, 40)).run();
-  await note(db, email, "signin", "", input.at);
+      last_seen = excluded.last_seen, signins = signins + 1, platform = excluded.platform, version = excluded.version,
+      city = COALESCE(NULLIF(excluded.city, ''), accounts.city), country = COALESCE(NULLIF(excluded.country, ''), accounts.country)`)
+    .bind(email, text(input.subject, 100), text(input.name, 120), text(input.picture, 500), input.at, input.at, text(input.platform, 40), text(input.version, 40), city, country).run();
+  await note(db, email, "signin", from ? `from ${from}` : "", input.at);
   return (await db.prepare("SELECT * FROM accounts WHERE email = ?").bind(email).first<AccountRow>())!;
 }
 

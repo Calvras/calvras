@@ -1,5 +1,6 @@
 -- The account ledger behind calvras.com/api/site and the /admin-calvras console.
--- Generated content must equal LEDGER_SCHEMA in src/lib/runtime/ledger.ts; src/test/ledger.test.ts guards it.
+-- This is the baseline that was already applied, so it never changes; later columns arrive as 0002+.
+-- src/test/ledger.test.ts guards that the migrations together produce LEDGER_SCHEMA.
 
 CREATE TABLE IF NOT EXISTS accounts (
   email TEXT PRIMARY KEY,

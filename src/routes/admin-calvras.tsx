@@ -28,6 +28,7 @@ export const Route = createFileRoute("/admin-calvras")({
 type Account = {
   email: string; name: string; plan: string; plan_set_by: string; plan_set_at: number;
   first_seen: number; last_seen: number; signins: number; platform: string; version: string;
+  city: string; country: string;
 };
 type LedgerEvent = { id: number; email: string; kind: string; detail: string; at: number };
 type Sale = { reference: string; email: string; amount: string | number; currency: string; status: string; plan: string; at: string };
@@ -39,6 +40,10 @@ type Payload = {
   ok: boolean; error?: string; at?: number; summary?: Summary; accounts?: Account[]; events?: LedgerEvent[];
   sales?: { configured: boolean; sales: Sale[]; note?: string; error?: string; total?: number };
 };
+
+/** Cloudflare gives us a city when the plan exposes one and a country always; the console shows
+ * whichever half it has, and nothing at all before the first sign-in is recorded with a location. */
+const place = (account: { city: string; country: string }) => [account.city, account.country].filter(Boolean).join(", ");
 
 const when = (millis: number) => {
   if (!millis) return "—";
@@ -140,8 +145,8 @@ export function AdminConsole() {
   const revenue = useMemo(() => sales.reduce((total, sale) => total + (Number(sale.amount) || 0), 0), [sales]);
 
   const exportCsv = () => {
-    const rows = [["email", "name", "plan", "set_by", "signins", "first_seen", "last_seen", "platform", "version"]];
-    for (const account of accounts) rows.push([account.email, account.name, account.plan, account.plan_set_by, String(account.signins), new Date(account.first_seen).toISOString(), new Date(account.last_seen).toISOString(), account.platform, account.version]);
+    const rows = [["email", "name", "plan", "set_by", "signins", "first_seen", "last_seen", "location", "platform", "version"]];
+    for (const account of accounts) rows.push([account.email, account.name, account.plan, account.plan_set_by, String(account.signins), new Date(account.first_seen).toISOString(), new Date(account.last_seen).toISOString(), place(account), account.platform, account.version]);
     const csv = `${rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n")}\n`;
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
     const link = document.createElement("a");
@@ -235,7 +240,7 @@ export function AdminConsole() {
         ) : (
           <div className="admin-scroll">
             <table>
-              <thead><tr><th scope="col">Account</th><th scope="col">Plan</th><th scope="col">Set by</th><th scope="col">Sign-ins</th><th scope="col">Last seen</th><th scope="col">Grant</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
+              <thead><tr><th scope="col">Account</th><th scope="col">Plan</th><th scope="col">Set by</th><th scope="col">Sign-ins</th><th scope="col">Last seen</th><th scope="col">Location</th><th scope="col">Grant</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
               <tbody>
                 {accounts.map((account) => (
                   <tr key={account.email} className={open === account.email ? "admin-row-open" : ""}>
@@ -248,6 +253,7 @@ export function AdminConsole() {
                     <td>{account.plan_set_by || (account.plan === "free" ? "default" : "—")}</td>
                     <td>{account.signins}</td>
                     <td>{ago(account.last_seen)}</td>
+                    <td>{place(account) || "—"}</td>
                     <td>
                       <div className="admin-grants">
                         {PLANS.map((plan) => (

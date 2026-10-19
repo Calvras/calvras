@@ -18,7 +18,9 @@
     "electron:dev": "npm run build:electron && electron .",
     "electron:pack": "npm run build:electron && electron-builder --dir",
     "electron:dist": "npm run build:electron && electron-builder",
-    "build:electron": "cross-env NITRO_PRESET=node-server vite build && node scripts/prepare-electron-runtime.mjs"
+    "build:electron": "cross-env NITRO_PRESET=node-server vite build && node scripts/prepare-electron-runtime.mjs",
+    "installer:assets": "node installer/make-assets/make.mjs",
+    "installer:build": "node scripts/build-installer.mjs"
   },
   "build": {
     "appId": "com.calvras.app",
@@ -62,7 +64,7 @@
           ]
         }
       ],
-      "icon": "installer/calvras-logo.ico",
+      "icon": "installer/app.ico",
       "artifactName": "Calvras-${version}-win.${ext}"
     },
     "nsis": {

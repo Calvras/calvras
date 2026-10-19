@@ -53,7 +53,10 @@ npm run electron:dist   # build:electron + electron-builder (produces installer 
 ### Packaging
 
 - **electron-builder** produces `electron-dist/win-unpacked/Calvras.exe` (and a zip).
-- **Inno Setup** (`installer/CalvrasSetup.iss`) packages `electron-dist/win-unpacked/` into `dist/installer/Calvras-Setup-win-x64.exe`.
+- **Inno Setup** (`installer/CalvrasSetup.iss`) packages that folder into `dist/installer/Calvras-Setup-win-x64.exe`.
+  `npm run installer:build` instead packs into `electron-dist/payload-<stamp>/win-unpacked` and passes it as
+  `/DAppPayload`, because an editor that has the previous `app.asar` mapped blocks electron-builder from
+  replacing it in place.
 
 ---
 

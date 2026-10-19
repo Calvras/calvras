@@ -78,11 +78,11 @@ describe("the sign-in loop over HTTP", () => {
       idToken: await signedToken({ iss: "https://accounts.google.com", aud: CLIENT_ID, sub: "112233", exp: now + 3600, iat: now, email: "Dev@Calvras.com", email_verified: true, name: "Shikari", picture: "https://lh3.googleusercontent.com/a/fixture" }),
       platform: "Win32",
       version: "10.0.3",
-    });
+    }, { "cf-ipcity": "Lahore", "cf-ipcountry": "pk" });
     expect(answer.status).toBe(200);
     expect(answer.body).toMatchObject({ ok: true, email: EMAIL, plan: "free", signins: 1 });
-    const rows = sqlite.prepare("SELECT email, name, platform, version FROM accounts").all() as Record<string, unknown>[];
-    expect(rows).toEqual([expect.objectContaining({ email: EMAIL, name: "Shikari", platform: "Win32", version: "10.0.3" })]);
+    const rows = sqlite.prepare("SELECT email, name, platform, version, city, country FROM accounts").all() as Record<string, unknown>[];
+    expect(rows).toEqual([expect.objectContaining({ email: EMAIL, name: "Shikari", platform: "Win32", version: "10.0.3", city: "Lahore", country: "PK" })]);
   });
 
   it("refuses a token signed by somebody else", async () => {
@@ -102,13 +102,16 @@ describe("the sign-in loop over HTTP", () => {
       idToken: await signedToken({ iss: "https://accounts.google.com", aud: CLIENT_ID, sub: "112233", exp: now + 3600, iat: now, email: EMAIL, email_verified: true, name: "Shikari" }),
     });
     expect(answer.body).toMatchObject({ plan: "ultra", signins: 2 });
+    // The second request came in with no geolocation headers at all, so the console still shows the
+    // place the account was last seen rather than a blank.
+    expect(sqlite.prepare("SELECT city, country FROM accounts WHERE email = ?").get(EMAIL)).toEqual(expect.objectContaining({ city: "Lahore", country: "PK" }));
   });
 
   it("lets the console see, change and forget that account", async () => {
     const before = await getJson("/api/site/admin/summary", admin);
     expect(before.status).toBe(200);
     expect(before.body.summary).toMatchObject({ accounts: 1, paid: 1 });
-    expect(before.body.accounts[0]).toMatchObject({ email: EMAIL, plan: "ultra" });
+    expect(before.body.accounts[0]).toMatchObject({ email: EMAIL, plan: "ultra", city: "Lahore", country: "PK" });
 
     const granted = await postJson("/api/site/admin/grant", { email: EMAIL, plan: "pro" }, admin);
     expect(granted.body).toMatchObject({ ok: true, account: { plan: "pro", plan_set_by: "owner" } });
