@@ -109,13 +109,14 @@ export class PermissionScope {
     }
     const risk = TOOL_RISK[action.type];
     const assessment = actionRisk(action);
-    // Full access buys the workspace and the terminal: creating, editing and running go through
-    // without a prompt. Two things still ask. Removal — delete, rollback, git restore, undoing an
-    // edit, or anything the model marked destructive — because that is the one class of mistake a
-    // quiet run cannot undo. And resolve_worker, because a worker's edits live in its own checkout
-    // precisely so that bringing them back is a decision, not a side effect. use_user_file keeps
-    // its own native confirm: a file outside the workspace was never the project's to take.
-    const FULL_ACCESS_QUIET = ["use_user_file", "write_memory", "create_checkpoint"];
+    // Full access buys the workspace and the terminal: creating, editing, running and removing a
+    // file inside the folder all go through without a prompt — a build that has to ask before
+    // deleting its own scratch file is a build that never finishes. What still asks is the work
+    // that discards more than it names: rollback, git checkout and git restore take back changes
+    // the user never mentioned, undo_edit rewinds a checkpoint, and resolve_worker brings edits
+    // home from a checkout that exists so they would not. use_user_file keeps its own native
+    // confirm: a file outside the workspace was never the project's to take.
+    const FULL_ACCESS_QUIET = ["use_user_file", "write_memory", "create_checkpoint", "delete_file"];
     const FULL_ACCESS_ASKS = ["resolve_worker", "undo_edit"];
     const forced = action.type === "request_user_approval";
     let ask = this.mode === "full" ? ((risk === "destructive" || FULL_ACCESS_ASKS.includes(action.type)) && !FULL_ACCESS_QUIET.includes(action.type)) : forced || (this.mode === "ask" && risk !== "read" && risk !== "agent") || (this.mode === "automatic" && assessment.ask);

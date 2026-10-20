@@ -28,9 +28,13 @@ describe('permission enforcement',()=>{
       expect(()=>p.require(action)).not.toThrow();
     }
     // What it takes back is work that already exists, and a worker living outside this folder.
-    expect(request(p,{type:'delete_file',path:'a.ts'}).status).toBe('pending');
-    expect(request(p,{type:'undo_edit',checkpointId:'cp-1'}).status).toBe('pending');
-    expect(request(p,{type:'resolve_worker',id:'job-1',action:'apply'}).status).toBe('pending');
+    // Removing one file inside the folder is part of the deal: a build that cannot clean up its
+    // own scratch file never finishes. Discarding work the user did not name still asks.
+    expect(() => p.require({ type: "delete_file", path: "a.ts" })).not.toThrow();
+    expect(request(p, { type: "rollback_changes", checkpointId: "cp-1" }).status).toBe("pending");
+    expect(request(p, { type: "git_restore", path: "a.ts" }).status).toBe("pending");
+    expect(request(p, { type: "undo_edit", checkpointId: "cp-1" }).status).toBe("pending");
+    expect(request(p, { type: "resolve_worker", id: "job-1", action: "apply" }).status).toBe("pending");
     // use_user_file has its own native confirm, and these two never touch a user file.
     expect(()=>p.require({type:'use_user_file',path:'C:\\Users\\me\\Documents\\CV.pdf'})).not.toThrow();
     expect(()=>p.require({type:'write_memory',key:'stack',value:'vite'})).not.toThrow();
@@ -44,6 +48,14 @@ describe('permission enforcement',()=>{
   });
   it('asks for unknown shell commands in Automatic mode',()=>{
     expect(request(new PermissionScope('automatic'),{type:'run_command',command:'node strange-script.js'}).status).toBe('pending');
+  });
+  it('keeps an Always allow answer silent, and a Settings ask rule loud, whatever the preset',()=>{
+    // "Always allow" on an approval card writes exactly this rule, so the click has to hold for
+    // the tool that was asked about — including one the risk table calls destructive.
+    const allowed=new PermissionScope('automatic',{toolRules:{delete_file:'allow'}});
+    expect(()=>allowed.require({type:'delete_file',path:'build'})).not.toThrow();
+    const gated=new PermissionScope('full',{toolRules:{delete_file:'ask'}});
+    expect(request(gated,{type:'delete_file',path:'build'}).status).toBe('pending');
   });
   it('binds one-use tokens to the full nested action and stable object order',()=>{
     const p=new PermissionScope('ask');

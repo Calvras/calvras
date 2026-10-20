@@ -93,20 +93,26 @@ describe('real agent API approvals', () => {
     expect((await event({ sessionId: id, action: { ...action, content: 'unauthorized change' }, approvalToken: nextDecision.token })).result.ok).toBe(false);
     expect(await readFile(path.join(root, 'example.txt'), 'utf8')).toBe('approved edit');
   });
-  it('writes files and runs commands silently in full access but still asks before removing work', async () => {
+  it('writes, edits and cleans up silently in full access but still asks before discarding work', async () => {
     const { root, id } = await session('full');
     expect((await event({ sessionId: id, action: { type: 'run_command', command: 'node -v' } })).result.ok).toBe(true);
-    // The workspace is part of the deal: creating and editing go through with no prompt.
+    // The workspace is part of the deal: creating, editing and removing a file go through with no
+    // prompt — a build that cannot delete its own scratch file never finishes.
     const written = { type: 'write_file', path: 'automatic.txt', content: 'automatic edit' };
     expect((await event({ sessionId: id, action: written })).result.ok).toBe(true);
     expect(await readFile(path.join(root, 'automatic.txt'), 'utf8')).toBe('automatic edit');
     expect((await event({ sessionId: id, action: { type: 'search_replace', path: 'automatic.txt', search: 'automatic', replace: 'quiet' } })).result.ok).toBe(true);
-    // Removing what already exists is the one thing that still interrupts, and it waits for a yes.
-    const removal = await event({ sessionId: id, action: { type: 'delete_file', path: 'automatic.txt' } });
-    expect(removal.approval.question).toContain('automatic.txt');
+    expect((await event({ sessionId: id, action: { type: 'write_file', path: 'scratch.txt', content: 'drop me' } })).result.ok).toBe(true);
+    expect((await event({ sessionId: id, action: { type: 'delete_file', path: 'scratch.txt' } })).result.ok).toBe(true);
+    await expect(readFile(path.join(root, 'scratch.txt'), 'utf8')).rejects.toThrow();
+    // Taking back an edit the user never named still waits for a yes, and nothing moves until then.
+    const rollback = await event({ sessionId: id, action: { type: 'rollback_changes' } });
+    expect(rollback.approval).toBeTruthy();
     expect(await readFile(path.join(root, 'automatic.txt'), 'utf8')).toBe('quiet edit');
-    const decision = await (await api('approve', { sessionId: id, approvalId: removal.approval.id, choice: 'once' })).json();
-    expect((await event({ sessionId: id, action: { type: 'delete_file', path: 'automatic.txt' }, approvalToken: decision.token })).result.ok).toBe(true);
+    const decision = await (await api('approve', { sessionId: id, approvalId: rollback.approval.id, choice: 'once' })).json();
+    expect((await event({ sessionId: id, action: { type: 'rollback_changes' }, approvalToken: decision.token })).result.ok).toBe(true);
+    // The rollback walks back every change still standing, so it takes the write that started this
+    // run too and the file is gone. That reach is exactly why this action still asks.
     await expect(readFile(path.join(root, 'automatic.txt'), 'utf8')).rejects.toThrow();
   });
   it('blocks requests from external origins before touching a session', async () => {

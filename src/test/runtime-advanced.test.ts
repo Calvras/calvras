@@ -97,11 +97,11 @@ describe("advanced runtime executes real operations", () => {
     expect(result.engines.map((attempt: any) => attempt.engine)).toEqual(["DuckDuckGo", "DuckDuckGo Lite"]);
   });
   it("refuses to treat a pressed-control flag as approval for a tool the agent chose", async () => {
-    // Full access owns the workspace, so a write no longer proves anything here. The probe is a
-    // removal instead: only the chat's own Undo and Apply/Discard buttons may carry that flag, and
-    // the runtime checks the action type, so a delete the agent picked still asks the user.
+    // Full access owns the workspace, so a write or a delete no longer proves anything here. The
+    // probe is a git restore instead: only the chat's own Undo and Apply/Discard buttons may carry
+    // that flag, and the runtime checks the action type, so it still asks the user.
     await session.execute({ type: "write_file", path: "keep.ts", content: "x" }, {});
-    await expect(session.execute({ type: "delete_file", path: "keep.ts" }, { userInitiated: true })).rejects.toBeInstanceOf(ApprovalNeeded);
+    await expect(session.execute({ type: "git_restore", path: "keep.ts" }, { userInitiated: true })).rejects.toBeInstanceOf(ApprovalNeeded);
     expect(await fs.stat(path.join(root, "keep.ts")).then(() => true, () => false)).toBe(true);
   });
 });

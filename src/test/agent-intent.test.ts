@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFile } from "node:fs/promises";
 import { agentIntent, asksToReproduce } from "../lib/agent-intent";
-import { CALVRAS_SYSTEM_PROMPT, workerSystemPrompt } from "../lib/system-prompt";
+import { CALVRAS_SYSTEM_PROMPT, CHAT_SYSTEM_PROMPT, workerSystemPrompt } from "../lib/system-prompt";
 import { ApprovalNeeded, PermissionScope } from "../lib/runtime/permissions";
 import { DEFAULT_POLICIES } from "../lib/policy-rules";
 
@@ -85,8 +85,20 @@ describe("screenshot as a build target", () => {
 /** Each rule here exists because a real build of the user's got it wrong. */
 describe("the rules a real build taught it", () => {
   it("knows the company behind it", () => {
-    expect(CALVRAS_SYSTEM_PROMPT).toMatch(/built by Calvras, the company/i);
+    expect(CALVRAS_SYSTEM_PROMPT).toMatch(/made by Calvras Lab, the company/i);
     expect(CALVRAS_SYSTEM_PROMPT).toMatch(/never claim to be nameless/i);
+    expect(CHAT_SYSTEM_PROMPT).toMatch(/made by Calvras Lab/);
+  });
+  it("deletes its own scratch file in full access but still asks before discarding the user's work", () => {
+    expect(CALVRAS_SYSTEM_PROMPT).toMatch(/deleting a file inside the project[\s\S]*?go through without a confirmation/);
+    expect(CALVRAS_SYSTEM_PROMPT).toMatch(/cannot clean up its own scratch file/);
+    expect(CALVRAS_SYSTEM_PROMPT).toMatch(/discarding work the user did not name/);
+  });
+  it("works a long build brief as inspect, phase plan, build, verify, report", () => {
+    expect(CALVRAS_SYSTEM_PROMPT).toMatch(/is a specification to execute, not a discussion to react to/);
+    expect(CALVRAS_SYSTEM_PROMPT).toMatch(/inspect before writing/);
+    expect(CALVRAS_SYSTEM_PROMPT).toMatch(/implemented, implemented with limits, not implemented/);
+    expect(CALVRAS_SYSTEM_PROMPT).toMatch(/never a confident fake/);
   });
   it("builds a mobile ask as a mobile app at phone size", () => {
     expect(CALVRAS_SYSTEM_PROMPT).toMatch(/means a mobile app, not a web page/i);
@@ -108,13 +120,14 @@ describe("the rules a real build taught it", () => {
     expect(CALVRAS_SYSTEM_PROMPT).toMatch(/calm, precise software engineer/i);
     expect(CALVRAS_SYSTEM_PROMPT).toMatch(/never insulting/i);
   });
-  it("grants full access over the workspace but not over removal", () => {
+  it("grants full access over the workspace but not over discarded work", () => {
     expect(CALVRAS_SYSTEM_PROMPT).toMatch(/Full access buys the WORKSPACE AND THE TERMINAL/);
     const scope = new PermissionScope("full");
     expect(() => scope.require({ type: "write_file", path: "a.ts", content: "x" })).not.toThrow();
     expect(() => scope.require({ type: "search_replace", path: "a.ts", search: "x", replace: "y" })).not.toThrow();
-    expect(() => scope.require({ type: "delete_file", path: "a.ts" })).toThrow(ApprovalNeeded);
+    expect(() => scope.require({ type: "delete_file", path: "a.ts" })).not.toThrow();
     expect(() => scope.require({ type: "undo_edit", checkpointId: "cp-1" })).toThrow(ApprovalNeeded);
+    expect(() => scope.require({ type: "rollback_changes" })).toThrow(ApprovalNeeded);
     expect(() => scope.require({ type: "resolve_worker", id: "job-1", action: "apply" })).toThrow(ApprovalNeeded);
   });
   it("takes the running task over when the user sends during it", async () => {

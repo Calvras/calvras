@@ -61,10 +61,11 @@ describe("settings rules the agent cannot bypass", () => {
     expect(ask(scope, { type: "run_build" })).toBe("asked");
     expect(ask(scope, { type: "read_file", path: "a.ts" })).toBe("ran");
     scope.decision(scope.list()[0]!.id, "once");
-    // The plan is cleared and full access owns the workspace, so the write runs. What still stops
-    // for the user is the thing a quiet run cannot undo.
+    // The plan is cleared and full access owns the workspace, so the write and the delete run.
+    // What still stops for the user is the thing a quiet run cannot name: rewinding a checkpoint.
     expect(ask(scope, { type: "write_file", path: "a.ts", content: "x" })).toBe("ran");
-    expect(ask(scope, { type: "delete_file", path: "a.ts" })).toBe("asked");
+    expect(ask(scope, { type: "delete_file", path: "a.ts" })).toBe("ran");
+    expect(ask(scope, { type: "undo_edit", checkpointId: "cp-1" })).toBe("asked");
     scope.decision(scope.list().filter((item) => item.status === "pending").at(-1)!.id, "task");
     expect(ask(scope, { type: "write_file", path: "b.ts", content: "x" })).toBe("ran");
   });
