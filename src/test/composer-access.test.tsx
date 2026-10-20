@@ -13,10 +13,23 @@ describe("composer permissions", () => {
   it("requires an explicit decision and supports denying the operation", () => {
     const onDecision = vi.fn(); render(<ComposerApproval request={{ id: "a", question: "Can I delete the old build folder?" }} onDecision={onDecision} />);
     expect(onDecision).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Allow once")).toBeInTheDocument();
+    expect(screen.getByLabelText("Always allow")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Allow for this task")).not.toBeInTheDocument();
     fireEvent.click(screen.getByLabelText("Don't allow")); fireEvent.click(screen.getByRole("button", { name: "Confirm choice" }));
     expect(onDecision).toHaveBeenCalledWith("deny");
     expect(screen.queryByText("Approval required")).not.toBeInTheDocument();
     expect(screen.queryByText("View details")).not.toBeInTheDocument();
+  });
+  it("offers the four answers: once, always, deny, or the user's own words", () => {
+    const onDecision = vi.fn(); render(<ComposerApproval request={{ id: "a", question: "Can I install left-pad?" }} onDecision={onDecision} />);
+    fireEvent.click(screen.getByLabelText("Always allow")); fireEvent.click(screen.getByRole("button", { name: "Confirm choice" }));
+    expect(onDecision).toHaveBeenCalledWith("always");
+    // Typing wins over the radios, so "allow once" plus "use pnpm instead" is one answer, not two.
+    fireEvent.change(screen.getByLabelText("Your answer"), { target: { value: "use pnpm instead" } });
+    expect(screen.getByLabelText("Allow once")).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Send your answer" }));
+    expect(onDecision).toHaveBeenLastCalledWith("answer", "use pnpm instead");
   });
   it("morphs the same composer into a decision and restores the draft afterwards", () => {
     const onDecision = vi.fn();

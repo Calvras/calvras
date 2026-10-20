@@ -538,9 +538,20 @@ export function Index() {
     const finish = (choice: string | undefined) => { signal?.removeEventListener("abort", abort); resolve(choice); };
     setApprovalQueue((queue) => [...queue.filter((item) => item.id !== request.id), { ...request, sessionId, resolve: finish }]);
   }), []);
-  const decideApproval = useCallback(async (choice: string) => {
+  // "Always allow" answers this approval once and then never asks about this tool again. The rule
+  // goes to the same store the Settings Tool Permissions switch writes, so it survives a restart
+  // and the user can take it back there.
+  const allowToolRule = (type?: string) => {
+    if (!type) return;
+    const policies = readPolicies();
+    savePolicies({ ...policies, toolRules: { ...policies.toolRules, [type]: "allow" } });
+  };
+  const decideApproval = useCallback(async (choice: string, answer?: string) => {
     const request = approvalRef.current[0]; if (!request || request.busy) return;
     setApprovalQueue((queue) => queue.map((item) => item.id === request.id ? { ...item, busy: true } : item));
+    // A typed answer is the fourth option: the action is refused and their own words are handed
+    // to the running turn, because "use pnpm instead" is not the same decision as allowing npm.
+    const typed = choice === "answer" ? String(answer || "").trim() : "";
     try {
       if (request.kind === "question") {
         if (request.resolve) request.resolve(choice);
@@ -551,12 +562,23 @@ export function Index() {
       }
       else if (request.local) {
         // The visible browser runs inside this process, so its approval resolves here.
-        request.resolve?.(choice);
+        if (typed) request.resolve?.("deny");
+        else {
+          if (choice === "always") allowToolRule(request.action?.type);
+          request.resolve?.(choice === "always" ? "once" : choice);
+        }
       }
       else {
-        const response = await fetch("/api/agent/approve", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId: request.sessionId, approvalId: request.id, choice }) });
+        // The runtime only understands once / task / deny, so "always" buys this action exactly
+        // as "once" does and the durable half is the rule saved alongside it.
+        const response = await fetch("/api/agent/approve", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId: request.sessionId, approvalId: request.id, choice: typed ? "deny" : choice === "always" ? "once" : choice }) });
         const result = await response.json(); if (!result.ok) throw new Error(result.error);
+        if (!typed && choice === "always") allowToolRule(request.action?.type);
         request.resolve?.(result.token);
+      }
+      if (typed) {
+        steeringRef.current.push(typed);
+        setMessages((previous) => [...previous, { id: Date.now(), text: typed, phases: [], done: true, role: "user", status: "finished" }]);
       }
       setApprovalQueue((queue) => queue.filter((item) => item.id !== request.id));
     } catch (error) { setApprovalQueue((queue) => queue.map((item) => item.id === request.id ? { ...item, busy: false, question: `${request.question} (${error instanceof Error ? error.message : "Please retry"})` } : item)); }
@@ -1243,7 +1265,10 @@ export function Index() {
             // Nothing is open, so the folder has to be the user's decision, not a side effect of
             // the model returning a write. Deny it and the build simply has nowhere to go yet.
             const projectName = projectNameFrom(text);
-            const answer = await askDecision({ id: crypto.randomUUID(), kind: "approval", local: true, question: `Create a new project folder "${projectName}" and build there?`, reason: "No folder is open, so this build has nowhere to live yet. Deny it and tell Calvras where to work instead.", action: { type: "create_file", path: projectName } }, "", controller.signal);
+            // "Always allow" on this card writes the create-file rule, and this gate reads it back,
+            // so the click lands once and holds — and Settings is still the only place to revoke it.
+            const answer = effectivePolicies(null).toolRules["create_file"] === "allow" ? "once"
+              : await askDecision({ id: crypto.randomUUID(), kind: "approval", local: true, question: `Create a new project folder "${projectName}" and build there?`, reason: "No folder is open, so this build has nowhere to live yet. Deny it and tell Calvras where to work instead.", action: { type: "create_file", path: projectName } }, "", controller.signal);
             if (!answer || answer === "deny") {
               const notice = "The user did not allow a new project folder, so nothing was created and no file was written. Ask them in your own words where this work should live, or answer without files. Do not retry creating a folder in this turn.";
               return actions.map((action) => ({ action, ok: false, result: { skipped: true, noWorkspace: true, error: notice } }));
@@ -1325,7 +1350,7 @@ export function Index() {
                 const targetHost = urlHost(action.url) || urlHost(browserBridge.getSnapshot().url);
                 const blocker = blockReason(rules, action.type, targetHost, true);
                 if (blocker) data = { ok: false, error: blocker };
-                else if (action.type === "run_page_script" && rules.browserJs === "ask") {
+                else if (action.type === "run_page_script" && rules.browserJs === "ask" && rules.toolRules["run_page_script"] !== "allow") {
                   const choice = await askDecision({ id: crypto.randomUUID(), kind: "approval", local: true, question: `Run this JavaScript on ${targetHost || "the open page"}?`, reason: "The page script can read and change anything on the site you are looking at.", action }, "", controller.signal);
                   data = choice && choice !== "deny" ? await browserBridge.execute(action.type, action, activePath)
                     : { ok: false, error: "The user did not allow running JavaScript on this page. Use click_element, fill_input or press_page_key instead." };
@@ -1826,7 +1851,7 @@ export function Index() {
           onStop={handleStop}
           {...(browserAvailable ? { onCaptureScreen: handleCaptureScreen } : {})}
           accessMode={accessMode} onAccessModeChange={changeAccess}
-          approval={approvalQueue[0]} onApprovalDecision={(choice) => void decideApproval(choice)}
+          approval={approvalQueue[0]} onApprovalDecision={(choice, answer) => void decideApproval(choice, answer)}
           projectName={projectName} projectPath={projectPath}
           folderBusy={importing} folderError={folderError}
           folderLocked={messages.length > 0}

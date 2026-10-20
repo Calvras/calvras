@@ -374,7 +374,7 @@ export interface PromptInputProps {
   accessMode?: AccessMode;
   onAccessModeChange?: (mode: AccessMode) => void;
   approval?: ComposerRequest | undefined;
-  onApprovalDecision?: (choice: string) => void;
+  onApprovalDecision?: (choice: string, answer?: string) => void;
   /** The folder Calvras is working in, shown beneath the composer. */
   projectName?: string | null;
   projectPath?: string | null;
@@ -849,7 +849,7 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
       }
     };
 
-    if (approval) return <ComposerApproval request={approval} onDecision={(choice) => onApprovalDecision?.(choice)} onStop={onStop} />;
+    if (approval) return <ComposerApproval request={approval} onDecision={onApprovalDecision ?? (() => {})} onStop={onStop} />;
 
     return (
       <>
