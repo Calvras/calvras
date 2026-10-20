@@ -12,7 +12,7 @@ const ask = (url: string) => server.fetch(new Request(url, { method: "POST", hea
 
 describe("public site surface", () => {
   it("refuses the desktop workspace and store API over the public domain", async () => {
-    for (const url of ["https://calvras.com/api/agent/payments", "https://calvras.com/api/agent/payments/catalog", "https://calvras.com/api/fs/create-project", "https://calvras.com/api/terminal/exec"]) {
+    for (const url of ["https://calvras.com/api/agent/payments", "https://calvras.com/api/agent/payments/catalog", "https://calvras.com/api/fs/create-project", "https://calvras.com/api/terminal/open", "https://calvras.com/api/terminal/write"]) {
       const response = await ask(url);
       expect(response.status, url).toBe(404);
       expect(await response.json(), url).toEqual({ ok: false, error: "Not found" });
