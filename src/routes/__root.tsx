@@ -120,8 +120,16 @@ function RootShell({ children }: { children: ReactNode }) {
 }
 
 function SidebarWithProjects() {
-  const { projects, recents, triggerNewChat, setActiveProject, openChat, deleteRecent, deleteProject, renameRecent, renameProject } = useProjects();
+  const { projects, triggerNewChat, setActiveProject, openChat, deleteRecent, deleteProject, renameRecent, renameProject, chats } = useProjects();
   const router = useRouter();
+  // History is built from the transcript store rather than the parallel recents list: a row the
+  // user clicks is then a row that is guaranteed to have something to load back.
+  const recents = chats.filter((chat) => chat.messages.length > 0).map((chat) => ({
+    id: chat.id,
+    label: chat.label,
+    ...(chat.projectPath ? { projectPath: chat.projectPath } : {}),
+    ...(chat.projectName ? { projectName: chat.projectName } : {}),
+  }));
 
   return (
     <CalvrasSidebar

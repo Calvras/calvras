@@ -96,6 +96,23 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     else clearScoped("activeProject");
   }, [activeProject, mounted]);
 
+  // Settings clears a list by wiping storage and announcing it. Without this the provider would
+  // keep the old lists in memory and write every one of them straight back on the next turn, so
+  // a cleared history reappeared the next time the app opened.
+  useEffect(() => {
+    const reload = () => {
+      setProjects(readScoped<Project[]>("projects", []));
+      setRecents(readScoped<RecentChat[]>("recents", []));
+      const stored = readChats();
+      setChats(stored);
+      // Only leave the open conversation when it is the thing that was cleared; wiping notes or
+      // the activity log must not throw the user out of their chat.
+      setActiveChatId((current) => (current && stored[current] ? current : null));
+    };
+    window.addEventListener("calvras:account-data", reload);
+    return () => window.removeEventListener("calvras:account-data", reload);
+  }, []);
+
   const addProject = (p: Project) => {
     setProjects((prev) => {
       const filtered = prev.filter((x) => x.path !== p.path);
