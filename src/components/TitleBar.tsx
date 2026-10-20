@@ -154,9 +154,7 @@ export function TitleBar() {
       style={{
         height: 34,
         paddingLeft: 6,
-        background: "#141415",
         WebkitAppRegion: "drag",
-        borderBottom: "1px solid rgba(255,255,255,0.06)",
       } as any}
     >
       {/* Left: menus */}

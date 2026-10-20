@@ -175,7 +175,7 @@
 }
 
 .chat-composer {
-  position: fixed;
+  position: absolute;
   z-index: 20;
   bottom: calc(1.5rem + env(safe-area-inset-bottom));
   left: 0;
@@ -524,28 +524,62 @@
 /* Pending tool decisions stay above the workspace panel in the shared composer. */
 .chat-composer[data-approval="true"] { z-index: 60; }
 
-/* Application chrome shares spacing with the single conversation composer. */
-:root { --app-title-height: 0px; --app-rail-width: 56px; }
-.app-rail { position: fixed; z-index: 45; top: var(--app-title-height); bottom: 0; left: 0; width: var(--app-rail-width); display: flex; flex-direction: column; align-items: center; gap: 7px; padding-top: 12px; background: oklch(0.205 0 0); border-right: 1px solid oklch(1 0 0 / 5%); }
+/* Application chrome, measured off the reference rather than eyeballed: the window is one flat,
+   lighter surface that carries the rail and the history strip, and the conversation sits on it as
+   a darker rounded card with a hairline edge and no shadow. Chrome rgb(24,24,24), card
+   rgb(18,18,18), edge rgb(40,40,40), corner ~10px. */
+:root { --app-title-height: 0px; --app-rail-width: 56px; --app-sidebar-width: 272px; --app-shell-gap: 6px; --app-panel-radius: 10px; --app-chrome: oklch(0.212 0 0); --app-hairline: oklch(0.275 0 0); --app-content-left: calc(var(--app-rail-width) + var(--app-sidebar-width)); }
+/* Chromium's default scroller is a light gutter with arrow buttons at both ends, which reads as a
+   foreign widget inside these dark panels. Any area that scrolls inherits the quiet one instead. */
+* { scrollbar-width: thin; scrollbar-color: oklch(1 0 0 / 16%) transparent; }
+::-webkit-scrollbar { width: 11px; height: 11px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { border: 3px solid transparent; border-radius: 8px; background: oklch(1 0 0 / 16%); background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: oklch(1 0 0 / 26%); background-clip: content-box; }
+::-webkit-scrollbar-button, ::-webkit-scrollbar-button:start:decrement, ::-webkit-scrollbar-button:end:increment { display: none; width: 0; height: 0; }
+::-webkit-scrollbar-corner { background: transparent; }
+.app-rail { position: fixed; z-index: 45; top: var(--app-title-height); bottom: 0; left: 0; width: var(--app-rail-width); display: flex; flex-direction: column; align-items: center; gap: 7px; padding-top: 14px; }
 .shell-icon-button { display: inline-flex; width: 34px; height: 34px; flex-shrink: 0; align-items: center; justify-content: center; border-radius: 9px; color: oklch(0.76 0 0); transition: color .16s, background .16s; cursor: pointer; }
 .shell-icon-button:hover, .shell-icon-button.is-selected { background: oklch(1 0 0 / 7%); color: oklch(0.96 0 0); }
 .shell-icon-button:focus-visible { outline: 2px solid oklch(0.65 0 0); outline-offset: 2px; }
 .rail-brand { margin-bottom: 16px; }
-.app-sidebar { position: fixed; z-index: 44; top: var(--app-title-height); bottom: 0; left: var(--app-rail-width); width: min(272px, calc(100vw - var(--app-rail-width))); display: flex; flex-direction: column; background: oklch(0.215 0 0); border-right: 1px solid oklch(1 0 0 / 7%); border-top-right-radius: 14px; border-bottom-right-radius: 14px; overflow: hidden; }
+.app-sidebar { position: fixed; z-index: 44; top: var(--app-title-height); bottom: 0; left: var(--app-rail-width); width: var(--app-sidebar-width); display: flex; flex-direction: column; overflow: hidden; }
 .sidebar-action, .sidebar-row { display: flex; align-items: center; gap: 9px; width: 100%; padding: 9px 10px; border-radius: 8px; color: oklch(0.86 0 0); font-size: 13px; line-height: 1.45; text-align: left; }
 .sidebar-action:hover, .sidebar-row:hover { background: oklch(1 0 0 / 5%); }
 .sidebar-caption { display: flex; justify-content: space-between; padding: 0 10px 10px; font-size: 11px; color: oklch(0.7 0 0); }
-.chat-page { position: relative; padding-left: var(--app-rail-width); height: calc(100dvh - var(--app-title-height)) !important; min-height: 0; }
+.chat-page { position: relative; height: calc(100dvh - var(--app-title-height)); min-height: 0; }
+/* The desktop rail only exists inside Electron, so it doubles as the switch between the two
+   layouts: with it, the conversation is an inset card; without it, the page stays full-bleed. */
+html:has(.app-rail) body { background-color: var(--app-chrome); }
+[data-titlebar] { background: var(--background); border-bottom: 1px solid oklch(1 0 0 / 6%); }
+html:has(.app-rail) [data-titlebar] { background: var(--app-chrome); border-bottom-color: transparent; }
+html:has(.app-rail) .chat-page { position: fixed; z-index: 20; top: calc(var(--app-title-height) + var(--app-shell-gap)); right: var(--app-shell-gap); bottom: var(--app-shell-gap); left: calc(var(--app-rail-width) + var(--app-shell-gap)); width: auto; height: auto; border: 1px solid var(--app-hairline); border-radius: var(--app-panel-radius); overflow: hidden; transition: left .28s cubic-bezier(.22, 1, .36, 1); }
+/* The history strip is only in the DOM while one of its sections is open, so the card keeps the
+   whole width to itself the rest of the time instead of parking beside an empty gutter. */
+html:has(.app-sidebar) .chat-page { left: calc(var(--app-content-left) + var(--app-shell-gap)); }
 .chat-scroll-area { height: 100% !important; }
 .chat-history { padding-top: 6rem; }
-.chat-composer { left: var(--app-rail-width); }
-.workspace-header { position: fixed; z-index: 21; top: var(--app-title-height); left: var(--app-rail-width); right: 0; height: 58px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 0 24px; background: var(--background); }
+.workspace-header { position: absolute; z-index: 21; top: 0; left: 0; right: 0; height: 58px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 0 24px; background: var(--background); }
 .workspace-run-state { position: absolute; left: 50%; top: 50%; display: flex; align-items: center; gap: 7px; transform: translate(-50%, -50%); font-size: 11px; white-space: nowrap; pointer-events: none; }
-.workspace-run-state > .is-working { width: 5px; height: 5px; flex-shrink: 0; border-radius: 50%; background: oklch(0.9 0 0); animation: calvras-run-pulse 1.6s ease-in-out infinite; }
 .workspace-run-state .run-state-text { color: oklch(0.86 0 0); font-weight: 500; }
-@keyframes calvras-run-pulse { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
-.workspace-project-switcher { position: fixed; z-index: 23; top: calc(var(--app-title-height) + 13px); right: 146px; display: flex; align-items: center; gap: 8px; }
-.workspace-actions { position: fixed; z-index: 24; top: calc(var(--app-title-height) + 12px); right: 18px; display: flex; align-items: center; gap: 8px; }
+.workspace-project-switcher { position: absolute; z-index: 23; top: 13px; right: 146px; display: flex; align-items: center; gap: 8px; }
+/* The shell slides up from the bottom edge of the card and the composer lifts out of its way. */
+:root { --terminal-height: min(360px, 46dvh); }
+.terminal-panel { position: absolute; z-index: 46; left: 0; right: 0; bottom: 0; height: var(--terminal-height); display: flex; flex-direction: column; border-top: 1px solid var(--app-hairline); background: #0f1011; animation: terminal-up .26s cubic-bezier(.22, 1, .36, 1) both; }
+@keyframes terminal-up { from { transform: translateY(14px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+.terminal-panel-bar { display: flex; align-items: center; gap: 10px; flex-shrink: 0; padding: 8px 12px 8px 16px; border-bottom: 1px solid oklch(1 0 0 / 7%); }
+.terminal-panel-folder { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 45%; padding: 2px 8px; border-radius: 6px; background: oklch(1 0 0 / 5%); color: oklch(0.72 0 0); font-size: 10px; }
+.terminal-panel-state { color: oklch(0.55 0 0); font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
+.terminal-panel-button { display: inline-flex; padding: 5px; border-radius: 6px; color: oklch(0.6 0 0); cursor: pointer; }
+.terminal-panel-button:hover { background: oklch(1 0 0 / 7%); color: oklch(0.95 0 0); }
+.terminal-panel-output { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 16px; color: oklch(0.86 0 0); font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; font-size: 12px; line-height: 1.6; }
+.terminal-panel-output pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.terminal-panel-input { display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding: 9px 16px 11px; border-top: 1px solid oklch(1 0 0 / 7%); }
+.terminal-panel-input input { min-width: 0; flex: 1; background: transparent; border: 0; outline: none; color: oklch(0.92 0 0); font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; font-size: 12px; }
+.terminal-panel-input input::placeholder { color: oklch(0.5 0 0); }
+.chat-page[data-terminal="open"] .chat-composer { bottom: calc(var(--terminal-height) + 1rem); }
+.chat-page[data-browser="open"] .terminal-panel { right: var(--browser-dock-width); }
+.workspace-actions { position: absolute; z-index: 24; top: 12px; right: 18px; display: flex; align-items: center; gap: 8px; }
 .settings-screen { position: fixed; z-index: 60; top: var(--app-title-height); right: 0; bottom: 0; left: 0; display: flex; overflow: hidden; background: var(--background); }
 .settings-rail { position: relative; z-index: 2; flex-shrink: 0; width: 236px; display: flex; flex-direction: column; overflow-y: auto; scrollbar-width: none; border-right: 1px solid oklch(1 0 0 / 7%); background: oklch(0.205 0 0); }
 .settings-rail::-webkit-scrollbar { display: none; }
@@ -636,7 +670,7 @@ html[data-reduce-motion="true"] *, html[data-reduce-motion="true"] *::before, ht
    The agent browses in a real, visible Electron <webview> docked on the right.
    While a task drives the page, the panel is locked and the chat shifts left. */
 :root { --browser-dock-width: clamp(380px, 46vw, 760px); }
-.browser-dock { position: fixed; z-index: 32; top: var(--app-title-height); right: 0; bottom: 0; width: var(--browser-dock-width); min-width: 340px; max-width: calc(100vw - 380px); display: flex; flex-direction: column; overflow: hidden; border-radius: 0; background: var(--background); border-left: 1px solid oklch(1 0 0 / 8%); box-shadow: none; will-change: transform; transition: transform .32s cubic-bezier(.22, 1, .36, 1), opacity .22s ease, visibility 0s; }
+.browser-dock { position: absolute; z-index: 32; top: 0; right: 0; bottom: 0; width: var(--browser-dock-width); min-width: 340px; max-width: calc(100% - 360px); display: flex; flex-direction: column; overflow: hidden; border-radius: 0; background: var(--background); border-left: 1px solid oklch(1 0 0 / 8%); box-shadow: none; will-change: transform; transition: transform .32s cubic-bezier(.22, 1, .36, 1), opacity .22s ease, visibility 0s; }
 .browser-dock[data-open="false"] { transform: translateX(calc(100% + 14px)); opacity: 0; visibility: hidden; pointer-events: none; transition: transform .26s cubic-bezier(.4, 0, 1, 1), opacity .18s ease, visibility 0s linear .26s; }
 .browser-dock[data-open="true"] { transform: translateX(0); opacity: 1; visibility: visible; pointer-events: auto; transition: transform .32s cubic-bezier(.22, 1, .36, 1), opacity .22s ease, visibility 0s; }
 .browser-dock-resize { position: absolute; z-index: 8; top: 0; bottom: 0; left: 0; width: 12px; display: flex; align-items: center; justify-content: center; cursor: col-resize; touch-action: none; }
