@@ -1,15 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { ChevronRight, FileText, Folder, FolderOpen, FolderPlus, Globe2, PanelRightClose, Search, SquareTerminal, Users, X } from "lucide-react";
+import { ChevronRight, FileText, Folder, FolderOpen, FolderPlus, Globe2, PanelRightClose, Search, Users, X } from "lucide-react";
 import hljs from "highlight.js/lib/common";
 import AgentAvatar from "@/components/ui/agent-avatar";
 import { formatElapsed } from "@/components/ui/ai-agent-response";
 import { BrowserPanel } from "@/components/BrowserPanel";
-import { TerminalDock } from "@/components/TerminalDock";
 import type { SubagentJob } from "@/components/AgentActivity";
 import type { ToolAction } from "@/lib/tool-catalog";
 import { cn } from "@/lib/utils";
 
-export type DockTab = "files" | "terminal" | "browser" | "agents";
+export type DockTab = "files" | "browser" | "agents";
 
 type Props = {
   open: boolean;
@@ -245,7 +244,6 @@ export function RightDock({ open, tab, onTabChange, onClose, projectPath, projec
 
   const tabs = [
     { id: "files" as DockTab, label: "Workspace files", short: "Files", icon: FileText, visible: Boolean(projectPath) },
-    { id: "terminal" as DockTab, label: "Terminal", short: "Terminal", icon: SquareTerminal, visible: Boolean(projectPath) },
     { id: "browser" as DockTab, label: "Browser", short: "Browser", icon: Globe2, visible: showBrowser },
     { id: "agents" as DockTab, label: "Subagents", short: "Subagents", icon: Users, visible: showAgents },
   ].filter((entry) => entry.visible);
@@ -307,9 +305,6 @@ export function RightDock({ open, tab, onTabChange, onClose, projectPath, projec
       <div className="dock-body">
         <Panel label="Workspace files" active={activeTab === "files"}>
           <FilesPane projectPath={projectPath} projectName={projectName} onPickFolder={onPickFolder} execute={execute} open={open && activeTab === "files"} />
-        </Panel>
-        <Panel label="Terminal" active={activeTab === "terminal"}>
-          <TerminalDock docked projectPath={projectPath} projectName={projectName} onClose={onClose} />
         </Panel>
         <Panel label="Browser" active={activeTab === "browser"} className="dock-panel--browser">
           <BrowserPanel active={browserActive} />

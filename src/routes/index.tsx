@@ -26,12 +26,13 @@ import {
 import { useProjects } from "@/lib/project-context";
 import { memoryKeyFor, readMemoryAt, writeMemoryAt, type StoredChat } from "@/lib/account";
 import { callAI, type MediaAttachment } from "@/lib/gemini";
-import { CALVRAS_SYSTEM_PROMPT, policyNotes } from "@/lib/system-prompt";
+import { CALVRAS_SYSTEM_PROMPT, CHAT_SYSTEM_PROMPT, policyNotes } from "@/lib/system-prompt";
 import { playCompletionChimeWhenUnfocused } from "@/lib/completion-sound";
 import { decodeTextDataUrl, extractPdfText, isPdfAttachment, isTextLikeAttachment } from "@/lib/attachment-text";
 import { cn } from "@/lib/utils";
 import { ChapterScrubber, type Chapter } from "@/components/ui/chapter-scrubber";
 import { RightDock, type DockTab } from "@/components/RightDock";
+import { TerminalDock } from "@/components/TerminalDock";
 import { browserBridge, hasInAppBrowser, isInAppBrowserTool } from "@/lib/browser-bridge";
 import { evaluatePreviewHealth } from "@/lib/preview-health";
 import { Copy, CheckCheck, ListTodo, PanelRight, SquareTerminal } from "lucide-react";
@@ -480,6 +481,9 @@ export function Index() {
   // it runs commands in, the page it is driving, and the subagents it handed work to.
   const [dockOpen, setDockOpen] = useState(false);
   const [dockTab, setDockTab] = useState<DockTab>("files");
+  // The shell lives at the bottom edge, not inside the right dock, so a running command stays
+  // visible while the conversation and the file tree are both open above it.
+  const [terminalOpen, setTerminalOpen] = useState(false);
   const [dockMounted, setDockMounted] = useState(false);
   const dockMountedRef = useRef(false);
   const serverPreviewUrlRef = useRef("");
@@ -1004,12 +1008,17 @@ export function Index() {
 
       const intent = agentIntent(text, messages.filter((message) => message.done).map((message) => message.text), Boolean(activePath));
       const hasAttachments = Boolean(attachmentFiles?.length);
+      // Conversation is decided by what the message asks for, never by whether a folder happens
+      // to be open — that is what made "hey" answer with a workspace listing. Anything wanting
+      // live or external information stays on the full agent path so it can actually go look.
+      const wantsLiveInfo = /\b(search|look\s?up|latest|current|today|this\s+week|news|weather|price|version|changelog|github|gitlab|website|url|http|docs?|documentation)\b/i.test(text);
+      const isChatTurn = !intent.requiresTools && !intent.requiresWork && !hasAttachments && !wantsLiveInfo;
       const directAttachmentReview = hasAttachments && !intent.requiresWork;
       if (directAttachmentReview) {
         fullPrompt = `${fullPrompt}\n\n[ATTACHMENT REVIEW MODE] The user's attached file content is already included above — text, PDF text, or the image itself. Review it directly now with actions: [] and status complete. Never call file or workspace tools to read an attachment. Answer the actual question in your own words using the attached evidence, with a direct verdict and specific reasons.`;
       }
-      if (!activePath && !intent.requiresTools) {
-        fullPrompt = `${fullPrompt}\n\n[CONVERSATION MODE] This message is conversation, not file or code work. Reply directly in your own words with actions: [] and status complete. Do not call tools. Do not say the words project, folder, workspace, repository, files, or work on. Do not offer a menu of tasks, ask what the user wants to work on, or invite them to assign work. A greeting gets a short warm greeting back and nothing else. A question gets a direct answer. Respond in 1-4 sentences, then stop.`;
+      if (isChatTurn) {
+        fullPrompt = `${fullPrompt}\n\n[CONVERSATION MODE] This message is conversation, not file or code work. Reply directly in your own words with actions: [] and status complete. Do not call tools. Do not say the words project, folder, workspace, repository, files, or work on. Do not offer a menu of tasks, ask what the user wants to work on, or invite them to assign work. A greeting gets a one-line casual greeting back and nothing else — worded differently from every greeting already in this conversation, and with no emoji unless the user used one first. A question gets a direct answer to the question actually asked. Respond in 1-4 sentences, then stop.`;
       }
       if (workspaceJournal.trim() && intent.requiresTools) {
         fullPrompt = `${fullPrompt}\n\n[PROJECT JOURNAL — recent work verified in this workspace]\n${workspaceJournal.trim()}\nStay consistent with this. Anything marked failed or unfinished is not done; verify before claiming it works.`;
@@ -1116,7 +1125,7 @@ export function Index() {
       let compressionPhase: AgentPhase | null = null;
       // Settings the model must know about; the runtime enforces the same rules regardless.
       const turnNotes = policyNotes(effectivePolicies(activePath || projectPath));
-      const turnSystem = turnNotes ? `${CALVRAS_SYSTEM_PROMPT}\n${turnNotes}` : undefined;
+      const turnSystem = isChatTurn ? CHAT_SYSTEM_PROMPT : turnNotes ? `${CALVRAS_SYSTEM_PROMPT}\n${turnNotes}` : undefined;
       const outcome = await runAgent({
         prompt: fullPrompt,
         requiresTools: directAttachmentReview && !activePath ? false : intent.requiresTools,
@@ -1151,12 +1160,14 @@ export function Index() {
           // step after real work has started is still work, so the indicator stays Working.
           else if (!currentPhase.trace.some((node) => node.type !== "reasoning")) currentPhase.activity = "thinking";
           publish();
-          if (activePath) await ensureRuntime(activePath, text);
+          // A chat turn never needs the workspace runtime booted, and the folder context is the
+          // thing that tempts the model into describing their project back at them.
+          if (activePath && !isChatTurn) await ensureRuntime(activePath, text);
           // A rate-limited or dropped provider is this run's problem, not the user's: ask
           // again with a short pause and keep the working indicator honest.
           for (let attempt = 0; attempt < 4; attempt++) {
             try {
-              return await callAI(prompt, turnSystem, mediaList, `${projectSnapshot}\n${runtimeRef.current?.context || ""}`, controller.signal, onDelta, /^(?:hey|hi|hello|thanks|thank you)[.!\s]*$/i.test(text) ? "Quick" : effort);
+              return await callAI(prompt, turnSystem, mediaList, isChatTurn ? "" : `${projectSnapshot}\n${runtimeRef.current?.context || ""}`, controller.signal, onDelta, isChatTurn ? "Quick" : effort);
             } catch (error) {
               const reason = error instanceof Error ? error.message : "";
               const providerTrouble = /rate limited|requires credits|did not respond in time|connection dropped|HTTP [45]\d\d/i.test(reason);
@@ -1596,7 +1607,7 @@ export function Index() {
     if (id === "new-chat") { resetConversation(); return; }
     if (id === "tasks") { setTasksOpen(true); setSidechatOpen(false); return; }
     if (id === "sidechat") { setSidechatOpen(true); setTasksOpen(false); return; }
-    if (id === "terminal") { setTasksOpen(false); openDock("terminal"); return; }
+    if (id === "terminal") { setTasksOpen(false); setTerminalOpen(true); return; }
     if (id === "browser") {
       if (browserAvailable) revealBrowserPanel(false);
       else setFolderError("The browser panel is only available in the desktop app.");
@@ -1661,7 +1672,8 @@ export function Index() {
     <main
       className="chat-page antialiased"
       data-browser={dockOpen ? "open" : "closed"}
-      style={{ overflow: "hidden", height: "100dvh" }}
+      data-terminal={terminalOpen ? "open" : "closed"}
+      style={{ overflow: "hidden" }}
     >
       {/* ── Hide global scrollbar, use inner scroll only ────────────────── */}
       <style dangerouslySetInnerHTML={{ __html: `
@@ -1671,12 +1683,12 @@ export function Index() {
         .chat-scroll-area::-webkit-scrollbar { display: none; }
       ` }} />
 
-      <header className="workspace-header">{isLoading && <span role="status" className="workspace-run-state"><span className="is-working" aria-hidden="true" /><span className="run-state-text">Working</span></span>}</header>
+      <header className="workspace-header">{isLoading && <span role="status" className="workspace-run-state"><span className="run-state-text">Working</span></span>}</header>
 
       {/* ── ChapterScrubber — right side, vertically centered ──────────── */}
       {scrubberChapters.length > 0 && !dockOpen && (
         <div
-          className="fixed right-4 top-1/2 -translate-y-1/2 z-10"
+          className="absolute right-4 top-1/2 -translate-y-1/2 z-10"
           style={{ top: "50%", transform: "translateY(-50%)" }}
         >
           <ChapterScrubber
@@ -1718,19 +1730,17 @@ export function Index() {
         </button>
         <button
           type="button"
-          aria-label="Terminal"
+          aria-label="Show terminal"
           title="Terminal"
-          aria-pressed={dockOpen && dockTab === "terminal"}
-          onClick={() => {
-            if (dockOpen && dockTab === "terminal") { setDockOpen(false); return; }
-            setTasksOpen(false);
-            openDock("terminal");
-          }}
-          className={cn("shell-icon-button", dockOpen && dockTab === "terminal" && "is-selected")}
+          aria-pressed={terminalOpen}
+          onClick={() => { setTasksOpen(false); setTerminalOpen((open) => !open); }}
+          className={cn("shell-icon-button", terminalOpen && "is-selected")}
         >
           <SquareTerminal className="size-4" />
         </button>
       </div>
+
+      {terminalOpen && <TerminalDock projectPath={projectPath} projectName={projectName} onClose={() => setTerminalOpen(false)} />}
 
       {tasksOpen && (
         <TasksPanel

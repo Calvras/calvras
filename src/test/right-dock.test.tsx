@@ -78,20 +78,10 @@ describe("workspace dock", () => {
     expect(safePreviewUrl("http://localhost:3000")).toBe("http://localhost:3000/");
   });
 
-  it("hosts the terminal in the dock instead of a floating window", () => {
-    dock({ tab: "terminal" });
-    expect(screen.getByRole("tab", { name: "Terminal" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByLabelText("Terminal command")).toBeEnabled();
-    expect(screen.getByRole("log")).toHaveTextContent("Terminal ready in fixture");
-    // The dock owns the frame and its close control, so the panel must not stack a second one.
-    expect(screen.queryByRole("button", { name: "Close terminal" })).not.toBeInTheDocument();
-  });
-
-  it("leaves Escape to the dock while the terminal is open in it", () => {
-    const onClose = vi.fn();
-    dock({ tab: "terminal", onClose });
-    fireEvent.keyDown(document, { key: "Escape" });
-    expect(onClose).toHaveBeenCalledTimes(1);
+  it("keeps the shell out of the dock now that it docks to the bottom edge", () => {
+    dock({});
+    expect(screen.queryByRole("tab", { name: "Terminal" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Terminal command")).not.toBeInTheDocument();
   });
 
   it("reports the subagents the session actually ran, and can stop one", async () => {

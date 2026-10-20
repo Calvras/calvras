@@ -5,8 +5,44 @@ import { PluginsPanel } from "../components/PluginsPanel";
 import { TasksPanel } from "../components/TasksPanel";
 import { createPlugin, loadPlugins } from "../lib/plugins";
 
-const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+const shellChunks: string[] = [];
+
+// A real shell session never finishes on its own — it idles at its prompt until the process exits.
+// The stub has to idle the same way or the panel would flip to "stopped" between assertions.
+function shellStream(chunks: string[]) {
+  let pending = [...chunks];
+  let waiter: ((result: ReadableStreamReadResult<Uint8Array>) => void) | null = null;
+  return {
+    getReader: () => ({
+      read: () => {
+        if (pending.length) return Promise.resolve({ done: false, value: new TextEncoder().encode(pending.shift()!) });
+        return new Promise((resolve) => { waiter = resolve; });
+      },
+      cancel: () => { waiter?.({ done: true, value: undefined }); return Promise.resolve(); },
+    }),
+    push: (chunk: string) => {
+      if (waiter) { const done = waiter; waiter = null; done({ done: false, value: new TextEncoder().encode(chunk) }); }
+      else pending.push(chunk);
+    },
+  };
+}
+
+let shell: ReturnType<typeof shellStream> | null = null;
+
+const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+  const url = String(input);
+  if (url === "/api/terminal/open") {
+    shell = shellStream(["C:\\work\\demo>", ...shellChunks.splice(0)]);
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: (name: string) => (name.toLowerCase() === "x-calvras-terminal" ? "session-1" : null) },
+      body: shell,
+      json: async () => ({}),
+    } as unknown as Response;
+  }
   const body = JSON.parse(String(init?.body || "{}"));
+  if (url === "/api/terminal/write" && body.data === "dir\r\n") shell?.push("dir\r\nVolume in drive C has no label.\r\nC:\\work\\demo>");
   return {
     ok: true,
     status: 200,
@@ -17,6 +53,7 @@ const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
 beforeEach(() => {
   localStorage.clear();
   fetchMock.mockClear();
+  shell = null;
   vi.stubGlobal("fetch", fetchMock);
 });
 
@@ -26,50 +63,57 @@ afterEach(() => {
 });
 
 describe("terminal dock", () => {
-  it("runs a typed command in the active folder and shows its output", async () => {
-    const onClose = vi.fn();
-    render(<TerminalDock projectPath={"C:\\work\\demo"} projectName="demo" onClose={onClose} />);
-    const input = screen.getByLabelText("Terminal command");
+  const open = async () => {
+    render(<TerminalDock projectPath={"C:\\work\\demo"} projectName="demo" onClose={() => {}} />);
+    const input = await waitFor(() => {
+      const field = screen.getByLabelText("Terminal command");
+      if (!field.matches(":not([disabled])")) throw new Error("still connecting");
+      return field;
+    });
+    return input;
+  };
+
+  it("joins the folder's live shell and paints what it writes", async () => {
+    shellChunks.push("dir\r\nVolume in drive C has no label.\r\n");
+    const input = await open();
     expect(input).toBeEnabled();
-    fireEvent.change(input, { target: { value: "echo hi" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-    await waitFor(() => expect(screen.getByText("calvras says hi")).toBeInTheDocument());
-
-    expect(fetchMock).toHaveBeenCalledWith("/api/terminal/exec", expect.objectContaining({ method: "POST" }));
-    const body = JSON.parse(String((fetchMock.mock.calls[0]![1] as RequestInit).body));
-    expect(body).toMatchObject({ projectPath: "C:\\work\\demo", cwd: ".", command: "echo hi" });
-    expect(screen.getByText("demo> echo hi")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith("/api/terminal/open", expect.objectContaining({ method: "POST" }));
+    expect(JSON.parse(String((fetchMock.mock.calls[0]![1] as RequestInit).body))).toEqual({ projectPath: "C:\\work\\demo" });
+    await waitFor(() => expect(screen.getByRole("log")).toHaveTextContent("Volume in drive C has no label."));
+    // The prompt is the shell's own, not one the panel invented beside a fake command line.
+    expect(screen.getByRole("log")).toHaveTextContent("C:\\work\\demo>");
+    expect(screen.getByText("live")).toBeInTheDocument();
   });
 
-  it("changes folders inside the project and updates the prompt", async () => {
-    render(<TerminalDock projectPath={"C:\\work\\demo"} projectName="demo" onClose={() => {}} />);
-    const input = screen.getByLabelText("Terminal command");
-    fireEvent.change(input, { target: { value: "cd src" } });
+  it("hands a typed command to the shell instead of running one process per line", async () => {
+    const input = await open();
+    fetchMock.mockClear();
+    fireEvent.change(input, { target: { value: "dir" } });
     fireEvent.keyDown(input, { key: "Enter" });
-    await waitFor(() => expect(screen.getByText("demo/src>")).toBeInTheDocument());
-    const cdCall = fetchMock.mock.calls.find(([, init]) => String((init as RequestInit).body).includes('"command":"cd"'));
-    expect(cdCall).toBeTruthy();
-    expect(JSON.parse(String((cdCall![1] as RequestInit).body))).toMatchObject({ cwd: "src", command: "cd" });
+    expect(fetchMock).toHaveBeenCalledWith("/api/terminal/write", expect.objectContaining({ method: "POST" }));
+    expect(JSON.parse(String((fetchMock.mock.calls[0]![1] as RequestInit).body))).toEqual({ sessionId: "session-1", data: "dir\r\n" });
+    expect(input).toHaveValue("");
+    // The reply arrives on the same stream: nothing here re-ran the command to build a result box.
+    await waitFor(() => expect(screen.getByRole("log")).toHaveTextContent("Volume in drive C has no label."));
   });
 
-  it("refuses to leave the project folder", async () => {
-    render(<TerminalDock projectPath={"C:\\work\\demo"} projectName="demo" onClose={() => {}} />);
-    const input = screen.getByLabelText("Terminal command");
-    fireEvent.change(input, { target: { value: "cd ../../.." } });
-    fireEvent.keyDown(input, { key: "Enter" });
-    expect(await screen.findByText("That path leaves the project folder.")).toBeInTheDocument();
+  it("sends Ctrl+C to the shell so a running command can be stopped", async () => {
+    const input = await open();
+    fetchMock.mockClear();
+    fireEvent.keyDown(input, { key: "c", ctrlKey: true });
+    expect(JSON.parse(String((fetchMock.mock.calls[0]![1] as RequestInit).body))).toEqual({ sessionId: "session-1", data: "\x03" });
   });
 
   it("stays disabled until a folder is chosen", () => {
     render(<TerminalDock projectPath={null} projectName={null} onClose={() => {}} />);
     expect(screen.getByLabelText("Terminal command")).toBeDisabled();
-    expect(screen.getByPlaceholderText("Choose a folder first")).toBeInTheDocument();
+    expect(screen.getByRole("log")).toHaveTextContent("Open a folder to use the terminal.");
   });
 
-  it("closes on Escape", () => {
+  it("closes the panel through its own control", async () => {
     const onClose = vi.fn();
     render(<TerminalDock projectPath={"C:\\work\\demo"} projectName="demo" onClose={onClose} />);
-    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.click(await screen.findByRole("button", { name: "Close terminal" }));
     expect(onClose).toHaveBeenCalledOnce();
   });
 });

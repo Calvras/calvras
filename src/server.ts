@@ -1,6 +1,6 @@
 import { handleAgentApi } from "./lib/runtime/api";
 import { importFolder, importFolderFromPath } from "./lib/folder-import";
-import { runManualTerminal } from "./lib/manual-terminal";
+import { closeTerminalSession, openTerminalSession, writeTerminalSession } from "./lib/terminal-session";
 import "./lib/error-capture";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -107,7 +107,9 @@ async function handleApi(request: Request, env: SiteEnv): Promise<Response | nul
     if ((origin && origin !== url.origin) || request.headers.get("sec-fetch-site") === "cross-site") return Response.json({ ok: false, error: "Cross-site workspace access is blocked." }, { status: 403 });
     if (url.pathname === "/api/fs/import" && request.method === "POST") return importFolder(request);
     if (url.pathname === "/api/fs/import-path" && request.method === "POST") return importFolderFromPath(request);
-    if (url.pathname === "/api/terminal/exec" && request.method === "POST") return runManualTerminal(request);
+    if (url.pathname === "/api/terminal/open" && request.method === "POST") return openTerminalSession(request);
+    if (url.pathname === "/api/terminal/write" && request.method === "POST") return writeTerminalSession(request);
+    if (url.pathname === "/api/terminal/close" && request.method === "POST") return closeTerminalSession(request);
     if (url.pathname === "/api/fs/create-project" && request.method === "POST") {
       const body = await request.json();
       const name = String(body.name || "calvras-project").replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 50) || "calvras-project";
