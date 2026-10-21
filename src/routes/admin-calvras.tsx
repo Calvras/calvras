@@ -358,34 +358,6 @@ export function AdminConsole() {
         )}
       </section>
 
-      <section className="admin-panel" aria-label="Usage">
-        <div className="admin-panel-heading"><h2>What people ask</h2><span>{board ? `${board.tasks} task${board.tasks === 1 ? "" : "s"} recorded, ${board.people} account${board.people === 1 ? "" : "s"}, median ${board.medianTools} actions a task` : "reading…"}</span></div>
-        {!board?.tasks ? (
-          <p className="admin-empty">No task has been reported yet. The app sends one line per finished turn — what was asked, how many actions it took and how it ended — and only while that person's Telemetry setting is on.</p>
-        ) : (
-          <div className="admin-asks">
-            <ol>
-              {board.asks.map((asked) => (
-                <li key={asked.prompt}><span className="admin-ask-count">x{asked.count}</span><b>{asked.prompt}</b><time>{ago(asked.lastAt)}</time></li>
-              ))}
-            </ol>
-            <div className="admin-scroll">
-              <table className="admin-usage">
-                <thead><tr><th scope="col">Account</th><th scope="col">Tasks</th><th scope="col">Not finished</th><th scope="col">Last active</th></tr></thead>
-                <tbody>{board.perAccount.map((row) => (
-                  <tr key={row.email}>
-                    <td data-label="Account">{row.email}</td>
-                    <td data-label="Tasks">{row.tasks}</td>
-                    <td data-label="Failed">{row.failures ? <em className="admin-status failed">{row.failures}</em> : <span className="admin-status">—</span>}</td>
-                    <td data-label="Last active">{ago(row.lastUsed)}</td>
-                  </tr>
-                ))}</tbody>
-              </table>
-            </div>
-          </div>
-        )}
-      </section>
-
       <section className="admin-panel" aria-label="Sales">
         <div className="admin-panel-heading"><h2>Sales</h2><span>{data?.sales?.configured ? `${sales.length} transaction${sales.length === 1 ? "" : "s"} read live from Payments AI` : "Store not connected"}</span></div>
         {!data?.sales?.configured ? (
