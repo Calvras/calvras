@@ -45,16 +45,23 @@ async function probe(url) {
   }
 }
 
+// CALVRAS_BASE points the check at a deployed site instead of a local copy of the build. The local
+// spawn only works while .output is a node-server build — `wrangler deploy` rebuilds it as a
+// cloudflare module that exits the moment node runs it — so a child that died gets reported, not chased.
 const port = await freePort();
-const child = spawn(process.execPath, [".output/server/index.mjs"], { env: { ...process.env, PORT: String(port), HOST: "127.0.0.1" }, stdio: "ignore" });
-try {
-  const base = `http://127.0.0.1:${port}`;
-  for (let attempt = 0; attempt < 60; attempt += 1) {
+const base = process.env.CALVRAS_BASE ?? `http://127.0.0.1:${port}`;
+let child = null;
+if (!process.env.CALVRAS_BASE) {
+  child = spawn(process.execPath, [".output/server/index.mjs"], { env: { ...process.env, PORT: String(port), HOST: "127.0.0.1" }, stdio: "ignore" });
+  for (let attempt = 0; attempt < 60 && child.exitCode === null; attempt += 1) {
     try { if ((await fetch(`${base}/update.json`)).ok) break; } catch { /* not up yet */ }
     await new Promise((r) => setTimeout(r, 500));
   }
-
-  const expected = await (await fetch(`${base}/update.json`)).json();
+}
+try {
+  const expected = await fetch(`${base}/update.json`).then((response) => (response.ok ? response.json() : null)).catch(() => null);
+  say(`${base} answers /update.json${expected ? ` with v${expected.version}` : ""}`, expected?.ok === true && typeof expected.version === "string", expected ?? { note: "no feed" });
+  if (!expected) throw new Error(`no version feed to compare against at ${base}/update.json`);
   say(`the site publishes v${expected.version} with an installer at ${expected.installer}`,
     /^https:\/\/github\.com\/Calvras\/calvras\/releases\/download\/v[\d.]+\/Calvras-Setup-[\d.]+\.exe$/.test(expected.installer));
 
@@ -87,7 +94,7 @@ try {
       (result.status === 200 || result.status === 206) && result.length > 20 * 1024 * 1024 && result.magic === (isExe ? "MZ" : "PK"), result);
   }
 } finally {
-  child.kill();
+  child?.kill();
   report.summary = { pages: PAGES.length, installerLinks: Object.keys(report.links).length };
   console.log(JSON.stringify(report, null, 1));
 }

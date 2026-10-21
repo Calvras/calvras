@@ -58,3 +58,7 @@ public/*.exe
 
 # Calvras app state: module cards, batch queue, journal and appointments
 .calvras/
+
+# Scratch for the agent's own harness runs. It holds the owner token in plain text, so nothing here
+# may reach the repository — not even through a broad `git add`.
+.agents/
