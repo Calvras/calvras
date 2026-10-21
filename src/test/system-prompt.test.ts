@@ -17,3 +17,18 @@ describe("system prompt non-disclosure rule", () => {
     expect(workerSystemPrompt("builder")).toContain(clause);
   });
 });
+
+describe("browser round economy", () => {
+  it("sends a run of page actions in one round instead of one click per think", () => {
+    // The 25-minute maze run: every scroll and click cost a full model round, so the queue never opened.
+    expect(CALVRAS_SYSTEM_PROMPT).toContain("For an open web page use up to eight");
+    expect(CALVRAS_SYSTEM_PROMPT).toContain("Then look once, at the end of the chain");
+    expect(CALVRAS_SYSTEM_PROMPT).not.toContain("let each action be followed by the next look");
+    expect(CALVRAS_SYSTEM_PROMPT).not.toContain("look-act-look loop");
+  });
+
+  it("tells the agent a click reports the page it landed on", () => {
+    expect(CALVRAS_SYSTEM_PROMPT).toContain("nowShowing");
+    expect(CALVRAS_SYSTEM_PROMPT).toContain("one chain: open it, fill it, submit it");
+  });
+});

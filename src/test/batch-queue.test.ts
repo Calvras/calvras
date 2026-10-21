@@ -81,16 +81,17 @@ describe("batch ledger", () => {
   it("keeps a thousand targets readable by summarising instead of dumping", async () => {
     const root = await project();
     await enqueueBatch(root, "Big sweep", postings(1_000));
-    // Asking for fifty still claims ten: one round cannot swallow the queue.
+    // Asking for fifty still claims five: one round cannot swallow the queue.
     await claimBatch(root, 50);
     const status = await batchStatus(root);
     expect(status.total).toBe(1_000);
-    expect(status.queued).toBe(990);
+    expect(status.queued).toBe(995);
     expect(status.pending).toHaveLength(10);
+    expect(status.inProgress).toHaveLength(5);
     expect(JSON.stringify(status).length).toBeLessThan(6_000);
     const stored = JSON.parse(await readFile(path.join(root, ".calvras", "batch.json"), "utf8"));
     expect(stored.items).toHaveLength(1_000);
-    expect(batchCounts(stored.items).running).toBe(10);
+    expect(batchCounts(stored.items).running).toBe(5);
   });
 
   it("does not lose a report when two workers write at the same moment", async () => {

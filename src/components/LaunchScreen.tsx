@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 import { WindowControls } from "./TitleBar";
-import { reportSignIn } from "@/lib/site-session";
+import { checkSession, reportSignIn } from "@/lib/site-session";
 import { storedUser, writeStoredUser, type CalvrasUser } from "@/lib/account";
 
 const SPLASH_MS = 2000;
@@ -19,7 +19,8 @@ const desktopBridge = () => typeof window !== "undefined"
   ? (window as unknown as { __electron?: DesktopBridge }).__electron
   : undefined;
 
-const installedVersion = async () => {
+/** The version this computer is actually running, from the shell rather than the bundle. */
+export const installedVersion = async () => {
   try { return String((await desktopBridge()?.appVersion?.()) || ""); } catch { return ""; }
 };
 
@@ -36,7 +37,7 @@ export function SplashScreen() {
   );
 }
 
-export function AuthScreen({ onContinue }: { onContinue: (user: CalvrasUser) => void }) {
+export function AuthScreen({ onContinue, notice = "" }: { onContinue: (user: CalvrasUser) => void; notice?: string }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   // Google opens its own tab. If the person closes that tab instead of finishing, the bridge
@@ -64,10 +65,17 @@ export function AuthScreen({ onContinue }: { onContinue: (user: CalvrasUser) => 
     }
     // Tell the site this person signed in, so the owner's console sees them and so a plan the owner
     // granted comes back with them. A site that cannot be reached does not lock anyone out.
-    const session = await reportSignIn({ ...(answer.idToken ? { idToken: answer.idToken } : {}), platform: navigator.platform, version: await installedVersion() }).catch(() => ({ ok: false } as const));
+    const session = await reportSignIn({ ...(answer.idToken ? { idToken: answer.idToken } : {}), platform: navigator.platform, version: await installedVersion() });
     if (attempt.current !== mine) return;
+    if (session?.blocked) {
+      // The account ledger says no, so this computer says no too. Google proved who they are; the
+      // owner decided what that person may do.
+      setBusy(false);
+      setError(session.error || "This account has been blocked by the owner.");
+      return;
+    }
     const plan = session?.ok && session.plan ? session.plan : undefined;
-    onContinue({ provider: "google", email: answer.email, name: answer.name ?? answer.email, ...(answer.picture ? { picture: answer.picture } : {}), ...(plan ? { plan } : {}), joinedAt: Date.now() });
+    onContinue({ provider: "google", email: answer.email, name: answer.name ?? answer.email, ...(answer.picture ? { picture: answer.picture } : {}), ...(plan ? { plan } : {}), ...(session?.session ? { session: session.session } : {}), joinedAt: Date.now() });
   };
 
   return (
@@ -77,7 +85,7 @@ export function AuthScreen({ onContinue }: { onContinue: (user: CalvrasUser) => 
       ` }} />
       {/* The overlay sits above the real title bar, so it has to carry its own controls. */}
       {desktopBridge()?.minimize && (
-        <div className="absolute inset-x-0 top-0 z-10 flex h-[34px] justify-end pr-1" style={{ WebkitAppRegion: "drag" } as React.CSSProperties}>
+        <div className="absolute inset-x-0 top-0 z-10 flex h-[28px] justify-end pr-1" style={{ WebkitAppRegion: "drag" } as React.CSSProperties}>
           <div className="flex h-full items-center" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
             <WindowControls />
           </div>
@@ -117,6 +125,7 @@ export function AuthScreen({ onContinue }: { onContinue: (user: CalvrasUser) => 
           Back
         </button>
 
+        {notice && !error && <p role="status" className="mt-3 text-center text-[11px] text-white/55">{notice}</p>}
         {error && <p role="alert" className="mt-3 text-center text-[11px] text-red-300">{error}</p>}
 
         <p className="mt-6 text-center text-[10px] leading-5 text-white/25">By continuing you agree to the Calvras <a href="https://calvras.com/terms" target="_blank" rel="noopener noreferrer" className="text-white/45 underline underline-offset-2 hover:text-white/70">terms</a> and <a href="https://calvras.com/privacy" target="_blank" rel="noopener noreferrer" className="text-white/45 underline underline-offset-2 hover:text-white/70">privacy policy</a>.<br />Your projects stay on this computer; Google is only used to identify you.</p>
@@ -127,13 +136,20 @@ export function AuthScreen({ onContinue }: { onContinue: (user: CalvrasUser) => 
 
 export function LaunchGate({ children }: { children: ReactNode }) {
   const [phase, setPhase] = useState<"splash" | "auth" | "app">("splash");
+  const [notice, setNotice] = useState("");
 
   useEffect(() => {
     // The logo holding the screen is the check: while it is up the app reads the stored
     // session, so a signed-in person lands in the workspace and nobody else does.
     let launched = false;
     try { launched = Boolean(window.sessionStorage.getItem("calvras_session_started")); } catch { /* storage unavailable */ }
-    const enter = () => setPhase(storedUser() ? "app" : "auth");
+    const enter = () => {
+      const user = storedUser();
+      // A block the site reported stays in force even if this computer cannot reach it again, so
+      // coming back offline still lands on the sign-in screen with the reason on it.
+      if (user?.blocked) { setNotice(user.blocked); setPhase("auth"); return; }
+      setPhase(user ? "app" : "auth");
+    };
     if (launched) { enter(); return; }
     const timer = window.setTimeout(() => {
       try { window.sessionStorage.setItem("calvras_session_started", "1"); } catch { /* storage unavailable */ }
@@ -142,10 +158,33 @@ export function LaunchGate({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(timer);
   }, []);
 
+  // The site decides whether this account still counts, so the app asks it once when it opens. That
+  // single call is what carries both directions: a plan the owner granted arrives here, and so does a
+  // block. A site that cannot be reached is not a block, so an offline computer still opens.
+  useEffect(() => {
+    if (phase !== "app") return;
+    const user = storedUser();
+    if (!user?.session) return;
+    let live = true;
+    void (async () => {
+      const answer = await checkSession(user.session!, { platform: navigator.platform, version: await installedVersion() });
+      if (!live) return;
+      if (answer.blocked) {
+        writeStoredUser({ ...user, blocked: answer.error || "This account has been blocked by the owner." });
+        setNotice(answer.error || "This account has been blocked by the owner.");
+        setPhase("auth");
+        return;
+      }
+      if (answer.ok && answer.plan && answer.plan !== user.plan) writeStoredUser({ ...user, plan: answer.plan });
+    })();
+    return () => { live = false; };
+  }, [phase]);
+
   if (phase === "splash") return <SplashScreen />;
   if (phase === "auth") {
-    return <AuthScreen onContinue={(user) => {
+    return <AuthScreen notice={notice} onContinue={(user) => {
       writeStoredUser(user);
+      setNotice("");
       setPhase("app");
     }} />;
   }

@@ -221,6 +221,8 @@ if (process.env.FIXTURE_ONLY) {
 const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE;
 const app = await electron.launch({ executablePath: path.resolve("node_modules/electron/dist/electron.exe"), args: ["."], env, timeout: 60_000 });
 let page;
+let accountKey = null;
+let savedAccount = null;
 
 const LEGS = (process.env.LEGS || "apply,book,search").split(",").map((name) => name.trim()).filter(Boolean);
 // What the left panel showed while each run was still working — the user asked for visible
@@ -231,7 +233,9 @@ async function run(label, prompt, verify) {
   if (!LEGS.includes(label)) return;
   // One leg failing must not erase the checks from the legs after it.
   try {
-    await page.evaluate(() => localStorage.removeItem("calvras_chat_messages"));
+    // Transcripts are per account and per chat id, so the leg starts by emptying this
+    // account's chat map — the old flat key the app used to write is long gone.
+    await page.evaluate((prefix) => { localStorage.setItem(`${prefix}/chats`, "{}"); localStorage.setItem(`${prefix}/recents`, "[]"); }, accountKey);
     await page.reload();
     await page.getByRole("textbox", { name: "Prompt" }).waitFor({ timeout: 30_000 });
     const input = page.getByRole("textbox", { name: "Prompt" });
@@ -250,9 +254,16 @@ async function run(label, prompt, verify) {
     await page.getByRole("button", { name: "Stop task" }).waitFor({ state: "detached", timeout: RUN_TIMEOUT });
     await page.screenshot({ path: path.join(OUT, `${label}.png`), animations: "disabled" }).catch(() => {});
     const transcript = await page.getByLabel("Conversation").innerText();
+    // The complaint was tone and dead ends, so every leg is held to the same floor: no help-desk
+    // refusal, no canned stop sentence, no provider banner, and no run that ends with its own
+    // plan still open.
+    check(`${label}: no help-desk refusal or canned stop in the reply (${transcript.replace(/\s+/g, " ").slice(-110)})`,
+      !/I am unable to|I'?m unable to|I'?m sorry, but|As an AI|I cannot interact|I can, however|Please note that|I hope this helps|successfully completed|I stopped with this still open|Missing file contents|could not reach the model|Action limit reached/i.test(transcript));
+    check(`${label}: the run ended with nothing left open on its own plan (${liveProgress[label]?.match(/Pick it back up|steps still open|action ceiling/)?.join(", ") || "clean"})`,
+      !/Pick it back up|steps still open|action ceiling/i.test(transcript));
     // The saved message carries the tool trace, which is the only way to read back what the
     // run actually did after a check fails — the collapsed timeline is not in the text.
-    await fs.writeFile(path.join(OUT, `${label}.json`), await page.evaluate(() => localStorage.getItem("calvras_chat_messages") || "[]")).catch(() => {});
+    await fs.writeFile(path.join(OUT, `${label}.json`), await page.evaluate((prefix) => localStorage.getItem(`${prefix}/chats`) || "[]", accountKey)).catch(() => {});
     await verify(transcript);
   } catch (error) {
     check(`${label}: leg stopped early (${String(error.message).split("\n")[0].slice(0, 120)})`, false);
@@ -263,13 +274,31 @@ async function run(label, prompt, verify) {
 try {
   page = await app.firstWindow();
   await page.waitForLoadState("domcontentloaded");
-  await page.evaluate((dir) => {
-    localStorage.setItem("calvras_projects", JSON.stringify([{ name: "Web Proof", path: dir }]));
-    localStorage.setItem("calvras_active_project", JSON.stringify({ name: "Web Proof", path: dir }));
+  // Projects, history and transcripts are all keyed to the signed-in account now, so the proof
+  // folder has to be installed on that shelf — and the account's own data goes back afterwards.
+  accountKey = await page.evaluate(() => {
+    const user = JSON.parse(localStorage.getItem("calvras_user") || "null");
+    return user?.email ? `calvras/account/${user.email.toLowerCase()}` : null;
+  });
+  if (!accountKey) throw new Error("the app is not signed in, so there is no account shelf to point at the proof folder");
+  savedAccount = await page.evaluate((prefix) => ({
+    chats: localStorage.getItem(`${prefix}/chats`),
+    recents: localStorage.getItem(`${prefix}/recents`),
+    projects: localStorage.getItem(`${prefix}/projects`),
+    activeProject: localStorage.getItem(`${prefix}/activeProject`),
+  }), accountKey);
+  await page.evaluate(([prefix, dir]) => {
+    const projects = [{ name: "Web Proof", path: dir }];
+    localStorage.setItem(`${prefix}/projects`, JSON.stringify(projects));
+    localStorage.setItem(`${prefix}/activeProject`, JSON.stringify(projects[0]));
+    localStorage.setItem(`${prefix}/chats`, "{}");
+    localStorage.setItem(`${prefix}/recents`, "[]");
     localStorage.setItem("calvras_access_mode", "full");
-  }, root);
+  }, [accountKey, root]);
   await page.reload();
   await page.getByRole("textbox", { name: "Prompt" }).waitFor({ timeout: 30_000 });
+  const mounted = await page.evaluate((prefix) => String(localStorage.getItem(`${prefix}/activeProject`) || ""), accountKey);
+  check(`fixture: the proof folder is the account's active project (${mounted})`, /Web Proof/.test(mounted));
 
   await run("apply", `Open ${base}/jobs in the browser panel and apply for the Backend Engineer role: name Shikari Adesanya, email shikari.adesanya@example.com, availability "2 weeks", in the reason box write "I have shipped TypeScript apps for four years.", attach cv.txt from this project, tick the consent box and submit. Read the confirmation page back to me, including the reference it shows.`, async (transcript) => {
     const [record] = applications;
@@ -339,6 +368,11 @@ try {
   check(`stopped at: ${String(error.message).split("\n")[0].slice(0, 180)}`, false);
   if (page) await page.screenshot({ path: path.join(OUT, "failure.png"), animations: "disabled" }).catch(() => {});
 } finally {
+  // This runs against the user's real app profile, so their own projects and chats go back
+  // exactly as the harness found them.
+  if (page && accountKey) await page.evaluate(([prefix, saved]) => {
+    for (const [name, value] of Object.entries(saved)) { if (value === null) localStorage.removeItem(`${prefix}/${name}`); else localStorage.setItem(`${prefix}/${name}`, value); }
+  }, [accountKey, savedAccount]).catch(() => {});
   await app.close();
   server.close();
   await fs.rm(root, { recursive: true, force: true, maxRetries: 5 }).catch(() => {});

@@ -39,7 +39,7 @@ export function parseAgentReply(raw: string): AgentReply {
 }
 
 export type ToolFeedback = { action: AgentAction; ok: boolean; result: unknown };
-export type AgentOutcome = { status: "finished" | "blocked" | "stopped" | "limit"; message?: string; error?: string; plan?: string };
+export type AgentOutcome = { status: "finished" | "blocked" | "stopped" | "limit"; message?: string; error?: string; plan?: string; /** The phase-plan steps still untouched when the run stopped, so the UI can offer to pick the work back up. */ openSteps?: string[] };
 type PreviewState = { healthy: boolean; issues: string[]; url: string };
 /** Characters of detailed tool context that trigger a working-memory compression.
  * Deliberately high: a normal task should finish long before this, so compression is a
@@ -50,6 +50,16 @@ const COMPRESSION_THRESHOLD = 120_000;
 const CONTEXT_WINDOW = 120_000;
 /** Automatic reload-and-recheck attempts before an unhealthy preview blocks the run. */
 const PREVIEW_CHECK_LIMIT = 3;
+/** Replies the loop will ask the model to repair before giving up on the turn. Generous on
+ * purpose: one truncated JSON object must not kill hours of real work. */
+const INVALID_REPLY_LIMIT = 6;
+/** Rounds without a real action that a run gets before it stops, on the condition that the
+ * state still holds something unfinished. Long enough to recover from a confused round. */
+const IDLE_ROUND_LIMIT = 5;
+/** Repeated read-only rounds before the run stops itself. */
+const REPEATED_READ_LIMIT = 12;
+/** Rounds the plan gate holds a completion claim for before letting the run end honestly. */
+const PLAN_GATE_LIMIT = 4;
 
 function compressedFallback(task: string, ledger: string[], inspected: Set<string>, needsVerification: boolean, executedActions: number): string {
   return [
@@ -87,6 +97,9 @@ export async function runAgent(options: {
 }): Promise<AgentOutcome> {
   const history: string[] = [];
   let invalidReplies = 0;
+  // The agent's own most recent sentence, kept so a run that has to stop can end on what it
+  // actually said rather than on internal text.
+  let lastNarration = "";
   const failedCommands = new Set<string>();
   let unresolvedFailures = false;
   let executedActions = 0;
@@ -120,6 +133,14 @@ export async function runAgent(options: {
   let previewChecks = 0;
   const previewBroken = () => previewHealth !== null && !previewHealth.healthy;
   const previewProblems = () => (previewHealth?.issues ?? []).slice(0, 5).join("; ");
+  // A verification gate that has failed its own checks as many times as it is allowed stops
+  // holding the rest of a long build hostage: the run finishes the remaining plan steps and
+  // says plainly which part it could not verify. Without this, one dead preview port ends a
+  // two-hour brief eleven minutes in.
+  let previewGateDisarmed = false;
+  let fidelityGateDisarmed = false;
+  let serverGateDisarmed = false;
+  const previewBlocking = () => previewBroken() && !previewGateDisarmed;
   const previewPromptState = () => previewHealth ? (previewHealth.healthy ? " The visible preview passed its last check." : ` The visible preview FAILS verification: ${previewProblems() || "the page did not render"}. Fix it and call check_preview; completion is blocked until it passes.`) : "";
   // When the user supplied a screenshot, a rebuilt screen has to be measured against it.
   // The check runs in the visible page and returns real pixel numbers.
@@ -135,10 +156,10 @@ export async function runAgent(options: {
   const previewRendered = () => previewHealth !== null || uiIsOpen;
   /** Armed once the run has both the user's screenshot and real work on screen: the
    * completion claim then needs a measured pixel comparison, not an opinion. */
-  const fidelityArmed = () => fidelityEnforced && workDone && previewRendered();
+  const fidelityArmed = () => fidelityEnforced && !fidelityGateDisarmed && workDone && previewRendered();
   const fidelityPromptState = () => fidelity
     ? (fidelity.matched ? ` The render matches the user's screenshot at ${fidelity.similarity}% similar with the colours and layout in line; read the attached panels before you call it done.` : shapeOnly() ? ` The render was measured against the user's screenshot but the preview panel is a different shape (${fidelity.referenceSize.width}x${fidelity.referenceSize.height} versus ${fidelity.renderedSize.width}x${fidelity.renderedSize.height}), so layout could not be aligned; colours and the picture itself were compared. Say in the reply which part of the screen you could not verify that way.` : ` The render does NOT match the user's screenshot (${fidelity.diff}% different${fidelity.hotspots.length ? `: ${fidelity.hotspots.slice(0, 3).map((item) => `${item.region} ${item.diff}%`).join(", ")}` : ""}) — ${fidelity.reasons.join("; ")}. Fix it and call compare_to_reference; completion is blocked until it passes.`)
-    : (fidelityEnforced ? " The screen has not yet been compared pixel-by-pixel with the screenshot the user sent; call compare_to_reference once the page renders." : "");
+    : (fidelityEnforced && !fidelityGateDisarmed ? " The screen has not yet been compared pixel-by-pixel with the screenshot the user sent; call compare_to_reference once the page renders." : "");
   const toolHistory: { detailed: string; summary: string }[] = [];
   const actionLedger: string[] = [];
   const pendingWorkers = new Set<string>();
@@ -146,23 +167,91 @@ export async function runAgent(options: {
   // A run that finishes while targets are still queued has not done what was asked, so the
   // ledger's counts gate completion the same way a failing preview does.
   const batch = { total: 0, queued: 0, running: 0, done: 0, blocked: 0, skipped: 0 };
-  const BATCH_GATE_LIMIT = 3;
   let batchUsed = false;
-  let batchDisarmed = false;
-  let batchStuck = 0;
-  const batchPending = () => batchUsed && !batchDisarmed && batch.queued + batch.running > 0;
+  // There is no way to switch this gate off: a queue the run keeps abandoning still drains,
+  // because the ledger closes a target dropped three times as blocked on its own.
+  const batchPending = () => batchUsed && batch.queued + batch.running > 0;
+  // A written phase plan is what makes a multi-hour build survivable: once the run has laid
+  // steps down, finishing early is a decision the loop no longer gets to take silently.
+  const plan = { total: 0, open: [] as string[] };
+  let planStuck = 0;
+  let planGaveUp = false;
+  const planPending = () => !planGaveUp && plan.total > 0 && plan.open.length > 0;
+  /** The steps the loop never got to, carried out of the run so the reply can offer to pick
+   * the work back up instead of making the user retype the whole request. */
+  const carried = () => (plan.open.length ? { openSteps: plan.open.slice(0, 6) } : {});
   const inspected = new Set<string>();
   const snapshotReads = new Set(["read_file", "read_package_json", "list_dir", "list_files", "directory_tree", "analyze_project"]);
   // External tools that only observe; they cannot satisfy a change request on their own.
   const observational = new Set(["take_screenshot", "take_screen_screenshot", "inspect_element", "test_responsive_layout", "read_page", "read_page_content", "check_console_errors", "list_windows", "search_documentation", "web_search", "wait_for_element", "wait_for_window", "focus_window"]);
+  // What every page, file and command has returned so far — never the batch ledger, whose own
+  // echo of a reference would otherwise "prove" the report that carried it.
+  let observedText = "";
+  /** Batch targets a done-report closed without a receipt any page in this run printed. */
+  const receiptDoubts: { id: string; reference: string; why: string }[] = [];
+  /** Receipt codes handed out this run, and the target that first quoted each one. Two postings
+   * cannot arrive with the same reference, so a second claim on it is a code copied off an earlier
+   * confirmation page — the shape a sloppy batch takes when the run stops reading. */
+  const receiptsTaken = new Map<string, string>();
+  /** Targets still closed as done whose receipt was never actually read. The submission stays
+   * closed — reopening finished work is how a batch applies to the same posting twice — but the
+   * final count has to name them, because "7 applications sent" is not "7 postings covered". */
+  const unreceipted = new Set<string>();
+  const receiptNudged = new Set<string>();
+  /** Boilerplate the site prints on every confirmation. It proves a page was read, not that this
+   * target went through, so it can never stand in for the reference the page issued. */
+  const BOILERPLATE_RECEIPT = /^(?:the )?(?:application|submission|form|request|booking|order|answer|message)s? (?:has been |is |was |are )?(?:successfully )?(?:submitted|received|sent|completed|complete|done|successful|recorded|confirmed|accepted)|^(?:submitted|received|sent|completed|success|successful|done|ok|confirmed|accepted)[.!]*$/i;
+  /** Batch targets queued from an address nothing this run has read carries: a run that wrote a
+   * URL from memory instead of following the link on the listing page, which then 404s. */
+  const queueDoubts: string[] = [];
+  const addressSeen = (url: string) => {
+    const haystack = `${options.prompt}\n${observedText}`.toLowerCase();
+    // A page read earlier may have shown the link as `127.0.0.1:8123/post/2` while the run writes
+    // `localhost:8123/post/2`; only the address the listing actually printed counts as invented.
+    const forms = [url, url.replace(/^https?:\/\//, "").replace(/^www\./i, "")];
+    try {
+      const parsed = new URL(url);
+      forms.push(`${parsed.host}${parsed.pathname}`, parsed.pathname);
+    } catch { /* a label where a URL was expected — nothing to match */ }
+    return forms.some((form) => form.length > 1 && haystack.includes(form.toLowerCase()));
+  };
+  const LEDGER_TOOLS = ["report_batch", "queue_batch", "next_batch", "batch_status"];
   const record = (results: ToolFeedback[]) => {
-    toolHistory.push({ detailed: feedbackContext(results), summary: feedbackContext(results, false) });
+    const detailed = feedbackContext(results);
+    const evidence = feedbackContext(results.filter((result) => !LEDGER_TOOLS.includes(result.action.type)));
+    // Checked against the evidence as it stood before this round: a done-report has to be proven
+    // by a page the run actually read, not by the number it is quoting.
+    const proofText = (observedText + "\n" + evidence).toLowerCase();
+    toolHistory.push({ detailed, summary: feedbackContext(results, false) });
+    observedText = (observedText + "\n" + evidence).slice(-200_000);
     // Actions skipped for runtime reasons (for example no workspace) are guidance
     // for the model, not executed work or real failures. Checked strictly because a tool
     // may legitimately return a count named "skipped" — the batch ledger does exactly that.
     const effective = results.filter((result) => (result.result as { skipped?: boolean } | null)?.skipped !== true);
     executedActions += effective.length;
     for (const result of effective) {
+      if (result.ok && result.action.type === "report_batch" && result.action["status"] === "done") {
+        const reference = String(result.action["reference"] ?? "").trim();
+        const id = String(result.action.id ?? "?");
+        const owner = receiptsTaken.get(reference.toLowerCase());
+        // Boilerplate ("application submitted") is what every confirmation page says, so it proves a
+        // page was read and nothing about this target. A code another target already quoted was
+        // copied off that earlier page instead of read here — two postings cannot share one receipt.
+        const why = !reference ? "no reference was given at all"
+          : reference.length < 4 ? `"${reference}" is too short to be the code a site issues`
+          : BOILERPLATE_RECEIPT.test(reference) ? `"${reference}" is the sentence every confirmation page prints, which proves nothing about this target`
+          : owner && owner !== id ? `that code is ${owner}'s receipt, so it was copied from an earlier confirmation instead of read off this page`
+          : !proofText.includes(reference.toLowerCase()) ? `no page this run read prints "${reference}"`
+          : "";
+        if (why) receiptDoubts.push({ id, reference, why });
+        else { receiptsTaken.set(reference.toLowerCase(), id); unreceipted.delete(id); }
+      }
+      if (result.ok && result.action.type === "queue_batch") {
+        for (const target of (Array.isArray(result.action["targets"]) ? result.action["targets"] : [])) {
+          const url = String((target as { url?: unknown })?.url ?? "").trim();
+          if (url && !addressSeen(url)) queueDoubts.push(url);
+        }
+      }
       const ledgerTarget = result.action.command || result.action.path || result.action.url || result.action["selector"] || "";
       actionLedger.push(`${result.ok ? "ok" : "FAILED"} ${result.action.type}${ledgerTarget ? ` ${ledgerTarget}` : ""}`.slice(0, 240));
       if (actionLedger.length > 400) actionLedger.splice(0, actionLedger.length - 400);
@@ -178,9 +267,13 @@ export async function runAgent(options: {
           for (const key of ["queued", "running", "done", "blocked", "skipped"] as const) if (typeof counts[key] === "number") batch[key] = counts[key];
           batch.total = batch.queued + batch.running + batch.done + batch.blocked + batch.skipped;
           batchUsed = true;
-          // Any ledger write proves the run is still working the queue, so the gate starts over.
-          batchStuck = 0;
         }
+      }
+      const taskState = (result.result as { tasks?: { title?: string; status?: string }[] } | null)?.tasks;
+      if (result.ok && ["create_task_list", "plan_tasks", "track_progress", "read_task"].includes(result.action.type) && Array.isArray(taskState)) {
+        plan.total = taskState.length;
+        plan.open = taskState.filter((task) => !["done", "blocked"].includes(String(task.status))).map((task) => String(task.title || "")).filter(Boolean);
+        if (plan.open.length) planStuck = 0;
       }
       const commandKind = /\bbuild\b/.test(result.action.command ?? "") ? "build" : /\btest\b/.test(result.action.command ?? "") ? "tests" : /\blint\b/.test(result.action.command ?? "") ? "lint" : /\b(?:tsc|typecheck)\b/.test(result.action.command ?? "") ? "typecheck" : result.action.command;
       const identity = result.action.type === "run_command" ? commandKind! : result.action.type.replace(/^run_/, "");
@@ -230,6 +323,23 @@ export async function runAgent(options: {
     }
     unresolvedFailures = effective.some((result) => !result.ok) || failedCommands.size > 0;
   };
+  /**
+   * Drop whatever the ledger has checked out and take the next chunk of untouched targets.
+   * A completion attempt or an idle round is never a stop while the queue has work: the run is
+   * handed new targets instead of a countdown, and a target dropped three times is closed as
+   * blocked by the ledger itself, so the queue can only ever shrink.
+   */
+  const claimOut = async () => {
+    const cleared = await options.execute([{ type: "next_batch", count: 0 } as unknown as AgentAction]);
+    record(cleared);
+    options.signal.throwIfAborted();
+    const ledger = cleared.find((result) => result.ok)?.result as
+      { claimed?: { id: string; label: string }[]; dropped?: { id: string; label: string }[]; closed_as_blocked?: { id: string; label: string }[] } | undefined;
+    return { left: batch.queued + batch.running, handed: ledger?.claimed ?? [], dropped: ledger?.dropped ?? [], closed: ledger?.closed_as_blocked ?? [] };
+  };
+  const claimOutNote = (state: Awaited<ReturnType<typeof claimOut>>) => state.left
+    ? `[BATCH NOT FINISHED] ${state.dropped.length ? `The ledger released your claim on ${state.dropped.map((item) => item.id).join(", ")} and` : "The ledger"} handed the next chunk above (${state.handed.map((item) => item.id).join(", ") || "nothing new to hand"}). ${state.left} of ${batch.total} targets are still open — ${batch.done} done, ${batch.blocked} blocked, ${batch.skipped} skipped. Work them one at a time and record each outcome with report_batch: done with the reference the site showed, or blocked with what the page actually said. A target that already went through stays through — never submit the same form twice to earn a receipt. Do not answer with a sentence about stopping, and do not claim the queue is finished.`
+    : `[BATCH CLOSED] Every target now has an outcome: ${batch.done} done, ${batch.blocked} blocked, ${batch.skipped} skipped out of ${batch.total}. Complete, and put those exact numbers in the reply — say which targets were not finished and what stopped them, in the plain words of what the page showed.${unreceipted.size ? ` ${unreceipted.size} of the closed targets (${[...unreceipted].join(", ")}) were never backed by a receipt this run read: list them separately as done without confirmation, never inside a count of confirmed ones.` : ""}`;
   const noteServerReady = (results: ToolFeedback[]): void => {
     const verified = results.find((result) => result.ok && ["start_server", "start_dev_server", "check_server"].includes(result.action.type) && (result.result as { ready?: boolean })?.ready === true);
     if (!verified) return;
@@ -273,7 +383,8 @@ export async function runAgent(options: {
         options.onCompression?.("compressed", summary);
       }
       const context = toolHistory.map((entry, i) => i < toolHistory.length - 2 ? entry.summary : entry.detailed).join("\n").slice(-CONTEXT_WINDOW);
-      const raw = await options.infer(`${options.prompt}\n\n[EXECUTION STATE]\nContinuation ${step + 1}. ${executedActions} actions have already executed. Do not restart the task. Inspected snapshots: ${[...inspected].join(", ").slice(-2000)}. ${needsVerification ? "Changes need verification." : ""}${previewPromptState()}${fidelityPromptState()}\n[OBSERVED TOOL RESULTS]\n${context}\n${history.slice(-3).join("\n\n")}\nUse the observed results to take the NEXT useful action. For an implementation request, inspection must lead to actual file edits, then verification. Stop only when verified.`, (text) => {
+      const planLine = plan.total && plan.open.length ? `Phase plan: ${plan.total - plan.open.length} of ${plan.total} steps are done; the next unfinished step is "${plan.open[0]}"${plan.open.length > 1 ? ` (${plan.open.length - 1} more after it)` : ""}.` : "";
+      const raw = await options.infer(`${options.prompt}\n\n[EXECUTION STATE]\nContinuation ${step + 1}. ${executedActions} actions have already executed. Do not restart the task. ${planLine}Inspected snapshots: ${[...inspected].join(", ").slice(-2000)}. ${needsVerification ? "Changes need verification." : ""}${previewPromptState()}${fidelityPromptState()}\n[OBSERVED TOOL RESULTS]\n${context}\n${history.slice(-3).join("\n\n")}\nUse the observed results to take the NEXT useful action. For an implementation request, inspection must lead to actual file edits, then verification. Stop only when verified.`, (text) => {
         const message = partialMessage(text);
         if (message !== undefined) options.onMessageDelta?.(message);
       });
@@ -281,11 +392,16 @@ export async function runAgent(options: {
       let reply: AgentReply;
       try { reply = parseAgentReply(raw); }
       catch (error) {
-        if (++invalidReplies >= 2) throw error;
-        history.push(`[RESPONSE FORMAT ERROR] ${error instanceof Error ? error.message : "Invalid response"}. Return valid JSON with message, actions, and status fields. Escape file content newlines and quotes in JSON strings. Use only supported action names. No markdown or text outside the JSON object.`);
+        // One unreadable line is a formatting slip, not the end of a task. Keep the run alive
+        // and tell the model exactly what broke: an hours-long build must not die because a
+        // single reply had an unescaped newline, and a throw would strand the turn mid-work.
+        const reason = error instanceof Error ? error.message : "The reply could not be read";
+        if (++invalidReplies >= INVALID_REPLY_LIMIT) return { status: "blocked", ...(lastNarration ? { message: lastNarration } : {}), ...carried() };
+        history.push(`[RESPONSE FORMAT ERROR] ${reason}. Return exactly one JSON object: message first, then actions, then status. Put every string on one line with newlines written as \\n and quotes escaped, keep file bodies inside a content field, and use only action names from the catalog. No prose, no markdown fences, no half-written object. Then take the next real action.`);
         continue;
       }
       invalidReplies = 0;
+      if (reply.message.trim()) lastNarration = reply.message.slice(0, 1200);
       if (reply.actions.length && reply.actions.every((action) => snapshotReads.has(action.type) && inspected.has(JSON.stringify(action)))) {
         const strikes = ++idleRounds;
         history.push(strikes >= 3
@@ -293,20 +409,40 @@ export async function runAgent(options: {
           : "[REPEATED INSPECTION BLOCKED] Those exact reads already succeeded and their results are above. No workspace mutation has occurred since. Do not restart inspection or announce that you are starting again. For an implementation task, create or edit the requested files now using the existing evidence. If information is truly missing, read a different relevant file or explain the concrete blocker.");
         // A run this stuck has to stop, but the model's own last message is the honest
         // thing to show — not a generic provider-blaming error.
-        if (strikes >= 8) return { status: "blocked", ...(reply.message.trim() ? { message: reply.message } : {}) };
+        if (strikes >= REPEATED_READ_LIMIT) return { status: "blocked", ...(reply.message.trim() ? { message: reply.message } : {}), ...carried() };
         continue;
       }
       if (!reply.actions.length) {
         const steering = options.getSteering?.() ?? [];
         if (steering.length) { history.push(`[USER STEERING]\n${steering.join("\n")}\nHandle this instruction before completing.`); continue; }
         if (reply.status === "blocked") {
+          if (batchPending() && reply.message.trim()) {
+            // "Blocked" is an outcome for one target, never for the queue. Its claim is released,
+            // the next chunk is handed over, and a target dropped three times closes itself — so
+            // this path can only end with every target holding an outcome.
+            options.onFeedback(reply.message);
+            const state = await claimOut();
+            history.push(claimOutNote(state));
+            idleRounds = 0;
+            continue;
+          }
           if (reply.message.trim()) options.onPhaseComplete?.(reply.message);
-          return { status: "blocked", message: reply.message };
+          // Steps it wrote down and never did travel with the stop, so the reply can offer to
+          // pick them up rather than leave the run's own plan unfinished in silence.
+          return { status: "blocked", message: reply.message, ...carried() };
+        }
+        // A conversation turn has nothing to execute and nothing to verify, so its first reply IS the
+        // answer. Every gate below exists for a work run; pointed at a chat answer they re-asked the
+        // model up to IDLE_ROUND_LIMIT times, and the user watched the same list land again and again
+        // under a Thinking… header — including when the model's own status token said "continue".
+        if (!options.requiresTools && !options.requiresWork && executedActions === 0 && reply.message.trim()) {
+          options.onPhaseComplete?.(reply.message);
+          return { status: "finished", message: reply.message, ...(reply.plan ? { plan: reply.plan } : {}) };
         }
         const announcesWork = Boolean(reply.plan?.trim()) || /\b(?:I(?:'ll| will)|let me|going to|next I)\b/i.test(reply.message);
         const unprovenServerClaim = reply.status === "complete" && !serverReadyProof && serverProbes < SERVER_PROBE_LIMIT && (serverTaskRequested || claimsLiveServer(reply.message));
-        if (reply.status !== "complete" || unprovenServerClaim || unresolvedFailures || needsVerification || serverNeedsVerification || browserNeedsVerification || previewBroken() || fidelityPending() || batchPending() || pendingWorkers.size > 0 || (options.requiresWork && !workDone) || (options.requiresTools && (!executedActions || announcesWork))) {
-          if (previewBroken() && reply.status === "complete") {
+        if (reply.status !== "complete" || unprovenServerClaim || unresolvedFailures || needsVerification || (serverNeedsVerification && !serverGateDisarmed) || browserNeedsVerification || previewBlocking() || fidelityPending() || batchPending() || (planPending() && !announcesWork) || pendingWorkers.size > 0 || (options.requiresWork && !workDone) || (options.requiresTools && (!executedActions || announcesWork))) {
+          if (previewBlocking() && reply.status === "complete") {
             // The model is trying to finish on top of a page that failed its
             // rendered check. Reload it ourselves and re-verify before accepting.
             if (reply.message.trim()) options.onFeedback(reply.message);
@@ -321,21 +457,29 @@ export async function runAgent(options: {
               continue;
             }
             const problems = previewProblems() || "the page still did not render";
-            if (previewChecks >= PREVIEW_CHECK_LIMIT) {
-              if (reply.message.trim()) options.onPhaseComplete?.(reply.message);
-              return { status: "blocked", message: reply.message, error: `The rendered preview still fails verification after ${previewChecks} fresh browser checks: ${problems}. Fix the actual page, then retry.` };
+            if (previewChecks > PREVIEW_CHECK_LIMIT) {
+              // Enough checks. Rather than end the run, stop letting one dead page hold up
+              // the rest of the build and make the final report say what was not verified.
+              const attempts = previewChecks;
+              previewGateDisarmed = true;
+              previewChecks = 0;
+              history.push(`[PREVIEW UNVERIFIABLE] ${attempts} fresh reloads still leave the preview failing: ${problems}. Stop re-checking it and stop treating this as the end of the task. Finish every remaining step of the plan first. In the final reply, name this as the one thing that could not be rendered or verified and what was in the way — never claim the page works.`);
+              idleRounds = 0;
+              continue;
             }
-            history.push(`[PREVIEW STILL BROKEN] A fresh reload of the preview still fails verification: ${problems}. Fix the actual page, then call check_preview yourself. ${PREVIEW_CHECK_LIMIT - previewChecks} automatic recheck(s) remain before this task is blocked.`);
+            history.push(`[PREVIEW STILL BROKEN] A fresh reload of the preview still fails verification: ${problems}. Fix the actual page, then call check_preview yourself. ${PREVIEW_CHECK_LIMIT - previewChecks + 1} automatic recheck(s) remain before this check releases and you carry on with the rest of the work.`);
             idleRounds = 0;
             continue;
           }
-          if (fidelityArmed() && (fidelity === null || (fidelityMismatch() && reply.status === "complete")) && !previewBroken()) {
+          if (fidelityArmed() && (fidelity === null || (fidelityMismatch() && reply.status === "complete")) && !previewBlocking()) {
             // The screen the user sent is the specification. A completion claim without a
             // passing pixel comparison re-measures the live page and keeps going.
             if (reply.message.trim()) options.onFeedback(reply.message);
             if (fidelityStuck >= FIDELITY_CHECK_LIMIT) {
-              if (reply.message.trim()) options.onPhaseComplete?.(reply.message);
-              return { status: "blocked", message: reply.message, error: `The render still differs from the screenshot the user sent after ${fidelityStuck} fresh pixel checks (${describeFidelity(fidelity)}). Edit the code that renders those areas until the comparison passes, then retry.` };
+              fidelityGateDisarmed = true;
+              history.push(`[SCREENSHOT NOT VERIFIABLE] ${fidelityStuck} fresh pixel checks still leave the render differing from the screenshot the user sent (${describeFidelity(fidelity)}). Do not end the run over it: finish the remaining plan work, then report honestly which parts of the screen still differ and how.`);
+              idleRounds = 0;
+              continue;
             }
             const check = await options.execute([{ type: "compare_to_reference" } as AgentAction]);
             record(check);
@@ -360,16 +504,11 @@ export async function runAgent(options: {
             continue;
           }
           if (batchPending() && reply.status === "complete") {
-            // The ledger is the job. Leaving targets queued is stopping early.
+            // The ledger is the job. Finishing early is not a thing this run gets to decide:
+            // its claim is released, the next chunk is handed over, and the work goes on.
             if (reply.message.trim()) options.onFeedback(reply.message);
-            batchStuck += 1;
-            const left = batch.queued + batch.running;
-            if (batchStuck >= BATCH_GATE_LIMIT) {
-              batchDisarmed = true;
-              history.push(`[BATCH LEFT OPEN] ${left} of ${batch.total} targets are still unclaimed in the batch ledger. Stop here if you must, but the reply has to say plainly how many you finished (${batch.done} done, ${batch.blocked} blocked, ${batch.skipped} skipped) and that ${left} remain — do not present the run as complete.`);
-            } else {
-              history.push(`[BATCH NOT FINISHED] ${left} of ${batch.total} targets are still waiting in the batch ledger (${batch.done} done so far). Claim the next chunk with next_batch, work them one at a time, and record each outcome with report_batch — done with the reference the site showed, or blocked with the reason. ${BATCH_GATE_LIMIT - batchStuck} more completion attempt(s) before this run is allowed to stop with targets left.`);
-            }
+            const state = await claimOut();
+            history.push(claimOutNote(state));
             idleRounds = 0;
             continue;
           }
@@ -404,29 +543,38 @@ export async function runAgent(options: {
             history.push(`[AUTO-VERIFY] You declared the change complete without verifying it, so a type check ran: ${check.every((result) => result.ok) ? "it passed" : "it reported problems above"}. Fix real problems, or run a more appropriate check for this project (run_tests/run_build) and then complete.`);
             continue;
           }
-          if (++idleRounds >= 2) {
-            // After two explicit continuations, trust the model's own report when only failed
-            // commands remain — surfacing an expected failure is a valid outcome. Unverified
-            // edits, announced-but-undone work and pending workers still abort.
-            const standsByReport = reply.status === "complete" && reply.message.trim() !== "" && !needsVerification && !previewBroken() && !announcesWork && !batchPending() && pendingWorkers.size === 0 && (!options.requiresTools || executedActions > 0) && (!options.requiresWork || workDone);
-            const stillOpen = [
-              unresolvedFailures ? "a tool call is still failing" : "",
-              previewBroken() ? "the rendered preview still fails verification" : "",
-              needsVerification ? "the latest change has not been checked" : "",
-              serverNeedsVerification ? "nothing has confirmed the server is listening" : "",
-              browserNeedsVerification ? "the page has not been driven end to end" : "",
-              fidelityPending() ? "the screenshot comparison has not been run" : "",
-              announcesWork ? "work it announced but did not do" : "",
-              batchPending() ? "the batch queue still has targets left" : "",
-              pendingWorkers.size ? `${pendingWorkers.size} delegated ${pendingWorkers.size === 1 ? "job" : "jobs"} never came back` : "",
-              options.requiresTools && !executedActions ? "no tool ran for a request that needs the workspace" : "",
-              options.requiresWork && !workDone ? "nothing in the folder actually changed" : "",
-            ].filter(Boolean);
-            // The agent's own words stay on screen; what it could not finish is named from the
-            // state the loop actually observed, never from a canned sentence about retrying.
+          if (planPending()) {
+            // This is the endurance rule: a run that wrote a phase plan may not end while the
+            // plan still has steps. The failure mode of a big build is stopping at step three.
+            if (reply.message.trim()) options.onFeedback(reply.message);
+            if (planStuck >= PLAN_GATE_LIMIT) {
+              planGaveUp = true;
+              history.push(`[PLAN STOPPED SHORT] ${plan.total} steps were written and some are still untouched. End the run now, and in the final reply list which steps were done, which were not, and what stopped them.`);
+              idleRounds = 0;
+              continue;
+            }
+            planStuck += 1;
+            history.push(`[PLAN HAS STEPS LEFT] ${plan.total - plan.open.length} of ${plan.total} steps are done; still open: ${plan.open.slice(0, 3).map((title) => `"${title}"`).join(", ")}. A build does not finish because a round ended. Do the next step now with real actions, mark it done with track_progress, then take the one after it. If a step is genuinely impossible, track_progress it as blocked, move to the next, and say in the final report what blocked it.`);
+            idleRounds = 0;
+            continue;
+          }
+          if (batchPending()) {
+            // Not a completion claim, but the round did nothing and the queue is still open.
+            // Same rule as above: take the next chunk instead of drifting toward a stop.
+            const state = await claimOut();
+            history.push(claimOutNote(state));
+            idleRounds = 0;
+            continue;
+          }
+          const rounds = ++idleRounds;
+          if (rounds >= IDLE_ROUND_LIMIT) {
+            // Several explicit continuations in. The agent's own last words are the honest
+            // thing to show; what stayed open belongs in the timeline and the journal, never
+            // as a canned sentence about the state of the run.
+            const standsByReport = reply.status === "complete" && reply.message.trim() !== "" && !needsVerification && !previewBlocking() && !announcesWork && !batchPending() && pendingWorkers.size === 0 && (!options.requiresTools || executedActions > 0) && (!options.requiresWork || workDone);
             return standsByReport
               ? { status: "finished", message: reply.message }
-              : { status: "blocked", message: reply.message, error: stillOpen.length ? `I stopped with this still open: ${stillOpen.join("; ")}.` : "I stopped before this was finished." };
+              : { status: "blocked", ...(reply.message.trim() ? { message: reply.message } : {}), ...carried() };
           }
           history.push(`[AGENT UPDATE]\n${reply.message}\n[CONTINUE] No actions were executed. ${unresolvedFailures ? "Previous tools failed — retry, recover, or return status blocked." : previewBroken() ? `The rendered preview still fails verification: ${previewProblems() || "the page did not render"}. Fix the actual page, then call check_preview before completing.` : browserNeedsVerification ? "Opening a browser is not UI verification. Drive the real page: fill_input the control that matters, click_element the button that acts, wait_for_element for the response, then take_screenshot or inspect_element and read what actually came back. If the change you just made affects this page, exercise it again after the change. A feature that was never used is not verified." : pendingWorkers.size ? `Wait for delegated jobs with read_agent or ask_subagent before completing: ${[...pendingWorkers].join(", ")}` : options.requiresWork && !workDone ? "This request asks for a real change, and nothing in the workspace has changed yet. A sentence describing the change is not the change itself. Edit the code that actually renders or defines the thing, or run the command that performs the work — deleting an attachment, screenshot, or unrelated image is not a substitute. Then verify and complete." : needsVerification || serverNeedsVerification ? "Verify the latest change or check_server readiness before completing." : "Take the first useful action now. For a fully answered question, return status complete."}`);
           continue;
@@ -438,6 +586,15 @@ export async function runAgent(options: {
       idleRounds = 0;
       const results = await options.execute(reply.actions);
       record(results);
+      // A target closed on a reference no page printed stays closed — sending that application a
+      // second time to earn a receipt is how a batch ends up applying twice — but the run is told,
+      // once, to go back for the page's own words and to name the gap in its final count.
+      for (const doubt of receiptDoubts.splice(0)) {
+        unreceipted.add(doubt.id);
+        if (receiptNudged.has(doubt.id)) continue;
+        receiptNudged.add(doubt.id);
+        history.push(`[BATCH RECEIPT UNREAD] ${doubt.id} was closed as done with "${doubt.reference || "nothing"}" — ${doubt.why}. Leave the submission alone and do not send it again; a second submit is a duplicate application, not a receipt. go_back to that confirmation (or read_page where you are) and report_batch the same target done with the reference exactly as that page shows it. If the page cannot be reached again, keep it done and count it in your final reply as applied without its own receipt read — never as a confirmed one.`);
+      }
       options.signal.throwIfAborted();
 
       noteServerReady(results);
@@ -446,10 +603,19 @@ export async function runAgent(options: {
       // so it is marked non-final and stays in the timeline rather than under the header.
       options.onPhaseComplete?.(reply.message, false);
       history.push(`[AGENT UPDATE]\n${reply.message.slice(0, 1000)}\nObserve the actual tool results above. Replan after errors. Run only relevant verification and stop when the task is verified.`);
+      // A queue built from addresses no page printed is a queue of 404s. Say it once, in the
+      // round it happens, before the run burns its whole budget submitting to pages that do not exist.
+      if (queueDoubts.length && batchUsed) {
+        const invented = [...new Set(queueDoubts.splice(0))].slice(0, 8);
+        history.push(`[BATCH TARGET UNSEEN] You queued ${invented.length} target(s) whose address does not appear in anything this run has read: ${invented.join(", ")}. A URL written from memory is not the link on the page, and those addresses will 404. Open the listing with read_page, take the hrefs it actually returns, queue_batch those, and close the invented ones with report_batch skipped and the note "not a link on the page". Follow the link instead of guessing where it goes.`);
+      }
     }
-    return { status: "limit" };
+    return { status: "limit", ...carried() };
   } catch (error) {
     if (options.signal.aborted) return { status: "stopped" };
-    return { status: "blocked", error: error instanceof Error ? error.message : String(error) };
+    // A throw inside the loop is still not something the user reads. The turn ends on what the
+    // agent last said; the failure itself goes to the console, not into the chat.
+    console.warn(`[agent loop failed] ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`);
+    return { status: "blocked", ...(lastNarration ? { message: lastNarration } : {}), ...carried() };
   }
 }

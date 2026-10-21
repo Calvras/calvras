@@ -1,12 +1,12 @@
 import { marketingHead } from "@/lib/marketing-seo";
 import { LandingPage } from "@/components/LandingPage";
-import { LaunchGate } from "@/components/LaunchScreen";
+import { LaunchGate, installedVersion } from "@/components/LaunchScreen";
 import { servesWorkspace, workspaceHostFrom } from "@/lib/workspace-host";
 import { AgentActivity, type SubagentJob } from "@/components/AgentActivity";
-import { runAgent, type AgentAction } from "@/lib/agent-run";
+import { runAgent, type AgentAction, type AgentOutcome } from "@/lib/agent-run";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState, useCallback } from "react";
-import { agentIntent, asksToReproduce } from "@/lib/agent-intent";
+import { agentIntent, asksForCapabilities, asksToReproduce } from "@/lib/agent-intent";
 import { executeInOrder } from "@/lib/agent-context";
 import { RuntimeClient } from "@/lib/runtime-client";
 import type { AccessMode, ToolAction } from "@/lib/tool-catalog";
@@ -17,6 +17,7 @@ import { effectivePolicies, readPolicies, readPreferences, savePolicies, type Po
 import { blockReason, urlHost } from "@/lib/policy-rules";
 import { fidelityNote } from "@/lib/image-fidelity";
 import { recordUsage } from "@/lib/telemetry";
+import { reportTask } from "@/lib/site-session";
 import { PromptInput } from "@/components/ui/ai-chat-input";
 import { LinkifiedText } from "@/components/ui/markdown-content";
 import {
@@ -24,8 +25,8 @@ import {
   type TraceNode,
 } from "@/components/ui/ai-agent-response";
 import { useProjects } from "@/lib/project-context";
-import { memoryKeyFor, readMemoryAt, writeMemoryAt, type StoredChat } from "@/lib/account";
-import { callAI, type MediaAttachment } from "@/lib/gemini";
+import { memoryKeyFor, readMemoryAt, storedUser, writeMemoryAt, writeStoredUser, type StoredChat } from "@/lib/account";
+import { callAI, isProviderTrouble, patientBackoffMs, PROVIDER_PATIENCE_MS, type MediaAttachment } from "@/lib/gemini";
 import { CALVRAS_SYSTEM_PROMPT, CHAT_SYSTEM_PROMPT, policyNotes } from "@/lib/system-prompt";
 import { playCompletionChimeWhenUnfocused } from "@/lib/completion-sound";
 import { decodeTextDataUrl, extractPdfText, isPdfAttachment, isTextLikeAttachment } from "@/lib/attachment-text";
@@ -229,6 +230,11 @@ interface Message {
   endedAt?: number;
   rating?: "up" | "down" | undefined;
   subagents?: SubagentJob[] | undefined;
+  /** Phase-plan steps the run never reached, so the reply can offer to pick the work back up. */
+  openSteps?: string[] | undefined;
+  /** Why a stopped turn stopped: the button, or a newer message taking the run over. Absent
+   *  means neither, which is a bug and gets said as one rather than dressed up as a stop. */
+  stopReason?: string | undefined;
   role: "user" | "assistant";
 }
 
@@ -240,6 +246,8 @@ async function requestImport(endpoint: string, body: BodyInit, headers?: Record<
   return { name: data.name, projectPath: data.projectPath };
 }
 
+/** How long one model call keeps retrying through rate limits and dropped streams before the
+ * turn gives up lives in the inference layer next to the errors it waits out. */
 const CONTEXT_COMPRESSION_SYSTEM_PROMPT = `You compress the working memory of Calvras, an AI agent. Merge the supplied earlier memory and the new conversation turns into one dense continuation brief. Preserve exactly: the user's goals and constraints, decisions made, completed work, files/paths/commands that matter, failures and unresolved problems, and the next steps for any unfinished task. Keep the user's wording for explicit preferences. Never invent results. Output plain text under 900 words.`;
 
 function readSessionMemory(key: string): { summary: string; covered: number } {
@@ -264,7 +272,7 @@ function restoreTranscript(value: unknown): Message[] {
     const hasResponse = phases.some((phase) => phase.message?.trim() || phase.trace.length);
     const interrupted = !message.done || (Boolean(message.startedAt) && !message.endedAt && !hasResponse);
     const lastRecordedTime = message.endedAt ?? Math.max(message.startedAt || 0, ...phases.map((phase) => phase.endedAt || phase.startedAt || 0));
-    return { ...message, phases, done: true, ...(lastRecordedTime ? { endedAt: lastRecordedTime } : {}), ...(interrupted ? { status: "stopped" as const, error: "This task was interrupted before a complete response was saved. Resume to continue." } : {}) };
+    return { ...message, phases, done: true, ...(lastRecordedTime ? { endedAt: lastRecordedTime } : {}), ...(interrupted ? { status: "stopped" as const } : {}) };
   });
 }
 
@@ -275,6 +283,26 @@ function storableTranscript(messages: Message[]): unknown[] {
     ...message,
     ...(message.attachments ? { attachments: message.attachments.map((file) => ({ ...file, url: file.url.startsWith("data:") ? "" : file.url })) } : {}),
   }));
+}
+
+/**
+ * One finished turn, told to the site that verified this account. That is what makes the owner's
+ * "per account usage" and "what people ask it" columns real rather than a guess. It goes out on the
+ * person's own Telemetry switch — the same one the local activity log obeys — and carries the status,
+ * how many actions the run took, how long it took, and the first 300 characters of what they typed.
+ * Never a file, a key, or the agent's reply.
+ */
+async function reportTurn(input: { prompt: string; status: string; seconds: number; phases: Message["phases"] }) {
+  const user = storedUser();
+  if (!user?.session) return;
+  const tools = input.phases.reduce((total, phase) => total + (phase.trace || []).filter((node) => node.type !== "reasoning" && node.type !== "step").length, 0);
+  const answer = await reportTask(user.session, { status: input.status, prompt: input.prompt, tools, seconds: input.seconds, version: await installedVersion() });
+  // The site has switched this account off, so this computer stops acting as it. The sentence comes
+  // from the owner's own console, and the sign-in screen is where it is shown.
+  if (answer.blocked) {
+    writeStoredUser({ ...user, blocked: answer.error || "This account has been blocked by the owner." });
+    window.location.href = "/";
+  }
 }
 
 function digestTurn(message: Message): string {
@@ -311,6 +339,20 @@ function projectNameFrom(text: string): string {
     .slice(0, 24);
 
   return `calvras-${slug || "workspace"}`;
+}
+
+/** The message sent when the user presses "Pick it back up": continue the stopped run from its
+ * own unfinished steps instead of re-sending the original request, which would restart it. */
+function resumeBrief(message: Message, history: Message[]): string {
+  const open = (message.openSteps ?? []).filter((step) => step.trim()).slice(0, 8);
+  // The stopped turn carries the agent's own narration, not the ask, so the request has to come
+  // from the user messages that led to it.
+  const request = [...history].reverse().find((item) => item.role === "user" && item.text.trim())?.text ?? message.text;
+  return [
+    "Pick the task below back up. Do not start it again and do not redo work that is already in the project — check the files and the plan first, then continue from the earliest step that is still open.",
+    open.length ? `Steps the last run never finished:\n${open.map((step) => `- ${step}`).join("\n")}` : "The last run stopped with no steps recorded, so read the current state of the project to work out what is already done before continuing.",
+    request.trim() ? `Original request:\n${request.slice(0, 1500)}` : "",
+  ].filter(Boolean).join("\n\n");
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -652,6 +694,9 @@ export function Index() {
   const [folderError, setFolderError] = useState("");
   const [importing, setImporting] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+  // Why the turn on screen is being stopped, so the reply can say that instead of one canned
+  // sentence for a pressed button, a newer message taking over, and a run that died on its own.
+  const stopReasonRef = useRef<"user" | "replaced">("user");
   useEffect(() => () => { abortControllerRef.current?.abort(); }, []);
   const latestMessageRef = useRef<HTMLDivElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -675,9 +720,15 @@ export function Index() {
   // that actually have something in them.
   const [chatId, setChatId] = useState<string | null>(null);
   const chatIdRef = useRef<string | null>(null);
+  // The conversation this screen believes is open. The effect below reacts to the store changing
+  // it, which means a thread that just chose its own id has to move this marker with it: naming a
+  // fresh conversation writes it into History, History sets the active id, and that catch-up is
+  // not the user switching away. Reading it as a switch aborted the run that had just started and
+  // wiped its transcript.
+  const openChatRef = useRef<string | null | undefined>(undefined);
   // Set while a transcript is being loaded so restoring a chat cannot re-save it as a change.
   const loadedChatRef = useRef<string | null>(null);
-  const applyChatId = (id: string | null) => { chatIdRef.current = id; setChatId(id); };
+  const applyChatId = (id: string | null) => { chatIdRef.current = id; openChatRef.current = id; setChatId(id); };
   const sessionMemoryKey = () => memoryKeyFor(chatIdRef.current);
   const startNewChat = () => {
     writeSessionMemory(memoryKeyFor(null), { summary: "", covered: 0 });
@@ -685,7 +736,8 @@ export function Index() {
   };
 
   useEffect(() => {
-    if (chatIdRef.current === activeChatId) return;
+    if (openChatRef.current === activeChatId) return;
+    openChatRef.current = activeChatId;
     applyChatId(activeChatId);
     const stored = activeChatId ? chats.find((chat) => chat.id === activeChatId) : undefined;
     loadedChatRef.current = activeChatId;
@@ -735,6 +787,8 @@ export function Index() {
       abortControllerRef.current = null;
     }
     setIsLoading(false);
+    const stopReason = stopReasonRef.current;
+    stopReasonRef.current = "user";
     setMessages((prev) =>
       prev.map((m) =>
         !m.done
@@ -743,6 +797,7 @@ export function Index() {
               done: true,
               endedAt: Date.now(),
               status: "stopped",
+              stopReason,
               phases: [...m.phases.map((phase) => ({ ...phase, trace: phase.trace.map((node) => node.status === "running" ? { ...node, status: "failed" as const, output: "Stopped waiting. A command already started on the server may still run." } : node) }))],
             }
           : m
@@ -794,6 +849,7 @@ export function Index() {
           writeQueue([...queuedRef.current, item]);
           return;
         }
+        stopReasonRef.current = "replaced";
         handleStop();
       }
       if (runtimeRef.current && !await runtimeRef.current.preserveWorkersFor(projectPath)) runtimeRef.current = null;
@@ -966,6 +1022,9 @@ export function Index() {
       // timeline as the expandable Thought block rather than as reply text.
       let toolRounds = 0;
       let liveThought: { node: TraceNode; startedAt: number } | null = null;
+      // A free tier can park the model for half an hour while a long queue is still open. That
+      // wait is the run's business, but silence looks like a hang, so it says so once per turn.
+      let providerWaitSaid = false;
 
       const publish = () => {
         if (controller.signal.aborted) return;
@@ -1040,18 +1099,23 @@ export function Index() {
         fullPrompt = `${fullPrompt}\n\n[ATTACHMENT REVIEW MODE] The user's attached file content is already included above — text, PDF text, or the image itself. Review it directly now with actions: [] and status complete. Never call file or workspace tools to read an attachment. Answer the actual question in your own words using the attached evidence, with a direct verdict and specific reasons.`;
       }
       if (isChatTurn) {
-        fullPrompt = `${fullPrompt}\n\n[CONVERSATION MODE] This message is conversation, not file or code work. Reply directly in your own words with actions: [] and status complete. Do not call tools. Do not say the words project, folder, workspace, repository, files, or work on. Do not offer a menu of tasks, ask what the user wants to work on, or invite them to assign work. A greeting gets a one-line casual greeting back and nothing else — worded differently from every greeting already in this conversation, and with no emoji unless the user used one first. A question gets a direct answer to the question actually asked. Respond in 1-4 sentences, then stop.`;
+        // The rule that stops "hey" becoming a task menu also flattened "what can you do" into three
+        // vague lines, so the one question where the list IS the answer gets its own note.
+        fullPrompt = `${fullPrompt}\n\n[CONVERSATION MODE] This message is conversation, not file or code work. Reply directly in your own words with actions: [] and status complete. Do not call tools.${asksForCapabilities(text)
+          ? " The user is asking what you can do, so name what you actually do: every capability as its own markdown bullet, each one specific about what happens, none left out, then exactly one follow-up question they can answer in a sentence — about something in that list or in what they said. No \"what would you like to work on?\", no \"which of these interests you?\", no second question, no numbered options."
+          : " Do not say the words project, folder, workspace, repository, files, or work on. Do not offer a menu of tasks, ask what the user wants to work on, or invite them to assign work. A greeting gets a one-line casual greeting back and nothing else — worded differently from every greeting already in this conversation, and with no emoji unless the user used one first. A question gets a direct answer to the question actually asked, in 1-4 sentences, then stop. That length is about padding, never about shape: when the answer holds two or more items, or the user said list / name / how many / what are they, put each item on its own markdown bullet rather than in one comma-separated sentence, and give all of them."}`;
       }
       if (workspaceJournal.trim() && intent.requiresTools) {
         fullPrompt = `${fullPrompt}\n\n[PROJECT JOURNAL — recent work verified in this workspace]\n${workspaceJournal.trim()}\nStay consistent with this. Anything marked failed or unfinished is not done; verify before claiming it works.`;
       }
-      // First encounter with a workspace: map it completely before touching anything.
+      // First encounter with a workspace: map it completely before touching anything — unless the
+      // ask is about a page, where the folder is not the subject and scanning it is a delay.
       const seenWorkspaces = (() => { try { return JSON.parse(localStorage.getItem("calvras_seen_workspaces") || "[]") as string[]; } catch { return [] as string[]; } })();
       const firstEncounter = Boolean(activePath) && !seenWorkspaces.includes(activePath!);
-      if (firstEncounter && intent.requiresTools) {
+      if (firstEncounter && intent.requiresTools && !intent.webFirst) {
         fullPrompt = `[FIRST ENCOUNTER] This workspace has not been explored yet. Before changing anything, understand it: run directory_tree at the root, read_package_json (or the equivalent manifest), the entry point, the main configs, and the README when present. Read broadly until you know the layout, then implement the request.\n\n${fullPrompt}`;
       }
-      const initialActions = firstEncounter && intent.requiresTools
+      const initialActions = firstEncounter && intent.requiresTools && !intent.webFirst
         ? [{ type: "directory_tree", path: "." } as AgentAction, { type: "read_package_json", path: "." } as AgentAction]
         : intent.initialActions;
       // After repeated command failures, steer the agent to research the real error
@@ -1183,23 +1247,36 @@ export function Index() {
           else if (!currentPhase.trace.some((node) => node.type !== "reasoning")) currentPhase.activity = "thinking";
           publish();
           // A chat turn never needs the workspace runtime booted, and the folder context is the
-          // thing that tempts the model into describing their project back at them.
-          if (activePath && !isChatTurn) await ensureRuntime(activePath, text);
-          // A rate-limited or dropped provider is this run's problem, not the user's: ask
-          // again with a short pause and keep the working indicator honest.
-          for (let attempt = 0; attempt < 4; attempt++) {
+          // thing that tempts the model into describing their project back at them. A page task
+          // doesn't either: the tools that need the folder boot it themselves when one is asked for.
+          if (activePath && !isChatTurn && !intent.webFirst) await ensureRuntime(activePath, text);
+          // A rate-limited or dropped provider is this run's problem, not the user's, and a
+          // ten-minute budget is how a three-hour task dies — a free tier parks itself for half an
+          // hour and says so. Wait it out: longer pauses for a provider that named a reset window,
+          // short ones for a blip, every pause checked against the stop button, and the user never
+          // sees the provider's name or a sentence telling them to send the message again.
+          const patientSince = Date.now();
+          for (let attempt = 0; ; attempt++) {
             try {
               return await callAI(prompt, turnSystem, mediaList, isChatTurn ? "" : `${projectSnapshot}\n${runtimeRef.current?.context || ""}`, controller.signal, onDelta, isChatTurn ? "Quick" : effort);
             } catch (error) {
               const reason = error instanceof Error ? error.message : "";
-              const providerTrouble = /rate limited|requires credits|did not respond in time|connection dropped|HTTP [45]\d\d/i.test(reason);
-              if (!providerTrouble || controller.signal.aborted) throw error;
-              if (attempt === 3) throw new Error("Calvras could not reach the model after several tries. Send the message again to continue.");
-              await new Promise((resolve) => setTimeout(resolve, 2_500 * (attempt + 1)));
+              if (!isProviderTrouble(reason) || controller.signal.aborted) throw error;
+              if (Date.now() - patientSince > PROVIDER_PATIENCE_MS) {
+                // Out of patience, still out of credit. Hand the round back with no actions so
+                // the loop reports the agent's own last line instead of the provider's failure.
+                return '{"message":"","actions":[],"status":"blocked"}';
+              }
+              const waitMs = patientBackoffMs(reason, attempt);
+              if (!providerWaitSaid && (waitMs >= 30_000 || Date.now() - patientSince > 60_000)) {
+                providerWaitSaid = true;
+                noteThought("The model is at its limit right now, so I'm waiting it out instead of stopping. Nothing for you to resend.");
+                publish();
+              }
+              await new Promise((resolve) => setTimeout(resolve, waitMs));
               if (controller.signal.aborted) throw error;
             }
           }
-          throw new Error("Calvras could not reach the model. Send the message again to continue.");
         },
         onMessageDelta: (message) => {
           if (!currentPhase) { currentPhase = { trace: [], startedAt: Date.now() }; phases.push(currentPhase); }
@@ -1443,10 +1520,15 @@ export function Index() {
             }
           }, controller.signal);
         },
+      }).catch((error): AgentOutcome => {
+        // Nothing a run throws is the user's to read. The turn closes cleanly on the agent's
+        // own last line, and the working indicator stops instead of hanging on a dead promise.
+        console.warn(`[agent run ended unexpectedly] ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`);
+        return controller.signal.aborted ? { status: "stopped" } : { status: "blocked" };
       });
       if (abortControllerRef.current !== controller) return;
       // outcome.message is already handled by onPhaseComplete — don't add duplicate phase here
-      setMessages((previous) => previous.map((message) => message.id === msgId ? { ...message, phases, done: true, status: outcome.status, subagents: [...subagentLogRef.current.values()].filter((job) => (job.startedAt ?? 0) >= msgId), ...(outcome.error ? { error: outcome.error } : {}), endedAt: Date.now() } : message));
+      setMessages((previous) => previous.map((message) => message.id === msgId ? { ...message, phases, done: true, status: outcome.status, subagents: [...subagentLogRef.current.values()].filter((job) => (job.startedAt ?? 0) >= msgId), ...(outcome.error ? { error: outcome.error } : {}), ...(outcome.openSteps ? { openSteps: outcome.openSteps } : {}), endedAt: Date.now() } : message));
       // Persist a compact receipt so later turns know what was actually verified.
       if (activePath && !controller.signal.aborted && outcome.status !== "stopped" && (intent.requiresTools || phases.some((phase) => phase.trace.length))) {
         const actionLines = phases.flatMap((phase) => phase.trace.map((node) => `${node.status === "completed" ? "ok" : "FAILED"} ${node.primary} — ${String(node.secondary || "").slice(0, 180)}`));
@@ -1462,6 +1544,7 @@ export function Index() {
       setIsLoading(false);
       abortControllerRef.current = null;
       recordUsage("task", `${outcome.status}: ${(text || "(attachment)").slice(0, 60)}${activePath ? ` in ${activePath.split(/[\\/]/).pop()}` : ""}`);
+      if (readPolicies().telemetry) void reportTurn({ prompt: text || "(attachment)", status: outcome.status, seconds: Math.round((Date.now() - msgId) / 1000), phases });
       if (outcome.status === "finished" || outcome.status === "blocked") playCompletionChimeWhenUnfocused();
       if (firstEncounter && activePath && outcome.status === "finished") {
         try {
@@ -1833,7 +1916,7 @@ export function Index() {
               </div>
 
               {/* Agent Trace & Response */}
-              <AgentActivity phases={message.phases} done={message.done} startedAt={message.startedAt} endedAt={message.endedAt} status={message.status} error={message.error} rating={message.rating} subagents={message.subagents ?? (message.done ? undefined : [...subagentLogRef.current.values()].filter((job) => (job.startedAt ?? 0) >= (message.startedAt ?? 0)))} onRate={(value) => setMessages((previous) => previous.map((item) => item.id === message.id ? { ...item, rating: value ?? undefined } : item))} onResume={index === messages.length - 1 ? () => void handleSubmit(message.text) : undefined} onUndo={async (checkpointId) => { const result = await workspaceExecute({ type: "undo_edit", checkpointId }, { userInitiated: true }); if (!result.ok) throw new Error(result.error); }} onResolve={async (id, choice) => { const result = await workspaceExecute({ type: "resolve_worker", id, action: choice }, { userInitiated: true }); if (!result.ok) throw new Error(result.error || "That subagent's checkout could not be resolved."); }} />
+              <AgentActivity phases={message.phases} done={message.done} startedAt={message.startedAt} endedAt={message.endedAt} status={message.status} stopReason={message.stopReason} error={message.error} rating={message.rating} subagents={message.subagents ?? (message.done ? undefined : [...subagentLogRef.current.values()].filter((job) => (job.startedAt ?? 0) >= (message.startedAt ?? 0)))} onRate={(value) => setMessages((previous) => previous.map((item) => item.id === message.id ? { ...item, rating: value ?? undefined } : item))} onResume={index === messages.length - 1 ? () => void handleSubmit(resumeBrief(message, messages.slice(0, index))) : undefined} unfinished={message.openSteps} onUndo={async (checkpointId) => { const result = await workspaceExecute({ type: "undo_edit", checkpointId }, { userInitiated: true }); if (!result.ok) throw new Error(result.error); }} onResolve={async (id, choice) => { const result = await workspaceExecute({ type: "resolve_worker", id, action: choice }, { userInitiated: true }); if (!result.ok) throw new Error(result.error || "That subagent's checkout could not be resolved."); }} />
 
             </div>
           ))}

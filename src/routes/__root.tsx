@@ -199,8 +199,8 @@ function RootComponent() {
         {isElectron && <TitleBar />}
         {isElectron && (
           <style dangerouslySetInnerHTML={{ __html: `
-            :root { --app-title-height: 34px; }
-            body { padding-top: 34px !important; }
+            :root { --app-title-height: 28px; }
+            body { padding-top: 28px !important; }
             .chat-page { padding-top: 0 !important; }
           ` }} />
         )}

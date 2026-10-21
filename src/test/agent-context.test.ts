@@ -17,6 +17,25 @@ describe("safe concurrency and compact context", () => {
     expect(events.indexOf("start read_file c")).toBeGreaterThan(events.indexOf("end write_file c"));
     expect(results.map((result) => result.action)).toEqual(actions);
   });
+  it("overlaps a run of page fills but still waits at a click", async () => {
+    const events: string[] = [];
+    const actions: AgentAction[] = [
+      { type: "fill_input", selector: "#name", value: "Shikari" },
+      { type: "fill_input", selector: "#email", value: "shikari@example.com" },
+      { type: "fill_input", selector: "#why", value: "four years of TypeScript" },
+      { type: "click_element", selector: "#submit" },
+      { type: "fill_input", selector: "#late", value: "after the click" },
+    ];
+    await executeInOrder(actions, async (action) => {
+      events.push(`start ${action["selector"]}`);
+      await new Promise((resolve) => setTimeout(resolve, action["selector"] === "#name" ? 15 : 1));
+      events.push(`end ${action["selector"]}`);
+      return { action, ok: true, result: {} };
+    }, new AbortController().signal);
+    expect(events.slice(0, 3)).toEqual(["start #name", "start #email", "start #why"]);
+    expect(events.indexOf("start #submit")).toBeGreaterThan(events.indexOf("end #why"));
+    expect(events.indexOf("start #late")).toBeGreaterThan(events.indexOf("end #submit"));
+  });
   it("does not begin work after cancellation", async () => {
     const controller = new AbortController(); controller.abort(); const execute = vi.fn();
     await expect(executeInOrder([{ type: "list_dir" }], execute, controller.signal)).rejects.toThrow();

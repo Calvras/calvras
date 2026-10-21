@@ -42,15 +42,18 @@ export function validateToolAction(value: Record<string, any>): ToolAction {
   const requested = value["type"] || value["action"];
   const type = TOOL_ALIASES[requested] || requested;
   if (!TOOL_NAMES.includes(type)) throw new Error(`Unsupported action: ${String(requested)}. Available tools are listed in the catalog; do not invent a name.`);
-  const require = (field: string, label = field) => { if (typeof value[field] !== "string" || !value[field].trim()) throw new Error(`Missing ${label}.`); };
-  if (["read_file", "read_image", "write_file", "create_file", "delete_file", "get_file_info", "search_replace", "insert_code", "delete_lines", "format_file", "git_add", "git_restore"].includes(type)) require("path", "file path");
-  if (["run_command", "run_terminal", "start_server", "start_dev_server", "run_background_process"].includes(type)) require("command", "command");
-  if (["write_file", "create_file"].includes(type) && typeof value["content"] !== "string") throw new Error("Missing file contents.");
-  if (["rename_file", "move_file", "copy_file"].includes(type)) { require("from"); require("to"); }
-  if (["search_files", "grep_search", "find_files"].includes(type)) require("pattern");
-  if (type === "search_replace") { require("search"); if (typeof value["replace"] !== "string") throw new Error("Missing replace."); }
-  if (type === "type_text" && typeof value["text"] !== "string") throw new Error("Missing text to type.");
-  if (type === "press_keys" && typeof value["keys"] !== "string") throw new Error("Missing keys to press.");
+  /** Every message is written to the model as an instruction, never as a bare error: a rejected
+   * call shows up in the visible timeline, so a terse fragment would read to the user like a
+   * crash instead of a note telling the agent which field to fill. */
+  const require = (field: string, label = field) => { if (typeof value[field] !== "string" || !value[field].trim()) throw new Error(`${type} needs ${label} in its ${field} field.`); };
+  if (["read_file", "read_image", "write_file", "create_file", "delete_file", "get_file_info", "search_replace", "insert_code", "delete_lines", "format_file", "git_add", "git_restore"].includes(type)) require("path", "which file to act on");
+  if (["run_command", "run_terminal", "start_server", "start_dev_server", "run_background_process"].includes(type)) require("command", "the command line to run");
+  if (["write_file", "create_file"].includes(type) && typeof value["content"] !== "string") throw new Error(`${type} needs the whole new file in its content field, as one JSON string with newlines escaped. For a small change to an existing file, call search_replace instead.`);
+  if (["rename_file", "move_file", "copy_file"].includes(type)) { require("from", "the path being renamed"); require("to", "the path it becomes"); }
+  if (["search_files", "grep_search", "find_files"].includes(type)) require("pattern", "what to look for");
+  if (type === "search_replace") { require("search", "the exact text being replaced"); if (typeof value["replace"] !== "string") throw new Error("search_replace needs replace: the text that takes its place, or an empty string to delete it."); }
+  if (type === "type_text" && typeof value["text"] !== "string") throw new Error("type_text needs text: the exact characters to type.");
+  if (type === "press_keys" && typeof value["keys"] !== "string") throw new Error("press_keys needs keys, like Enter, Tab, or ctrl+s.");
   if (type === "move_mouse" && (value["x"] === undefined || value["y"] === undefined)) throw new Error("Move mouse needs x and y.");
   if (type === "open_app" && !value["app"] && !value["url"]) throw new Error("Provide an app name or a URL.");
   if (type === "focus_window" && !value["title"]) throw new Error("Provide part of the window title.");
@@ -59,14 +62,14 @@ export function validateToolAction(value: Record<string, any>): ToolAction {
   if (type === "web_search") require("query");
   if (type === "probe_key") require("url", "URL");
   if (type === "queue_batch" && !(Array.isArray(value["targets"]) && value["targets"].length)) throw new Error("queue_batch needs targets: [{ url, label }].");
-  if (type === "report_batch") { require("id", "batch target id"); if (!["queued", "running", "done", "blocked", "skipped"].includes(String(value["status"]))) throw new Error("A batch target ends as done, blocked, or skipped."); }
+  if (type === "report_batch") { require("id", "batch target id"); if (!["queued", "running", "done", "blocked", "skipped"].includes(String(value["status"]))) throw new Error("A batch target ends as done, blocked, or skipped."); if (String(value["status"]) === "done" && !String(value["reference"] ?? "").trim()) throw new Error("report_batch done needs reference: the confirmation text the page itself printed after the submit, such as the reference number it showed."); }
   if (["open_browser", "navigate_browser"].includes(type)) require("url", "URL");
   if (["click_element", "fill_input", "inspect_element", "wait_for_element", "upload_file_to_page"].includes(type)) require("selector", "CSS selector");
   if (["click_at", "hover_at"].includes(type) && (value["x"] === undefined || value["y"] === undefined)) throw new Error(`${type} needs the x and y of a numbered spot from take_screenshot.`);
   if (type === "drag_at" && [value["fromX"], value["fromY"], value["toX"], value["toY"]].some((n) => n === undefined)) throw new Error("drag_at needs fromX, fromY, toX and toY from the numbered screenshot.");
-  if (type === "type_into_page" && typeof value["text"] !== "string") throw new Error("Missing text to type.");
-  if (type === "fill_input" && typeof (value["value"] ?? value["text"]) !== "string") throw new Error("Missing text to fill in.");
-  if (type === "press_page_key" && typeof value["keys"] !== "string") throw new Error("Missing keys to press.");
+  if (type === "type_into_page" && typeof value["text"] !== "string") throw new Error("type_into_page needs text: the exact characters to type into the focused field.");
+  if (type === "fill_input" && typeof (value["value"] ?? value["text"]) !== "string") throw new Error("fill_input needs value: the text to put in the field.");
+  if (type === "press_page_key" && typeof value["keys"] !== "string") throw new Error("press_page_key needs keys, like Enter or Tab.");
   if (type === "upload_file_to_page") require("path", "file path");
   if (type === "use_user_file") require("path", "file path");
   if (["worker_changes", "resolve_worker"].includes(type)) require("id", "subagent task id");

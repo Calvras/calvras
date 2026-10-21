@@ -4,8 +4,49 @@ import { AgentActivity } from "../components/AgentActivity";
 
 describe("agent activity", () => {
   it("offers resume beside an interrupted response", () => {
-    const resume=vi.fn();render(<AgentActivity done phases={[]} status="stopped" onResume={resume} />);
-    fireEvent.click(screen.getByRole("button",{name:"Resume task"}));expect(resume).toHaveBeenCalledOnce();
+    const resume=vi.fn();render(<AgentActivity done phases={[{ trace: [{ id: "read", type: "tool", toolName: "read_file", primary: "Read file", status: "completed" as const }], startedAt: 1000 }]} status="stopped" onResume={resume} />);
+    fireEvent.click(screen.getByRole("button",{name:"Pick it back up"}));expect(resume).toHaveBeenCalledOnce();
+  });
+  it("says why the turn stopped instead of one sentence for every case", () => {
+    // Only a turn that got as far as a tool has work to pick back up, so every case here carries one.
+    const phases = [{ trace: [{ id: "read", type: "tool", toolName: "read_file", primary: "Read file", status: "completed" as const }], startedAt: 1000, endedAt: 2000 }];
+    render(<AgentActivity done phases={phases} status="stopped" stopReason="replaced" />);
+    expect(screen.getByText(/You sent another message/)).toBeInTheDocument();
+    render(<AgentActivity done phases={phases} status="stopped" stopReason="user" />);
+    expect(screen.getByText(/You stopped this one/)).toBeInTheDocument();
+    // No reason means nothing in the app asked for the stop, and that is a bug worth naming
+    // rather than dressing up as a choice the user made.
+    render(<AgentActivity done phases={phases} status="stopped" />);
+    expect(screen.getByText(/ended on its own with the work unfinished/)).toBeInTheDocument();
+    expect(screen.queryByText(/Stopped right here/)).not.toBeInTheDocument();
+  });
+  it("does not offer to pick back up an answer that never reached a tool", () => {
+    // A conversation turn interrupted before any action has no unfinished work. The resume card
+    // turned "list 20 languages" into a task brief the app sent itself, and the list printed twice.
+    const resume = vi.fn();
+    render(<AgentActivity done phases={[{ trace: [{ id: "think", type: "reasoning", sentences: ["Choosing the languages."], status: "completed" as const }], message: "1. Python\n2. Go", startedAt: 1000, endedAt: 2000 }]} status="stopped" onResume={resume} />);
+    expect(screen.queryByRole("button", { name: "Pick it back up" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/work unfinished/)).not.toBeInTheDocument();
+    // The answer itself still renders — as the list markdown turns it into, not one text node.
+    expect(screen.getByText("Python")).toBeInTheDocument();
+  });
+  it("names the steps a short run never reached instead of a stock limit notice", () => {
+    const resume = vi.fn();
+    render(<AgentActivity done phases={[{ trace: [{ id: "read", type: "tool", toolName: "read_file", primary: "Read file", status: "completed" as const }], message: "Read the whole folder, then it stopped.", startedAt: 1000, endedAt: 2000 }]} status="blocked" unfinished={["Wire the settings route", "Run the build"]} onResume={resume} />);
+    expect(screen.getByText("Wire the settings route")).toBeInTheDocument();
+    expect(screen.getByText("Run the build")).toBeInTheDocument();
+    expect(screen.queryByText(/Action limit reached|task is not complete/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Pick it back up" }));
+    expect(resume).toHaveBeenCalledOnce();
+  });
+  it("shows the carry-on pill for a run that hit its action ceiling", () => {
+    render(<AgentActivity done phases={[{ trace: [{ id: "cmd", type: "terminal", toolName: "run_command", primary: "Run tests", command: "npm test", status: "running" as const }], message: "Still going.", startedAt: 1000, endedAt: 2000 }]} status="limit" />);
+    expect(screen.getByText(/hit its action ceiling/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Pick it back up" })).not.toBeInTheDocument();
+  });
+  it("offers nothing when the turn finished", () => {
+    render(<AgentActivity done phases={[{ trace: [], message: "Done.", startedAt: 1000, endedAt: 2000 }]} status="finished" />);
+    expect(screen.queryByRole("button", { name: "Pick it back up" })).not.toBeInTheDocument();
   });
   it("does not count time while the app was closed as work", () => {
     render(<AgentActivity done startedAt={1000} phases={[{trace:[],message:"Saved reply",startedAt:1000,endedAt:4000}]} />);
@@ -53,7 +94,17 @@ describe("agent activity", () => {
     render(<AgentActivity done={false} phases={[{ trace, activity: "thinking" }]} />);
     expect(screen.getByText("Working…")).toBeInTheDocument();
     expect(screen.queryByText("Thinking…")).not.toBeInTheDocument();
-    expect(screen.getByText("Typing into the page")).toBeInTheDocument();
+    // The step finished, so repeating it bare as the current line made an open page claim it was
+    // still opening. It now reads as work already done.
+    expect(screen.getByText("Done: Typing into the page")).toBeInTheDocument();
+  });
+  it("puts the agent's own words on the live line while the next action is being composed", () => {
+    render(<AgentActivity done={false} phases={[{ trace: [
+      { id: "open", type: "tool", primary: "Opening the page", status: "completed" as const },
+      { id: "thought", type: "reasoning", status: "running" as const, sentences: ["Scanning the roles list for the one that matches."] },
+    ] }]} />);
+    expect(screen.getByText("Scanning the roles list for the one that matches.")).toBeInTheDocument();
+    expect(screen.queryByText("Opening the page")).not.toBeInTheDocument();
   });
   it("names the step in progress while the timeline stays collapsed", () => {
     render(<AgentActivity done={false} phases={[{ trace: [{ id: "open", type: "tool", primary: "Opening the page", secondary: "http://localhost:5173", status: "running" as const }], activity: "working" }]} />);

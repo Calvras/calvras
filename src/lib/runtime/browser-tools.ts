@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { safeProjectPath } from './file-tools';
-import { CLEAR_MARKS_SOURCE, COLLECT_TARGETS_SOURCE, PAGE_MEDIA_SOURCE, formatTargets, targetSummary, type PageView } from './page-localizer';
+import { CLEAR_MARKS_SOURCE, COLLECT_TARGETS_SOURCE, FIRST_SCREEN_SOURCE, PAGE_MEDIA_SOURCE, formatTargets, targetSummary, type PageView } from './page-localizer';
 
 // Loaded only when a browser tool actually runs, and kept out of the bundle: the hosted build has no
 // browser to launch, and dragging playwright (plus the electron it references) into the server output
@@ -125,7 +125,21 @@ async function executeAction(type: string, args: Record<string, unknown>, projec
     session.allowedOrigins.add(new URL(url).origin);
     session.externalNetworkApproved = args['externalNetworkApproved'] === true;
     const response = await page.goto(url, { waitUntil: 'domcontentloaded' });
-    return { url: page.url(), title: await page.title(), status: response?.status() ?? null };
+    await page.waitForTimeout(250);
+    // The page is open and the user's sentence is about the page. Returning only a title makes the
+    // agent spend a whole round just to find out where it landed, so the open itself carries the
+    // first screenful: what the page says and the numbered controls it can act on without looking.
+    const view = await page.evaluate(COLLECT_TARGETS_SOURCE).catch(() => null) as PageView | null;
+    if (view) await page.evaluate(CLEAR_MARKS_SOURCE).catch(() => {});
+    const brief = await page.evaluate(FIRST_SCREEN_SOURCE).catch(() => null) as { heading: string; text: string } | null;
+    return {
+      url: page.url(),
+      title: await page.title(),
+      status: response?.status() ?? null,
+      ...(brief?.text ? { firstScreen: { heading: brief.heading, text: brief.text } } : {}),
+      ...(view ? { onScreen: targetSummary(view), numbered: formatTargets(view).slice(0, 3000) } : {}),
+      continueFromHere: 'This page is open and already read. Carry on with the request from here — answer from the text above, or click the numbered coordinates. Do not spend a round opening, searching for, or screenshotting this page again before the request is done.',
+    };
   }
   if (page.url() === 'about:blank') throw new Error('Open a website with open_browser before using this tool.');
   if (type === 'take_screenshot') return { ok: true, ...await captureView(page, args['fullPage'] === true) };

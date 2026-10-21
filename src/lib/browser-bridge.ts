@@ -1,5 +1,5 @@
 import { pixelDiffScript, summarizeFidelity } from "./image-fidelity";
-import { CLEAR_MARKS_SOURCE, COLLECT_TARGETS_SOURCE, PAGE_MEDIA_SOURCE, formatTargets, targetSummary, type PageView } from "./runtime/page-localizer";
+import { CLEAR_MARKS_SOURCE, COLLECT_TARGETS_SOURCE, FIRST_SCREEN_SOURCE, PAGE_MEDIA_SOURCE, formatTargets, targetSummary, type PageView } from "./runtime/page-localizer";
 
 /**
  * Drives the visible <webview> browser panel from the same tool calls the agent
@@ -47,6 +47,42 @@ export function hasInAppBrowser(): boolean {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const PAGE_DEADLINE_MS = 45_000;
+
+/** Resolves with whatever the panel answers within the deadline, and with an error the agent can act on if it never does. */
+function within<T>(pending: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+  return Promise.race([pending, deadline]).finally(() => {
+    clearTimeout(timer);
+    // A result that lands after the deadline belongs to a round the run already moved past.
+    pending.catch(() => {});
+  });
+}
+
+/**
+ * A page that stops answering must never strand a run that has hours of work left. Every evaluation
+ * sent into the panel gets this deadline, so a wedged page — a script of its own that never returns,
+ * a main thread stuck in a loop — comes back as a readable tool error the agent can route around,
+ * instead of an await that hangs the turn forever.
+ */
+function evalInPage(element: WebviewElement, source: string, timeoutMs = PAGE_DEADLINE_MS): Promise<any> {
+  return within(element.executeJavaScript(source), timeoutMs, `The page in the browser panel did not answer within ${Math.round(timeoutMs / 1000)}s. It is stuck inside its own script: stop waiting on it, reload the address with open_browser, and work the page with click_at and fill_input.`);
+}
+
+/** The page handle the browser tools work through: the element itself, with bounded evaluations. */
+function withPageDeadline(element: WebviewElement): WebviewElement {
+  return new Proxy(element, {
+    get(target, property) {
+      if (property === "executeJavaScript") return (source: string) => evalInPage(target, source);
+      const value = (target as any)[property];
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
 function webUrl(input: unknown): string {
   const raw = String(input ?? "").trim();
   if (!raw) throw new Error("A website URL is required.");
@@ -74,6 +110,59 @@ function spot(args: Record<string, any>, xKey = "x", yKey = "y") {
     throw new Error(`${xKey} and ${yKey} must be coordinates from the numbered screenshot. Take one with take_screenshot if you do not have them.`);
   }
   return { x: Math.round(x), y: Math.round(y) };
+}
+
+/** The page-side body of `fill_input`, kept as a function so the dropdown, tick-box and date
+ * matching can be run against a real form in a test instead of only inside a live webview. */
+/** The page's own words: headings, alerts and the visible text, for a result that has to answer
+ * without another model round just to look. */
+export function proseScript(): string {
+  return "(() => { const clean = (v) => String(v ?? '').replace(/\\s+/g, ' ').trim(); const words = () => clean((document.body?.innerText || document.body?.textContent) ?? ''); return { headings: clean(Array.from(document.querySelectorAll('h1,h2,h3,[role=alert],.error,.success,.receipt')).map((n) => n.textContent).join(' | ')).slice(0, 600), text: words().slice(0, 1800) }; })()";
+}
+
+export function fillScript(selector: string, value: string): string {
+  const literal = JSON.stringify(selector);
+  const text = JSON.stringify(value);
+  return `(() => {
+  const target = document.querySelector(${literal});
+  if (!target) throw new Error("No element matches " + ${literal});
+  if (target.scrollIntoView) target.scrollIntoView({ block: "center", inline: "center" });
+  target.focus();
+  const value = ${text};
+  const wanted = value.trim().toLowerCase();
+  if (target instanceof HTMLSelectElement) {
+    // A select ignores the input value setter entirely, so the form would silently
+    // submit its default option. Match on the option's value or its visible label.
+    const labels = (option) => (option.textContent || "").trim().toLowerCase();
+    const choice = [...target.options].find((option) => (option.value || "").toLowerCase() === wanted || labels(option) === wanted)
+      || [...target.options].find((option) => labels(option).includes(wanted) || (wanted.length > 2 && wanted.includes(labels(option))));
+    if (!choice) throw new Error(${literal} + " is a dropdown with these options: " + ([...target.options].map((option) => (option.textContent || "").trim() || option.value).join(" | ") || "none") + ". Pick one of those.");
+    target.value = choice.value;
+  } else if (target instanceof HTMLInputElement && (target.type === "checkbox" || target.type === "radio")) {
+    // Ticking means changing "checked" — writing value would submit the box still unticked,
+    // which is how a consent checkbox ends up silently unagreed.
+    const tick = ["true", "on", "yes", "check", "checked", "1"].includes(wanted);
+    const untick = ["false", "off", "no", "uncheck", "unchecked", "0"].includes(wanted);
+    const groupLabel = ((target.labels && target.labels[0] ? target.labels[0].textContent : "") || target.getAttribute("aria-label") || "").trim().toLowerCase();
+    if (target.type === "radio" && wanted && !tick && !untick && (wanted === (target.value || "").toLowerCase() || (wanted.length > 2 && (groupLabel.includes(wanted) || wanted.includes(groupLabel))))) target.checked = true;
+    else if (tick) target.checked = true;
+    else if (untick) target.checked = false;
+    else throw new Error(${literal} + " is a " + target.type + ", currently " + (target.checked ? "ticked" : "unticked") + ". Fill it with \\"on\\" to tick it" + (target.type === "checkbox" ? " or \\"off\\" to clear it" : ", or with the option label you want selected") + ".");
+  } else if (target.isContentEditable) {
+    target.textContent = value;
+  } else {
+    const proto = target instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+    if (setter) setter.call(target, value); else target.value = value;
+  }
+  target.dispatchEvent(new Event("input", { bubbles: true }));
+  target.dispatchEvent(new Event("change", { bubbles: true }));
+  const format = target instanceof HTMLInputElement ? (target.type || "text") : target.tagName.toLowerCase();
+  if (["date", "datetime-local", "month", "week", "time", "number"].includes(format) && target.value !== value.trim()) {
+    throw new Error(${literal} + " kept \\"" + target.value + "\\" instead of \\"" + value + "\\"; a " + format + " field needs its exact format (for example 2026-11-14 or 19:30).");
+  }
+  return { tag: target.tagName.toLowerCase(), type: format, value: target.value ?? target.textContent, checked: target instanceof HTMLInputElement && (target.type === "checkbox" || target.type === "radio") ? target.checked : undefined };
+})()`;
 }
 
 class BrowserBridge {
@@ -191,7 +280,7 @@ class BrowserBridge {
     if (element.getURL() === "about:blank" || element.getURL() === "") {
       throw new Error("Open a website with open_browser before using this tool.");
     }
-    return element;
+    return withPageDeadline(element);
   }
 
   private async waitForStop(element: WebviewElement): Promise<string> {
@@ -234,7 +323,20 @@ class BrowserBridge {
     await sleep(120);
     let title = "";
     try { title = element.getTitle(); } catch { /* the page may be mid-navigation */ }
-    return { ok: true, url: element.getURL(), title };
+    // The page is open and the user's sentence is about the page. Handing back only a title costs
+    // the agent a whole round to find out where it landed, so the open carries the first screenful:
+    // its text, and the numbered controls with the coordinates they can be clicked at.
+    const firstScreen = await within(element.executeJavaScript(FIRST_SCREEN_SOURCE), 5000, "The page opened but did not report its own text within 5s. Look at it with take_screenshot instead.").catch(() => null);
+    const view = await within(element.executeJavaScript(COLLECT_TARGETS_SOURCE), 5000, "The page opened but did not list its controls within 5s. Look at it with take_screenshot instead.").catch(() => null) as PageView | null;
+    if (view) void element.executeJavaScript(CLEAR_MARKS_SOURCE).catch(() => {});
+    return {
+      ok: true,
+      url: element.getURL(),
+      title,
+      ...(firstScreen?.text ? { firstScreen } : {}),
+      ...(view ? { onScreen: targetSummary(view), numbered: formatTargets(view).slice(0, 3000) } : {}),
+      continueFromHere: "This page is open and already read. Carry on with the request from here — answer from the text above, or click the numbered coordinates. Do not spend a round opening, searching for, or screenshotting this page again before the request is done.",
+    };
   }
 
   /**
@@ -330,38 +432,7 @@ class BrowserBridge {
 
   async fill(selector: string, value: string): Promise<any> {
     const element = await this.requirePage();
-    const literal = JSON.stringify(selector);
-    const text = JSON.stringify(value);
-    const result = await element.executeJavaScript(`(() => {
-      const target = document.querySelector(${literal});
-      if (!target) throw new Error("No element matches " + ${literal});
-      target.scrollIntoView({ block: "center", inline: "center" });
-      target.focus();
-      const value = ${text};
-      if (target instanceof HTMLSelectElement) {
-        // A select ignores the input value setter entirely, so the form would silently
-        // submit its default option. Match on the option's value or its visible label.
-        const wanted = value.trim().toLowerCase();
-        const labels = (option) => (option.textContent || "").trim().toLowerCase();
-        const choice = [...target.options].find((option) => (option.value || "").toLowerCase() === wanted || labels(option) === wanted)
-          || [...target.options].find((option) => labels(option).includes(wanted) || (wanted.length > 2 && wanted.includes(labels(option))));
-        if (!choice) throw new Error(${literal} + " is a dropdown with these options: " + ([...target.options].map((option) => (option.textContent || "").trim() || option.value).join(" | ") || "none") + ". Pick one of those.");
-        target.value = choice.value;
-      } else if (target.isContentEditable) {
-        target.textContent = value;
-      } else {
-        const proto = target instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-        const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
-        if (setter) setter.call(target, value); else target.value = value;
-      }
-      target.dispatchEvent(new Event("input", { bubbles: true }));
-      target.dispatchEvent(new Event("change", { bubbles: true }));
-      const format = target instanceof HTMLInputElement ? (target.type || "text") : target.tagName.toLowerCase();
-      if (["date", "datetime-local", "month", "week", "time", "number"].includes(format) && target.value !== value.trim()) {
-        throw new Error(${literal} + " kept \\"" + target.value + "\\" instead of \\"" + value + "\\"; a " + format + " field needs its exact format (for example 2026-11-14 or 19:30).");
-      }
-      return { tag: target.tagName.toLowerCase(), type: format, value: target.value ?? target.textContent };
-    })()`).catch((error: any) => { throw new Error(error?.message || `No element matches ${selector}`); });
+    const result = await element.executeJavaScript(fillScript(selector, value)).catch((error: any) => { throw new Error(error?.message || `No element matches ${selector}`); });
     return { ok: true, filled: selector, element: result };
   }
 
@@ -396,7 +467,10 @@ class BrowserBridge {
     // Numbering happens before the capture so the image the model reads carries the same numbers it
     // is told to click; the overlay comes straight back off so the user sees the real page.
     const view = fullPage ? null : (await element.executeJavaScript(COLLECT_TARGETS_SOURCE).catch(() => null)) as PageView | null;
-    const shot = await (window as any).__electron.browserCapturePage(id, fullPage);
+    const shot = await within((window as any).__electron.browserCapturePage(id, fullPage), 30_000, "The browser panel did not return a picture within 30s. The page it is holding is stuck: reload the address with open_browser before looking again.").catch(async (error: any) => {
+      this.rememberError(error?.message || "The browser panel did not answer.");
+      throw error;
+    }) as { image: string };
     if (view) await element.executeJavaScript(CLEAR_MARKS_SOURCE).catch(() => {});
     const framing = fullPage
       ? { framing: "whole page — nothing is numbered here, and click_at needs a viewport screenshot. Take the default take_screenshot to act on the page." }
@@ -425,14 +499,65 @@ class BrowserBridge {
 
   async clickAt(x: number, y: number, options?: { button?: string; double?: boolean }): Promise<any> {
     const element = await this.requirePage();
+    const before = { url: element.getURL(), title: element.getTitle(), text: await this.openingText(element) };
     await this.glide(element, x, y);
     const button = options?.button === "right" ? "right" : "left";
     const clickCount = options?.double ? 2 : 1;
     element.sendInputEvent({ type: "mouseDown", x, y, button, clickCount });
     await sleep(40);
     element.sendInputEvent({ type: "mouseUp", x, y, button, clickCount });
+    await this.settle(element);
+    // Report what the pointer actually landed on, and what that control holds now. Without it a
+    // click on a 13px tick box and a click beside it look identical in the result, and a form
+    // gets submitted with the consent box still empty.
+    const hit = await element.executeJavaScript(`(() => {
+      const el = document.elementFromPoint(${Math.round(x)}, ${Math.round(y)});
+      if (!el) return null;
+      const clean = (value) => String(value ?? "").replace(/\\s+/g, " ").trim();
+      const box = el.getBoundingClientRect();
+      const wrapper = el.closest("label");
+      const control = el.matches("input,select,textarea") ? el : (wrapper ? wrapper.querySelector("input,select,textarea") : null);
+      return {
+        tag: el.tagName.toLowerCase(),
+        text: (clean(el.textContent) || clean(el.getAttribute("aria-label") || "") || el.id || "").slice(0, 90),
+        center: { x: Math.round(box.left + box.width / 2), y: Math.round(box.top + box.height / 2) },
+        ...(control ? { control: { tag: control.tagName.toLowerCase(), type: String(control.type || ""), checked: control.checked === true, value: clean(control.value).slice(0, 40) } } : {}),
+      };
+    })()`).catch(() => null);
+    // A click that moved the page already knows the answer the next round would pay for: the
+    // reference code, the error under the field, the section that opened. Reading it here turns
+    // "click, then think, then screenshot, then think" into one round per real move. A two-step
+    // form never changes its URL, so compare what the page says, not just where it is.
+    const landedSomewhere = before.url !== element.getURL() || before.title !== element.getTitle();
+    const worthReading = landedSomewhere || /button|submit|^a$/.test(hit?.tag || "");
+    const read = worthReading ? await this.prose(element) : null;
+    const pageMoved = landedSomewhere || Boolean(read && read.text.slice(0, before.text.length) !== before.text);
+    return {
+      ok: true, clicked: { x, y }, hit, url: element.getURL(), title: element.getTitle(),
+      ...(pageMoved && read ? { pageChanged: { from: before.title, to: element.getTitle() }, nowShowing: read.headings || read.text, note: landedSomewhere
+        ? "The click took you somewhere new and this is what the page says — no screenshot round needed to learn that. The old numbered view is gone, so take a fresh screenshot before clicking by number again."
+        : "This is what the page says after the click — read the new step or the error here instead of spending a round on a screenshot." } : {}),
+    };
+  }
+
+  private prose(element: WebviewElement) {
+    return element.executeJavaScript(proseScript()).then((value) => value as { headings: string; text: string }).catch(() => null);
+  }
+
+  /** A short fingerprint of the page as it stands, so a click that quietly opened step two of a
+   * form still reports the change instead of leaving the agent to pay a round to notice it. */
+  private openingText(element: WebviewElement) {
+    return element.executeJavaScript("(() => String((document.body?.innerText || document.body?.textContent) ?? '').replace(/\\s+/g, ' ').trim().slice(0, 200))()").then((value) => String(value ?? "")).catch(() => "");
+  }
+
+  /** Gives a click a moment to actually navigate instead of reporting the pre-click page. */
+  private async settle(element: WebviewElement) {
+    for (let i = 0; i < 12; i += 1) {
+      const ready = await element.executeJavaScript("document.readyState").catch(() => "complete");
+      if (ready === "complete") break;
+      await sleep(200);
+    }
     await sleep(400);
-    return { ok: true, clicked: { x, y }, url: element.getURL(), title: element.getTitle() };
   }
 
   async hoverAt(x: number, y: number): Promise<any> {
@@ -486,7 +611,7 @@ class BrowserBridge {
     let id = 0;
     try { id = element.getWebContentsId(); } catch { /* not attached yet */ }
     if (!id) throw new Error("The browser surface is not ready for screenshots yet. Wait for the page and try again.");
-    const shot = await (window as any).__electron.browserCapturePage(id, false);
+    const shot = await within((window as any).__electron.browserCapturePage(id, false), 30_000, "The browser panel did not return a picture within 30s, so the page could not be compared. Reload it with open_browser and compare again.") as { image: string };
     const raw = await element.executeJavaScript(pixelDiffScript(referenceDataUrl, shot.image));
     const fidelity = summarizeFidelity(raw);
     return {
@@ -577,7 +702,7 @@ class BrowserBridge {
     if (!relativePath.trim()) throw new Error("Provide the file path inside the workspace.");
     const element = await this.requirePage();
     const id = element.getWebContentsId();
-    await (window as any).__electron.browserSetFileInput(id, selector, projectPath, relativePath);
+    await within((window as any).__electron.browserSetFileInput(id, selector, projectPath, relativePath), 20_000, `The panel did not attach ${relativePath} to ${selector} within 20s. Check the selector points at the real input[type=file] and try again.`);
     return { ok: true, selector, uploaded: relativePath, url: element.getURL() };
   }
 

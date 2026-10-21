@@ -8,7 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { LEDGER_SCHEMA, grantPlan, recordSignIn } from "../lib/runtime/ledger";
+import { LEDGER_SCHEMA, grantPlan, recordSignIn, recordTask } from "../lib/runtime/ledger";
 import { type SiteEnv } from "../lib/site-api";
 import { d1Shim } from "./sqlite-d1";
 import { startSiteServer, type SiteServer } from "./site-server";
@@ -35,6 +35,15 @@ beforeAll(async () => {
     await recordSignIn(env.CALVRAS_DB!, { email, name, subject: `sub-${index}`, platform: "Win32", version: "10.0.3", ...where, at: now - index * 60_000 });
   }
   await grantPlan(env.CALVRAS_DB!, "ada@calvras.com", "ultra", "owner", now);
+  // Two finished turns and one that never landed — the console's usage column, its "did not finish"
+  // tile and the Tasks drawer all read these rows, and asks group two of them under one heading.
+  for (const [index, task] of ([
+    { status: "finished", prompt: "build a landing page for my bakery", tools: 7, seconds: 44 },
+    { status: "stopped", prompt: "build a landing page for my dentist", tools: 2, seconds: 9 },
+    { status: "finished", prompt: "sort my downloads folder by date", tools: 4, seconds: 12 },
+  ] as const).entries()) {
+    await recordTask(env.CALVRAS_DB!, { email: "shikari@calvras.com", plan: "free", platform: "Win32", version: "10.0.3", at: now - index * 30_000, ...task });
+  }
 
   site = await startSiteServer(env);
 }, 60_000);
@@ -73,16 +82,28 @@ describe("the owner console in a browser", { timeout: 120_000 }, () => {
       await page.getByRole("heading", { name: "Accounts" }).waitFor({ timeout: 40_000 });
       await page.getByRole("cell", { name: /shikari@calvras\.com/ }).first().waitFor({ timeout: 40_000 });
       expect(await page.getByRole("heading", { name: "Signed in" }).count()).toBe(1);
-      expect(await page.locator("table").filter({ hasText: "ada@calvras.com" }).getByText("ultra", { exact: false }).first().isVisible()).toBe(true);
+      // The page says for itself that it is polling, and the dot it paints is the milk-and-green
+      // live indicator — a console left open all day has to be readable at a glance.
+      expect((await page.locator(".admin-live").innerText()).toLowerCase()).toContain("live — checked");
+      expect(await page.locator(".admin-live i.is-off").count()).toBe(0);
+      const accounts = page.locator("table.admin-accounts");
+      expect(await accounts.filter({ hasText: "ada@calvras.com" }).getByText("ultra", { exact: false }).first().isVisible()).toBe(true);
       // The owner reads where each account signed in from: city plus country, country alone, or nothing.
       for (const [email, place] of [["shikari@calvras.com", "Lahore, PK"], ["ada@calvras.com", "DE"], ["linus@calvras.com", "—"]] as [string, string][]) {
-        const row = page.locator("tr", { hasText: email }).first();
+        const row = accounts.locator("tr", { hasText: email }).first();
         expect((await row.locator("td").nth(5).innerText()).trim(), email).toBe(place);
       }
+      // Usage is a column of its own now, and the daily report is written from the ledger itself
+      // because this site has no model key — it must say so rather than invent a sentence.
+      expect((await accounts.locator("tr", { hasText: "shikari@calvras.com" }).locator("td").nth(3).innerText()).toLowerCase()).toContain("3 tasks");
+      await page.locator(".admin-report p").waitFor({ timeout: 20_000 });
+      const report = (await page.locator(".admin-report p").innerText()).toLowerCase();      expect(report).toContain("3 tasks in the last 24 hours");
+      expect(report).toContain("build a landing page");
+      expect(report).toContain("calvras_ai_key");
       await page.screenshot({ path: path.join(shots, "console-open.png"), fullPage: true });
 
       // Grant Pro to the free account by pressing the chip the owner would press.
-      const row = page.locator("tr", { hasText: "shikari@calvras.com" }).first();
+      const row = accounts.locator("tr", { hasText: "shikari@calvras.com" }).first();
       await row.getByRole("button", { name: "pro" }).click();
       await row.getByRole("button", { name: "pro" }).waitFor({ timeout: 15_000 });
       const stored = sqlite.prepare("SELECT plan, plan_set_by FROM accounts WHERE email = 'shikari@calvras.com'").get() as Record<string, unknown>;
@@ -96,17 +117,39 @@ describe("the owner console in a browser", { timeout: 120_000 }, () => {
       expect(history).toContain("owner set pro");
       expect(history).toContain("signin");
 
-      // Searching narrows the table to one address.
+      // The tasks of that account open the same drawer, with the turn that never finished in it.
+      await row.getByRole("button", { name: "Tasks" }).click();
+      await page.locator(".admin-tasks li").first().waitFor({ timeout: 15_000 });
+      const tasks = await page.locator(".admin-tasks li").allInnerTexts();
+      expect(tasks).toHaveLength(3);
+      expect(tasks.join(" ")).toContain("build a landing page for my bakery");
+      expect(tasks.join(" ").toLowerCase()).toContain("stopped");
+      await page.screenshot({ path: path.join(shots, "console-tasks.png"), fullPage: true });
+
+      // Blocking is a press too: it asks, then the site holds the account off.
+      const linus = accounts.locator("tr", { hasText: "linus@calvras.com" }).first();
+      let asked = "";
+      page.once("dialog", (dialog) => { asked = dialog.message(); void dialog.accept(); });
+      await linus.getByRole("button", { name: "Block" }).click();
+      await linus.locator(".admin-blocked").waitFor({ timeout: 15_000 });
+      expect(asked).toContain("linus@calvras.com");
+      expect(sqlite.prepare("SELECT blocked, blocked_by FROM accounts WHERE email = 'linus@calvras.com'").get()).toEqual(expect.objectContaining({ blocked: 1, blocked_by: "owner" }));
+      await linus.getByRole("button", { name: "Unblock" }).click();
+      await page.waitForFunction(() => !document.querySelector(".admin-blocked"), null, { timeout: 15_000 });
+      expect(sqlite.prepare("SELECT blocked FROM accounts WHERE email = 'linus@calvras.com'").get()).toEqual(expect.objectContaining({ blocked: 0 }));
+
+      // Searching narrows the table to one address, and closes a drawer left open on another.
       await page.getByRole("textbox", { name: "Search accounts" }).fill("ada@");
-      await page.waitForFunction(() => document.querySelectorAll("tbody tr").length === 1, null, { timeout: 15_000 });
+      await page.waitForFunction(() => document.querySelectorAll("table.admin-accounts tbody tr").length === 1, null, { timeout: 15_000 });
+      expect(await page.locator(".admin-history").count()).toBe(0);
       await page.screenshot({ path: path.join(shots, "console-search.png"), fullPage: true });
 
       // Forgetting asks first, and only then removes the row and its events.
-      let asked = "";
       page.once("dialog", (dialog) => { asked = dialog.message(); void dialog.accept(); });
       await page.getByRole("button", { name: "Forget" }).click();
-      await page.waitForFunction(() => document.querySelectorAll("tbody tr").length === 0, null, { timeout: 15_000 });
+      await page.waitForFunction(() => document.querySelectorAll("table.admin-accounts tbody tr").length === 0, null, { timeout: 15_000 });
       expect(asked).toContain("ada@calvras.com");
+      expect((await page.locator(".admin-notice").innerText())).toContain("is forgotten");
       expect(sqlite.prepare("SELECT COUNT(*) AS n FROM accounts WHERE email LIKE 'ada%'").get()).toEqual(expect.objectContaining({ n: 0 }));
       await page.screenshot({ path: path.join(shots, "console-empty-search.png"), fullPage: true });
 
@@ -114,6 +157,14 @@ describe("the owner console in a browser", { timeout: 120_000 }, () => {
       expect(failures.filter((line) => !/favicon|DevTools|Download the React/i.test(line))).toEqual([]);
       const chip = await page.locator(".admin-milk").first().evaluate((element) => getComputedStyle(element).backgroundColor);
       expect(chip.replace(/\s/g, "")).toBe("rgb(245,240,232)");
+
+      // Last, because it is meant to fail: a site with no model key answers the chat panel with the
+      // reason rather than inventing a reply, and that refusal arrives as an HTTP 503.
+      await page.getByRole("textbox", { name: "Ask the console" }).fill("who used it most?");
+      await page.getByRole("button", { name: "Ask" }).click();
+      await page.locator(".admin-chat li.analyst").last().waitFor({ timeout: 20_000 });
+      expect((await page.locator(".admin-chat li.analyst").last().innerText()).toLowerCase()).toContain("no model key");
+      await page.screenshot({ path: path.join(shots, "console-chat.png"), fullPage: true });
     } finally {
       await browser.close();
     }

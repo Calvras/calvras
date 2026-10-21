@@ -10,6 +10,10 @@ const generated = resolve(root, ".output/server/wrangler.json");
 // the Cloudflare account. It is not committed, because a placeholder id would deploy a Worker with
 // its ledger bound to a database that does not exist.
 const ledger = resolve(root, "d1.json");
+// The binding also lives in the committed wrangler.json, because d1.json is gitignored and the hosted
+// build has never had one: reading it only from the local file meant every deploy from the pipeline
+// uploaded a Worker with no ledger attached, and the owner console answered 503 forever.
+const committed = existsSync(resolve(root, "wrangler.json")) ? JSON.parse(readFileSync(resolve(root, "wrangler.json"), "utf8")) : {};
 
 if (!existsSync(generated)) {
   console.error(`write-root-wrangler: no ${generated} — run the build first.`);
@@ -28,6 +32,10 @@ const config = {
   // Cloudflare's git build is configured with no build step, only `npx wrangler deploy`, so the
   // config has to trigger the build itself or it uploads an entry point that was never written.
   build: { command: "npm run build" },
+  // The console's analyst runs on a free model, and the free ones come and go with upstream limits,
+  // so the one that answers today is written here rather than left to the code's default. The key
+  // itself is a Cloudflare secret; only this name is public config.
+  vars: { CALVRAS_AI_MODEL: "minimax/minimax-m3.1-flash:free" },
 };
 
 if (existsSync(ledger)) {
@@ -35,6 +43,8 @@ if (existsSync(ledger)) {
   if (databaseId) {
     config.d1_databases = [{ binding: "CALVRAS_DB", database_name: "calvras-ledger", database_id: String(databaseId), migrations_dir: "migrations" }];
   }
+} else if (Array.isArray(committed.d1_databases) && committed.d1_databases.length) {
+  config.d1_databases = committed.d1_databases;
 }
 
 delete config.custom_domains;

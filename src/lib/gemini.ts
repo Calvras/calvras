@@ -17,6 +17,22 @@ export function setOpenRouterKey(key: string) {
 export { CALVRAS_SYSTEM_PROMPT } from "./system-prompt";
 import { CALVRAS_SYSTEM_PROMPT } from "./system-prompt";
 
+/** How long a run waits out a silent provider before it gives the round back. A free tier names its
+ * own reset window and it is routinely half an hour, so a ten-minute budget ends a three-hour task
+ * over a lull the app was always going to ride out. Only the Stop button ends it sooner. */
+export const PROVIDER_PATIENCE_MS = 45 * 60_000;
+/** Every sentence the inference layer throws for a provider that is busy, parked or refusing. Each one
+ * is this run's problem, not the user's, so the turn loop waits it out instead of ending. An abort and
+ * a rejected key are the two things that must still come back as failures. */
+export const PROVIDER_TROUBLE = /rate limited|requires credits|used up|did not respond in time|not respond|connection dropped|HTTP [45]\d\d|fetch failed|network|socket hang|overloaded|temporarily unavailable|try again later|providers refused|bad gateway|service unavailable/i;
+export const isProviderTrouble = (reason: string) => PROVIDER_TROUBLE.test(reason) && !/configured model key was rejected|aborted/i.test(reason);
+/** Long pauses for a provider that said when it will be back, short ones for a blip: a three-second
+ * poll on a thirty-minute window would spend the wait hammering the very endpoint that parked us. */
+export const patientBackoffMs = (reason: string, attempt: number) =>
+  /used up|more minutes|wait briefly|try again later/i.test(reason)
+    ? Math.min(60_000, 15_000 * (attempt + 1))
+    : Math.min(15_000, 2_500 * (attempt + 1));
+
 // All inference goes through one bounded server request; no duplicate client cascade.
 import { readSSE } from "./streaming";
 import { readPreferences } from "./preferences";

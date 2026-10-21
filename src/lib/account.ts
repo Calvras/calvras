@@ -1,7 +1,9 @@
 /** The account signed into this copy of Calvras, read from the session the splash screen set. */
 export const USER_KEY = "calvras_user";
 
-export type CalvrasUser = { provider: "google"; email?: string; name?: string; picture?: string; plan?: string; joinedAt: number };
+export type CalvrasUser = { provider: "google"; email?: string; name?: string; picture?: string; plan?: string; joinedAt: number; /** The token calvras.com signed when it verified this Google account. The
+ * app comes back with it on boot and after each task, which is how a plan the owner granted — or a
+ * block they applied — reaches this computer. */ session?: string; /** Set by the site, not by anything on this machine: the owner switched this account off. */ blocked?: string };
 
 /** Only a real Google account counts as signed in. Anything older, blanked or hand-written in
  * storage sends the person to sign-in rather than into an app with no owner behind it. */

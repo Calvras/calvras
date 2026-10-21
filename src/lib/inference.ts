@@ -35,19 +35,28 @@ const orFreeParked = () => orFreeParkedUntil > Date.now();
 const STREAM_FAILURE = /stopped streaming|stream failed|took too long|empty response|socket|ECONNRESET|terminated|fetch failed/i;
 
 /** A 401 on one model is not proof the user's key is broken — ask the provider's own auth
- *  endpoint before telling them to go and replace a key that still works. */
-async function anyKeyRejected(keys: Keys) {
-  const targets = Object.entries(keys).filter(([, key]) => Boolean(key)).map(([provider, key]) => provider === "gemini"
-    ? { url: "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1", headers: { "x-goog-api-key": String(key) } }
-    : provider === "openrouter"
-      ? { url: "https://openrouter.ai/api/v1/models", headers: { authorization: `Bearer ${key}` } }
-      : { url: "https://huggingface.co/api/whoami-v2", headers: { authorization: `Bearer ${key}` } });
-  const answers = await Promise.all(targets.map(async (target) => {
-    try { return (await fetch(target.url, { headers: target.headers, signal: AbortSignal.timeout(8_000) })).status; }
-    catch { return 0; /* unreachable is not a rejection */ }
+ *  endpoint before telling them to go and replace a key that still works. Answers with the
+ *  providers whose key that endpoint refuses; an unreachable endpoint is not a refusal. */
+async function rejectedKeys(keys: Keys) {
+  const targets = Object.entries(keys).filter(([, key]) => Boolean(key)).map(([provider, key]) => ({
+    provider,
+    url: provider === "gemini"
+      ? "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1"
+      : provider === "openrouter" ? "https://openrouter.ai/api/v1/models" : "https://huggingface.co/api/whoami-v2",
+    headers: provider === "gemini" ? { "x-goog-api-key": String(key) } : { authorization: `Bearer ${key}` },
   }));
-  return answers.some((status) => status === 401 || status === 403);
+  const answers = await Promise.all(targets.map(async (target) => {
+    try { return { provider: target.provider, status: (await fetch(target.url, { headers: target.headers, signal: AbortSignal.timeout(8_000) })).status }; }
+    catch { return { provider: target.provider, status: 0 /* unreachable is not a rejection */ }; }
+  }));
+  return answers.filter((answer) => answer.status === 401 || answer.status === 403).map((answer) => answer.provider);
 }
+
+/** A credential its own provider refuses is not worth a first-token wait on every round of a run
+ *  that still has two hours of queue left. The park is keyed by the key, never by the provider name,
+ *  so one dead OpenRouter credential cannot blind a different one on the same provider. */
+const deadKeys = new Map<string, number>();
+const deadKey = (provider: "or" | "gemini" | "hf", key: string) => (deadKeys.get(`${provider}:${key}`) ?? 0) > Date.now();
 
 /** Recover a whole JSON reply from a stream that died before its closing frame. */
 function salvage(text: string) {
@@ -86,19 +95,22 @@ export async function inferStreaming(options: {
   const signal = AbortSignal.any([lifetime.signal, deadline, ...(options.signal ? [options.signal] : [])]);
   const hasImages = options.messages.some((m) => Array.isArray(m.content));
   const candidates: Candidate[] = [];
-  // A model pinned in Settings is tried first, on whichever provider can serve it.
+  // A model pinned in Settings is tried first, on whichever provider can serve it. A provider
+  // whose stored key its own auth endpoint refused stays out of the chain.
   if (options.model) {
-    if (options.keys.gemini && /^gemini/i.test(options.model)) candidates.push({ model: options.model, key: options.keys.gemini, provider: "gemini" });
-    else if (options.keys.openrouter) candidates.push({ model: options.model, key: options.keys.openrouter, provider: "or" });
+    if (options.keys.gemini && !deadKey("gemini", options.keys.gemini) && /^gemini/i.test(options.model)) candidates.push({ model: options.model, key: options.keys.gemini, provider: "gemini" });
+    else if (options.keys.openrouter && !deadKey("or", options.keys.openrouter)) candidates.push({ model: options.model, key: options.keys.openrouter, provider: "or" });
   }
   // Gemini leads the chain: it has its own quota pool and handles both text and images, so
   // an exhausted OpenRouter free allowance can never strand the run on its own.
-  if (options.keys.gemini) for (const model of GEMINI_CHAIN[profile]) candidates.push({ model, key: options.keys.gemini, provider: "gemini" });
-  if (options.keys.openrouter && !orFreeParked()) {
-    candidates.push({ model: hasImages ? "nvidia/nemotron-3.5-super-vl:free" : OR_FREE[profile], key: options.keys.openrouter, provider: "or" });
+  if (options.keys.gemini && !deadKey("gemini", options.keys.gemini)) for (const model of GEMINI_CHAIN[profile]) candidates.push({ model, key: options.keys.gemini, provider: "gemini" });
+  if (options.keys.openrouter && !deadKey("or", options.keys.openrouter)) {
+    if (!orFreeParked()) candidates.push({ model: hasImages ? "nvidia/nemotron-3.5-super-vl:free" : OR_FREE[profile], key: options.keys.openrouter, provider: "or" });
+    // The auto-router answers from its own pool, so a spent ":free" allowance must not take this
+    // candidate with it — that park is what left a run with nothing but rate-limited models to wait on.
     if (!hasImages) candidates.push({ model: "openrouter/free", key: options.keys.openrouter, provider: "or" });
   }
-  if (options.keys.hf && !hasImages) candidates.push({ model: "Qwen/Qwen2.5-Coder-32B-Instruct", key: options.keys.hf, provider: "hf" });
+  if (options.keys.hf && !deadKey("hf", options.keys.hf) && !hasImages) candidates.push({ model: "Qwen/Qwen2.5-Coder-32B-Instruct", key: options.keys.hf, provider: "hf" });
   const failures: string[] = [];
 
   const attempt = async (): Promise<{ text: string; model: string; truncated: boolean }> => {
@@ -251,9 +263,21 @@ export async function inferStreaming(options: {
       const waitMs = parkedUntil - Date.now();
       throw new Error(waitMs > 60_000 ? `The free model tiers are used up for about ${Math.ceil(waitMs / 60_000)} more minutes. Send it again after that, or store a paid key for another provider.` : "Model providers are rate limited. Wait briefly, or store a key for another provider on this computer.");
     }
-    if (failures.some((failure) => /HTTP 40[13]/.test(failure))) throw new Error(await anyKeyRejected(options.keys)
-      ? "A configured model key was rejected. Update the provider keys stored for Calvras on this computer."
-      : "The stored keys still sign in, but the model providers refused this request. Try again in a moment.");
+    if (failures.some((failure) => /HTTP 40[13]/.test(failure))) {
+      const refused = await rejectedKeys(options.keys);
+      for (const provider of refused) {
+        const key = options.keys[provider as "gemini" | "openrouter" | "hf"];
+        if (key) deadKeys.set(`${provider === "openrouter" ? "or" : provider}:${key}`, Date.now() + 30 * 60_000);
+      }
+      const stored = Object.values(options.keys).filter(Boolean).length;
+      // One dead key in a shelf of three is not a reason to abandon a run the other providers can
+      // still carry, so only send the user off to replace keys when every stored one is refused.
+      // Anything else reads as a refusal the turn waits out rather than a wall it stops at.
+      const named = refused.map((provider) => ({ gemini: "Google", openrouter: "OpenRouter", hf: "Hugging Face" })[provider as "gemini" | "openrouter" | "hf"] || provider).join(" and ");
+      throw new Error(refused.length && refused.length >= stored
+        ? `A configured model key was rejected (${named}). Update the provider keys stored for Calvras on this computer.`
+        : "The stored keys still sign in, but the model providers refused this request. Try again in a moment.");
+    }
     if (deadline.aborted) throw new Error("AI providers did not respond in time. Retry, or check the provider access stored on this computer.");
     if (streamBroke()) throw new Error("The model connection dropped mid-reply, so Calvras asked it again and that failed too. Send the message once more to continue.");
     throw new Error("AI providers did not respond in time. Retry, or check the provider access stored on this computer.");

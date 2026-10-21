@@ -20,12 +20,17 @@ export type BatchItem = {
   note: string;
   reference: string;
   attempts: number;
+  /** Times this target was handed back to the queue because a run dropped its claim without
+   * reporting an outcome. Three drops and the ledger closes it as blocked on its own. */
+  released: number;
   updatedAt: string;
 };
 
 export type Batch = { title: string; createdAt: string; items: BatchItem[] };
 
 const MAX_ITEMS = 5_000;
+/** How many targets a run works at a time when it does not ask for a specific chunk. */
+const DEFAULT_CHUNK = 3;
 const TRACKING = /^(utm_|gclid|fbclid|ref$|ref_src|src|source|mc_|msclkid|dclid|twclid|ttclid)/i;
 
 function batchPath(root: string) { return path.join(root, '.calvras', 'batch.json'); }
@@ -64,6 +69,7 @@ function parseBatch(raw: string, title: string): Batch {
     note: String(item.note || "").slice(0, 600),
     reference: String(item.reference || "").slice(0, 120),
     attempts: Number.isFinite(item.attempts) ? Math.max(0, Math.trunc(item.attempts)) : 0,
+    released: Number.isFinite(item.released) ? Math.max(0, Math.trunc(item.released)) : 0,
     updatedAt: String(item.updatedAt || new Date().toISOString()).slice(0, 40),
   }));
   return { title: String(stored.title || title).slice(0, 200), createdAt: String(stored.createdAt || new Date().toISOString()), items };
@@ -107,7 +113,7 @@ export async function enqueueBatch(projectPath: string, title: string, adds: Bat
       let id = String(add.id || key).slice(0, 200);
       while (ids.has(id)) id = `${id}~`;
       ids.add(id); seen.add(key); added += 1;
-      batch.items.push({ id, url: url.slice(0, 2_000), label: String(add.label || url).slice(0, 300), status: "queued", note: "", reference: "", attempts: 0, updatedAt: new Date().toISOString() });
+      batch.items.push({ id, url: url.slice(0, 2_000), label: String(add.label || url).slice(0, 300), status: "queued", note: "", reference: "", attempts: 0, released: 0, updatedAt: new Date().toISOString() });
     }
     await writeBatch(root, batch);
     const counts = batchCounts(batch.items);
@@ -115,17 +121,49 @@ export async function enqueueBatch(projectPath: string, title: string, adds: Bat
   });
 }
 
-/** Hands out the next chunk of untouched targets and marks them claimed. */
+/**
+ * Hands out the next chunk of untouched targets and marks them claimed.
+ * `count: 0` is a claim-out: the run is dropping whatever it holds, so every open target goes
+ * back to the end of the queue and the next untouched chunk comes straight back. A target
+ * dropped three times is closed as blocked by the ledger itself, because a queue a run keeps
+ * abandoning is not a reason to stop — it is a target that cannot be finished.
+ */
 export async function claimBatch(projectPath: string, count = 3) {
   const root = guardedRoot(projectPath);
   return serialize(root, async () => {
     const batch = await readBatch(root);
-    const wanted = Math.min(10, Math.max(1, Math.trunc(Number(count)) || 3));
-    const claimed = batch.items.filter((item) => item.status === "queued").slice(0, wanted);
+    const wanted = Number(count) === 0 ? 0 : Math.min(5, Math.max(1, Math.trunc(Number(count)) || 3));
+    let cleared: { id: string; label: string }[] = [];
+    let blocked: { id: string; label: string }[] = [];
+    if (Number(count) === 0) {
+      const open = batch.items.filter((item) => item.status === "running");
+      cleared = open.map(({ id, label }) => ({ id, label }));
+      const stay: BatchItem[] = [];
+      for (const item of open) {
+        item.released += 1;
+        item.updatedAt = new Date().toISOString();
+        if (item.released >= 3) {
+          item.status = "blocked";
+          item.note = "dropped three times without an outcome recorded";
+          blocked.push({ id: item.id, label: item.label });
+          continue;
+        }
+        item.status = "queued";
+        stay.push(item);
+      }
+      // A dropped claim goes behind everything still untouched, so the next chunk is new work.
+      if (stay.length) batch.items = [...batch.items.filter((item) => !stay.includes(item)), ...stay];
+    }
+    const claimed = batch.items.filter((item) => item.status === "queued").slice(0, wanted === 0 ? DEFAULT_CHUNK : wanted);
     for (const item of claimed) { item.status = "running"; item.attempts += 1; item.updatedAt = new Date().toISOString(); }
-    if (claimed.length) await writeBatch(root, batch);
+    if (claimed.length || cleared.length || blocked.length) await writeBatch(root, batch);
     const counts = batchCounts(batch.items);
-    return { ok: true as const, title: batch.title, claimed: claimed.map(({ id, url, label, attempts }) => ({ id, url, label, attempts })), ...counts, remaining: claimed.length ? counts.queued : 0 };
+    return {
+      ok: true as const, title: batch.title,
+      claim_cleared: cleared.length > 0, dropped: cleared, closed_as_blocked: blocked,
+      claimed: claimed.map(({ id, url, label, attempts }) => ({ id, url, label, attempts })),
+      ...counts, remaining: claimed.length ? counts.queued : 0,
+    };
   });
 }
 

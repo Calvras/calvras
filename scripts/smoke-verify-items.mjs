@@ -128,7 +128,7 @@ try {
       status: messages.map((m) => m.status),
       errors: messages.map((m) => m.error || null),
       phaseCount: messages.map((m) => (m.phases || []).length),
-      resumeCount: text.includes("Resume task") ? 1 : 0,
+      resumeCount: text.includes("Pick it back up") ? 1 : 0,
       hardcodedGuard: text.includes("did not take the required action"),
       duplicatePhases,
       seenRecorded: (localStorage.getItem("calvras_seen_workspaces") || "").includes("Calvras"),

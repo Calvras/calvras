@@ -50,20 +50,26 @@ describe("the hosted deploy config", () => {
 
   /**
    * The account ledger lives in a D1 database, and the Worker only sees it when the generated config
-   * carries the binding. The id comes from d1.json, which is not committed: a placeholder binding
-   * would deploy a Worker whose console promises a ledger it cannot reach.
+   * carries the binding. `d1.json` is gitignored, so the binding has to survive in the committed
+   * wrangler.json too: reading it from the local file alone meant every hosted deploy uploaded a
+   * Worker that promised a ledger it could not reach, and the owner console answered 503 forever.
    */
-  it("binds the ledger database when its id is on the machine", () => {
+  it("binds the ledger on every build, not only on the machine that created the database", () => {
     const writer = readFileSync(path.resolve(root, "scripts/write-root-wrangler.mjs"), "utf8");
     expect(writer).toMatch(/d1\.json/);
     expect(writer).toMatch(/binding: "CALVRAS_DB"/);
     expect(writer).toMatch(/migrations_dir: "migrations"/);
     expect(existsSync(path.resolve(root, "migrations/0001_ledger.sql"))).toBe(true);
-    if (existsSync(path.resolve(root, "d1.json"))) {
-      expect(config.d1_databases).toEqual([{ binding: "CALVRAS_DB", database_name: "calvras-ledger", database_id: expect.any(String), migrations_dir: "migrations" }]);
-    } else {
-      expect(config.d1_databases).toBeUndefined();
-    }
+    expect(config.d1_databases).toEqual([{ binding: "CALVRAS_DB", database_name: "calvras-ledger", database_id: expect.stringMatching(/^[0-9a-f-]{16,64}$/), migrations_dir: "migrations" }]);
+  });
+
+  /** The console's analyst model is a plain config var, so the hosted build has to regenerate it too —
+   * a name that only ever existed on one machine would leave the live report writing itself from
+   * numbers with no explanation to anybody but the person who deployed. */
+  it("carries the console's analyst model in the generated config", () => {
+    const writer = readFileSync(path.resolve(root, "scripts/write-root-wrangler.mjs"), "utf8");
+    expect(writer).toMatch(/CALVRAS_AI_MODEL/);
+    expect(String(config.vars?.CALVRAS_AI_MODEL || "")).toMatch(/:free$/);
   });
 });
 

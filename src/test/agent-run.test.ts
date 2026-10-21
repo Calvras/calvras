@@ -18,6 +18,46 @@ describe("real agent loop", () => {
     expect((await runAgent(config)).status).toBe("finished");
     expect(config.infer.mock.calls[2]?.[0]).toContain("Opening a browser is not UI verification");
   });
+  // The failure the user saw: a chat answer landed, and the loop asked for it again under Thinking…,
+  // three times, because a no-action round always counted as a round that had to keep working.
+  it("ends a conversation turn on its first reply instead of asking again", async () => {
+    const onPhaseComplete = vi.fn();
+    const config = { ...options([reply("1. Python\n2. Go", [], "continue")]), onPhaseComplete };
+    const outcome = await runAgent(config);
+    expect(outcome).toMatchObject({ status: "finished", message: "1. Python\n2. Go" });
+    expect(config.infer).toHaveBeenCalledTimes(1);
+    expect(config.execute).not.toHaveBeenCalled();
+    expect(onPhaseComplete).toHaveBeenCalledWith("1. Python\n2. Go");
+  });
+  it("keeps a submitted target closed when the receipt it quoted was never read", async () => {
+    const config = options([
+      reply("Read the listing, queued it.", [{ type: "read_page" }, { type: "queue_batch", title: "jobs", targets: [{ url: "http://127.0.0.1/post/4", label: "Data Engineer" }] }], "continue"),
+      reply("Applied to it.", [{ type: "report_batch", id: "post/4", status: "done", reference: "REF-9F3A" }], "continue"),
+      reply("Reading what the site actually said.", [{ type: "read_page" }], "continue"),
+      reply("Now it really went in.", [{ type: "report_batch", id: "post/4", status: "done", reference: "48466F17" }], "continue"),
+      reply("One application, confirmed by the page."),
+    ]);
+    config.maxSteps = 8;
+    config.execute.mockImplementation(async (actions: any[]) => actions.map((action) => ({
+      action,
+      ok: true,
+      result: action.type === "read_page"
+        ? { text: 'Data Engineer <a href="http://127.0.0.1/post/4">apply</a> — Application received — Cobalt. Reference 48466F17' }
+        : action.type === "queue_batch" || action.type === "report_batch" ? { queued: 0, running: 0, done: 1, blocked: 0, skipped: 0 }
+          : { exitCode: 0 },
+    })));
+    const outcome = await runAgent(config);
+    const prompts = config.infer.mock.calls.map((call: string[]) => String(call[0]));
+    const nudged = prompts.find((prompt) => prompt.includes("[BATCH RECEIPT UNREAD]"));
+    expect(nudged).toContain("REF-9F3A");
+    expect(nudged).toContain("do not send it again");
+    // Finished work never goes back on the queue: reopening it is what made a live run submit the same
+    // posting twice, because a second application looks like a faster way to earn the receipt.
+    const reopened = config.execute.mock.calls.filter((call: any[]) => (call[0] as any[]).some((action) => action.type === "report_batch" && action.status === "running"));
+    expect(reopened).toHaveLength(0);
+    expect(prompts.some((prompt) => prompt.includes("[BATCH TARGET UNSEEN]"))).toBe(false);
+    expect(outcome.status).toBe("finished");
+  });
   it("does not execute repeated unchanged inspections and advances to edits", async () => {
     const config = options([reply("Read.",[list],"continue"),reply("Read again.",[list],"continue"),reply("Implement.",[{type:"write_file",path:"app.ts",content:"export const ready=true"}],"continue"),reply("Verify.",[{type:"run_tests"}],"continue"),reply("Verified.")]);
     expect((await runAgent(config)).status).toBe("finished");
@@ -108,9 +148,9 @@ describe("real agent loop", () => {
     const report = "The command failed with MODULE_NOT_FOUND, and the directory listing proves the file is absent.";
     const config = options([
       reply("Triggering the failure.", [{ type: "run_command", command: "node missing.js" }], "continue"),
-      reply(report),
-      reply(report),
+      reply(report), reply(report), reply(report), reply(report), reply(report),
     ]);
+    config.maxSteps = 10;
     config.execute.mockResolvedValue([{ action: { type: "run_command", command: "node missing.js" }, ok: false, result: { exitCode: 1, output: "Error: Cannot find module 'missing.js'" } }]);
     const outcome = await runAgent(config);
     expect(outcome.status).toBe("finished");
@@ -157,8 +197,12 @@ describe("real agent loop", () => {
       reply("Updating.", [{ type: "write_file", path: "app.ts", content: "export {}" }], "continue"),
       reply("Done."),
       reply("This project has no typecheck script, so the build is the right check."),
+      reply("The build is the check here; nothing failed."),
+      reply("The edit is in place and the project has no typecheck script."),
+      reply("Nothing else is pending; the failing check was the typecheck script that does not exist."),
       reply("All changes are complete and the build output confirms them."),
     ]);
+    config.maxSteps = 12;
     config.execute.mockImplementation(async (actions) => actions.map((action: ToolFeedback["action"]) => action.type === "run_typecheck" ? { action, ok: false, result: { error: "Missing script: typecheck" } } : { action, ok: true, result: { exitCode: 0 } }));
     const outcome = await runAgent(config);
     expect(outcome.status).toBe("finished");
@@ -183,10 +227,10 @@ describe("real agent loop", () => {
     config.execute.mockResolvedValueOnce([{ action: command, ok: false, result: { exitCode: 1 } }]).mockResolvedValueOnce([{ action: { type: "run_command", command: "npx vite build" }, ok: true, result: { exitCode: 0 } }]);
     expect((await runAgent(config)).status).toBe("finished");
   });
-  it("does not spend sixteen turns planning without action", async () => {
-    const config = options([reply("I'll plan.", [], "continue"), reply("Still planning.", [], "continue")]);
+  it("does not spend a whole run announcing a plan without acting", async () => {
+    const config = { ...options([reply("I'll plan.", [], "continue"), reply("Still planning.", [], "continue"), reply("Replanning.", [], "continue"), reply("Almost there.", [], "continue"), reply("One more plan.", [], "continue")]), requiresTools: true, maxSteps: 20 };
     expect((await runAgent(config)).status).toBe("blocked");
-    expect(config.infer).toHaveBeenCalledTimes(2);
+    expect(config.infer).toHaveBeenCalledTimes(5);
   });
   it("parses code containing braces inside JSON strings", () => {
     expect(parseAgentReply(reply("Update.", [{ type: "write_file", path: "x.ts", content: "const brace = '}';" }])).actions).toHaveLength(1);
@@ -252,14 +296,43 @@ describe("real agent loop", () => {
     expect(config.infer.mock.calls[1]?.[0]).toContain("nothing in the workspace has changed");
     expect(config.infer.mock.calls[1]?.[0]).toContain("not a substitute");
   });
-  it("names what is still open instead of telling the user to retry", async () => {
-    const config = { ...options([reply("I removed the section.", [], "complete"), reply("It is gone now.", [], "complete")]), requiresTools: true, requiresWork: true };
+  it("stops on the agent's own words and never recites the run state to the user", async () => {
+    const stuck = [reply("I removed the section."), reply("It is gone now."), reply("Really, it is gone."), reply("The folder is unchanged? No."), reply("I am done.")];
+    const config = { ...options(stuck), requiresTools: true, requiresWork: true, maxSteps: 12 };
     const outcome = await runAgent(config);
     expect(outcome.status).toBe("blocked");
-    expect(outcome.error).toContain("nothing in the folder actually changed");
-    expect(outcome.error).toContain("no tool ran for a request that needs the workspace");
-    expect(outcome.message).toBe("It is gone now.");
-    expect(outcome.error).not.toMatch(/retry with a specific task|did not take the required action/i);
+    // The loop keeps its own bookkeeping out of the chat: no canned sentence about what stayed
+    // open, no instruction to retry. The agent's last line is what the user keeps.
+    expect(outcome.error).toBeUndefined();
+    expect(outcome.message).toBe("I am done.");
+    expect(config.infer).toHaveBeenCalledTimes(5);
+  });
+  it("keeps a run alive through a malformed reply instead of ending the turn", async () => {
+    const config = { ...options([reply("Writing.", [{ type: "write_file", path: "app.ts" }], "continue"), "not json at all", reply("Writing it properly.", [{ type: "write_file", path: "app.ts", content: "export {}" }], "continue"), reply("Verifying.", [{ type: "run_typecheck" }], "continue"), reply("Done.")]), maxSteps: 20 };
+    expect((await runAgent(config)).status).toBe("finished");
+    expect(config.infer.mock.calls[1]?.[0]).toContain("RESPONSE FORMAT ERROR");
+  });
+  it("will not let a run finish while its own phase plan still has steps", async () => {
+    const plan = [
+      reply("Planning.", [{ type: "create_task_list", tasks: [{ id: "1", title: "Shell", status: "pending" }, { id: "2", title: "Feed", status: "pending" }] }], "continue"),
+      reply("Step one done.", [{ type: "track_progress", id: "1", status: "done" }], "continue"),
+      reply("All finished, the app is ready."),
+      reply("Building the feed.", [{ type: "write_file", path: "feed.ts", content: "export const feed = []" }], "continue"),
+      reply("Marking it.", [{ type: "track_progress", id: "2", status: "done" }], "continue"),
+      reply("Checked.", [{ type: "run_typecheck" }], "continue"),
+      reply("The feed is built too."),
+    ];
+    const config = { ...options(plan), maxSteps: 20 };
+    const board: { id: string; title: string; status: string }[] = [];
+    config.execute.mockImplementation(async (actions: any[]) => actions.map((action) => {
+      if (action.type === "create_task_list") { board.length = 0; board.push(...action.tasks.map((task: any) => ({ ...task }))); }
+      if (action.type === "track_progress") { const task = board.find((item) => item.id === action.id); if (task) task.status = action.status; }
+      return { action, ok: true, result: ["create_task_list", "track_progress"].includes(action.type) ? { tasks: board } : { entries: [], exitCode: 0 } };
+    }));
+    expect((await runAgent(config)).status).toBe("finished");
+    expect(config.infer.mock.calls[2]?.[0]).toContain('the next unfinished step is "Feed"');
+    expect(config.infer.mock.calls[3]?.[0]).toContain("PLAN HAS STEPS LEFT");
+    expect((config.execute.mock.calls[2]?.[0] as any[])[0].type).toBe("write_file");
   });
   it("accepts completion once a change request produced real work", async () => {    const config = { ...options([reply("Editing.", [{ type: "write_file", path: "app.ts", content: "export {}" }], "continue"), reply("Verifying.", [{ type: "run_typecheck" }], "continue"), reply("Removed the section.")]), requiresTools: true, requiresWork: true };
     expect((await runAgent(config)).status).toBe("finished");
@@ -268,14 +341,27 @@ describe("real agent loop", () => {
     const config = { ...options([reply("Looking.", [{ type: "open_browser", url: "http://localhost:3000" }], "continue"), reply("I removed it."), reply("I cannot verify that change.", [], "blocked")]), requiresTools: true, requiresWork: true };
     expect((await runAgent(config)).status).toBe("blocked");
   });
-  it("rejects unsupported actions and missing file contents", () => {
+  it("rejects an invented action and tells the model what a file write is missing", () => {
     expect(() => parseAgentReply(reply("update", [{ type: "imaginary_tool" }]))).toThrow("Unsupported action");
-    expect(() => parseAgentReply(reply("update", [{ type: "write_file", path: "app.ts" }]))).toThrow("Missing file contents");
+    expect(() => parseAgentReply(reply("update", [{ type: "write_file", path: "app.ts" }]))).toThrow("content field");
   });
-  it("reports inference failures as diagnostics without generating a canned reply", async () => {
+  it("swallows an inference failure instead of handing it to the user as a reply", async () => {
+    const config = options([]);
+    // The first reply lands and its work runs; the model then goes away mid-task.
+    let calls = 0;
+    config.infer.mockImplementation(async () => {
+      if (++calls === 1) return reply("Wiring the endpoint up now.", [{ type: "write_file", path: "app.ts", content: "export {}" }], "continue");
+      throw new Error("HTTP 503: the model is rate limited");
+    });
+    const outcome = await runAgent(config);
+    expect(outcome.status).toBe("blocked");
+    expect(outcome.error).toBeUndefined();
+    expect(outcome.message).toBe("Wiring the endpoint up now.");
+  });
+  it("keeps the last thing the agent said when the loop itself fails", async () => {
     const config = options([]);
     config.infer.mockRejectedValue(new Error("HTTP 503"));
-    expect(await runAgent(config)).toEqual({ status: "blocked", error: "HTTP 503" });
+    expect(await runAgent(config)).toEqual({ status: "blocked" });
     expect(config.onFeedback).not.toHaveBeenCalled();
   });
 
@@ -341,21 +427,23 @@ describe("rendered preview gate", () => {
     expect(config.infer.mock.calls[2]?.[0]).toContain("PREVIEW VERIFIED");
   });
 
-  it("gives up with the concrete rendered problems after three failed automatic rechecks", async () => {
+  it("releases a dead preview gate instead of ending the run on it", async () => {
     const config = options([
       reply("Starting the dev server.", [start], "continue"),
-      reply("Done."),
-      reply("Done again."),
-      reply("Done once more."),
+      reply("Done."), reply("Really done."), reply("It is finished."), reply("I am done."),
+      reply("The code is written; the preview port never answered, so the page itself is the one thing I could not verify."),
     ]);
     config.execute = vi.fn()
       .mockResolvedValueOnce([{ action: start, ok: true, result: { ready: true, url: "http://localhost:5173", ...broken } }])
       .mockResolvedValue([{ action: { type: "check_preview" }, ok: true, result: { healthy: false, ...broken } }]);
-    const outcome = await runAgent({ ...config, maxSteps: 10 });
-    expect(outcome.status).toBe("blocked");
-    expect(outcome.error).toContain("after 3 fresh browser checks");
-    expect(outcome.error).toContain("blank");
-    expect(config.execute).toHaveBeenCalledTimes(4);
+    const outcome = await runAgent({ ...config, maxSteps: 12 });
+    // Four reloads is the budget. After that the unrenderable page becomes a caveat the
+    // agent has to state, not a reason to stop the work.
+    expect(config.infer.mock.calls[5]?.[0]).toContain("PREVIEW UNVERIFIABLE");
+    expect(config.infer.mock.calls[5]?.[0]).toContain("blank");
+    expect(outcome.status).toBe("finished");
+    expect(outcome.error).toBeUndefined();
+    expect(config.execute).toHaveBeenCalledTimes(5);
   });
 
   it("marks a passing preview stale after an edit and rechecks before accepting completion", async () => {

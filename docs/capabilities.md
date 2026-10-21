@@ -6,7 +6,7 @@ commands, drives a browser, and shows you what it did while it does it. It is ma
 product is the app, and calvras.com is the site, the download, and the update feed. There
 is no web version of the app — the site never runs the agent.
 
-Current published build: **10.0.5** (`Calvras-Setup-10.0.5.exe`, or `Calvras-10.0.5-win.zip` unpacked).
+Current published build: **10.0.7** (`Calvras-Setup-10.0.7.exe`, or `Calvras-10.0.7-win.zip` unpacked).
 Sign-in is Google only, by decision.
 
 ## How it behaves
@@ -27,7 +27,46 @@ Sign-in is Google only, by decision.
   the result section by section as implemented, implemented with limits, or not implemented — and a
   feature it cannot deliver for real is labelled as what it actually is rather than faked.
 - **Provider trouble stays invisible to you.** Quota, rate limits and dropped streams are retried inside
-  the run; you are never shown a provider error banner.
+  the run — up to ten minutes of backoff per call — and a round that runs out of patience ends on the
+  agent's own last line. You are never shown a provider error banner, and nothing in the app prints a
+  canned failure sentence.
+- **A run does not end because a round ended.** Once the agent writes a phase plan, the loop knows how
+  many steps are still open and refuses to close the turn while real steps remain; it is told which step
+  comes next and has to take it. A dead preview or an unmeasurable screenshot stops being a reason to
+  quit — after four checks it becomes a disclosed caveat in the report instead. Hours-long tasks are
+  ordinary here; only a finished plan, a genuine blocker, or your stop button ends a run.
+- **A short run offers to carry on.** If a turn still ends with steps untouched, the reply lists exactly
+  which steps were never reached and shows a *Pick it back up* control that resumes from the first open
+  step instead of restarting the task. Only a run that got as far as a tool gets that card — an answer to
+  a question has no unfinished work, and offering one there made the app send its own task brief at a list
+  of programming languages and print the whole thing a second time.
+- **A question about it gets the whole answer.** Asked what it can do, it names every capability as its
+  own bullet — none left out because they didn't occur to it — and closes with exactly one specific
+  follow-up question, never "what would you like to work on?". Any answer holding two or more items
+  renders as a list rather than one comma-separated sentence, and a question about itself is answered as
+  conversation, not routed to the file tools.
+- **A conversation turn ends when it is answered.** The first reply to a chat message is the answer: the
+  loop does not re-ask the model under a *Thinking…* header looking for actions that were never coming.
+- **It drives a site instead of describing it.** For web work it opens the page, screenshots it, clicks
+  the numbered control, types into the focused field, scrolls until the thing it needs appears, and reads
+  what the page says after each move. When one route is shut it ranks the alternatives — another entry
+  point on the same site, the desktop web app, a listing page, a contact form — takes the best one in the
+  same round, and reports which route it used. Dropdowns and consent boxes are filled by name, not
+  clicked, because the popup a click opens never appears in its screenshot.
+- **A claim needs the page's own words.** Before submitting a form it reads the form back to check every
+  field carries what the user said, and a batch item only counts as confirmed when its report carries the
+  code the confirmation printed. "Application submitted" is what every site says, so it does not close a
+  target — and the fix is to go back to the confirmation and read the real code, never to submit again,
+  because a duplicate application is harm the run caused. A done whose receipt was never read stays done
+  and is named separately in the final count.
+- **A queue decides when it is finished.** Saying "done", or "blocked", while targets are still open does
+  not end the run: the ledger releases whatever it was holding, hands over the next chunk, and the work
+  carries on — hours of targets are an ordinary run, not a reason to stop. A target dropped three times is
+  closed as blocked by the ledger itself, an address no page ever printed is sent back before the run burns
+  its budget on a 404, and the final reply gives the counts as they stand — X done, Y blocked, Z skipped
+  out of N — instead of a sentence about stopping.
+- **Final replies are a report, not a transcript.** What changed, how it works, what was verified, what
+  is not done, and what is next — with a numbered brief answered one line per part.
 
 ## What it can do
 
@@ -57,7 +96,9 @@ Roughly 70 tools are callable in a turn (`src/lib/tool-catalog.ts` and the runti
   clicking, typing, screenshotting — plus a headless browser for scraping and multi-step jobs.
 - Real `web_search` with cited sources, `github_request`, and `deploy_application`.
 - Batch work: a durable queue that dedupes, resumes after a restart, and survives a thousand targets;
-  enough for applying to jobs or booking things on your behalf from a list.
+  enough for applying to jobs or booking things on your behalf from a list. Closing a target needs the
+  confirmation the page printed — a reference no page ever showed goes back on the queue rather than
+  counting as done.
 - MCP: connect an MCP server in settings and its tools become callable.
 
 **Long work, unsupervised**
@@ -83,6 +124,21 @@ Roughly 70 tools are callable in a turn (`src/lib/tool-catalog.ts` and the runti
   updates folder, verifies it is a Windows executable it downloaded, and only then asks you to restart.
   It refuses to launch anything it did not write.
 
+**What the site learns about an account**
+- Signing in with Google writes one row on calvras.com: your email, display name, the city and country
+  Cloudflare read off the request, your platform, the app version and a sign-in count. That row is what
+  carries your plan, and it is also what lets the owner switch your account off.
+- The app then sends one line per finished turn — the first 300 characters of what you typed, whether
+  it finished, how many actions it took and how long it took. Never a file, never a key, never the
+  agent's reply. It goes with a session token the site signed at that same Google verification, so a
+  report cannot be attributed to somebody else.
+- This stops the moment you turn **Telemetry** off in Settings (it is on by default), and it stops on
+  its own for a build that predates the session token. Turning it off means the owner's console shows
+  your account signing in but nothing about what you asked.
+- A blocked account is refused at three points: the sign-in itself, the check the app makes when it
+  opens, and every usage report it tries to send. The app then returns to the sign-in screen with the
+  owner's reason on it.
+
 ## What it deliberately does not do
 
 - **Full access is not blanket access.** That mode frees the terminal, the file edits, and deleting a
@@ -102,7 +158,11 @@ Roughly 70 tools are callable in a turn (`src/lib/tool-catalog.ts` and the runti
 
 - **Upgrade does not complete a purchase.** The pricing plans exist in the app but have no store plan id
   wired, so the checkout link is empty and the page says "Not on sale yet" instead of faking a payment.
-- **Owner console needs server-side setup.** `/admin-calvras` and the sign-in ledger (email, city and
-  country, platform, version, sign-in count) work only where the D1 binding and the admin token are set.
+- **Owner console: sales are not connected.** `/admin-calvras` runs live on calvras.com against the
+  account ledger — plans, blocks, per-account usage, the daily report and the chat over the ledger. Its
+  Sales panel needs a Payments AI credential on the site, which is not set, so it says "Store not
+  connected" rather than showing numbers it does not have.
+- **Old sign-ins hold no session token.** An account that signed in before 10.0.7 cannot be blocked or
+  report usage until it goes through Google once more.
 - **Email sign-in is gone on purpose** — Google only; there is no outbox or SMTP path.
 - Screen/pointer control is Windows-only today; that's the only platform the app ships on.

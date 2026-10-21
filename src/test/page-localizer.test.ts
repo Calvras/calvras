@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { CLEAR_MARKS_SOURCE, COLLECT_TARGETS_SOURCE, formatTargets, type PageView } from "@/lib/runtime/page-localizer";
+import { CLEAR_MARKS_SOURCE, COLLECT_TARGETS_SOURCE, FIRST_SCREEN_SOURCE, formatTargets, type PageView } from "@/lib/runtime/page-localizer";
 import { BROWSER_TOOLS } from "@/lib/runtime/browser-tools";
 import { isInAppBrowserTool } from "@/lib/browser-bridge";
 import { CALVRAS_SYSTEM_PROMPT } from "@/lib/system-prompt";
@@ -91,5 +91,21 @@ describe("numbered page capture", () => {
     expect(CALVRAS_SYSTEM_PROMPT).toContain("numbers every clickable thing");
     expect(CALVRAS_SYSTEM_PROMPT).toContain("Do not web_search again to find your way back");
     expect(CALVRAS_SYSTEM_PROMPT).toContain("type_into_page");
+  });
+});
+
+describe("the first look an open page returns", () => {
+  it("carries the headline and the text within the fold so the open is also a read", () => {
+    document.body.innerHTML = `<h1>Today on the board</h1><p>SimCity, but with Permits — 316 points by pcai</p><p>2. Voxtral 3 released</p>`;
+    const first = new Function(`return (${FIRST_SCREEN_SOURCE})`)() as { heading: string; text: string };
+    expect(first.heading).toBe("Today on the board");
+    expect(first.text).toContain("SimCity, but with Permits");
+    // Collapsing runs of whitespace is what keeps 1200 characters of page worth sending.
+    expect(first.text).not.toMatch(/\s\s/);
+  });
+
+  it("leaves the continuation instruction with the model at the moment it decides what to do next", () => {
+    expect(CALVRAS_SYSTEM_PROMPT).toContain("the numbered controls with their coordinates in numbered");
+    expect(CALVRAS_SYSTEM_PROMPT).toContain("continue from it instead of spending a round on take_screenshot");
   });
 });

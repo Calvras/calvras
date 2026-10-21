@@ -27,7 +27,18 @@
     }
   ],
   "account_id": "6731a2cf3ac3e76d3f399f505a7e5c11",
+  "d1_databases": [
+    {
+      "binding": "CALVRAS_DB",
+      "database_name": "calvras-ledger",
+      "database_id": "1c7b85da-587f-4fd5-b66f-ec917f5254ac",
+      "migrations_dir": "migrations"
+    }
+  ],
   "build": {
     "command": "npm run build"
+  },
+  "vars": {
+    "CALVRAS_AI_MODEL": "minimax/minimax-m3.1-flash:free"
   }
 }

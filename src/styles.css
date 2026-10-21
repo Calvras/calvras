@@ -528,7 +528,7 @@
    lighter surface that carries the rail and the history strip, and the conversation sits on it as
    a darker rounded card with a hairline edge and no shadow. Chrome rgb(24,24,24), card
    rgb(18,18,18), edge rgb(40,40,40), corner ~10px. */
-:root { --app-title-height: 0px; --app-rail-width: 56px; --app-sidebar-width: 272px; --app-shell-gap: 6px; --app-panel-radius: 10px; --app-chrome: oklch(0.212 0 0); --app-hairline: oklch(0.275 0 0); --app-content-left: calc(var(--app-rail-width) + var(--app-sidebar-width)); }
+:root { --app-title-height: 0px; --app-rail-width: 56px; --app-sidebar-width: 236px; --app-shell-gap: 6px; --app-panel-radius: 10px; --app-chrome: oklch(0.212 0 0); --app-hairline: oklch(0.275 0 0); --app-content-left: calc(var(--app-rail-width) + var(--app-sidebar-width)); }
 /* Chromium's default scroller is a light gutter with arrow buttons at both ends, which reads as a
    foreign widget inside these dark panels. Any area that scrolls inherits the quiet one instead. */
 * { scrollbar-width: thin; scrollbar-color: oklch(1 0 0 / 16%) transparent; }
@@ -551,8 +551,11 @@
 /* The desktop rail only exists inside Electron, so it doubles as the switch between the two
    layouts: with it, the conversation is an inset card; without it, the page stays full-bleed. */
 html:has(.app-rail) body { background-color: var(--app-chrome); }
-[data-titlebar] { background: var(--background); border-bottom: 1px solid oklch(1 0 0 / 6%); }
-html:has(.app-rail) [data-titlebar] { background: var(--app-chrome); border-bottom-color: transparent; }
+/* The window chrome is flat grey everywhere else, so the menu bar carries the one colour in the
+   shell: a blue wash that starts at the very top edge and is gone before it reaches the content,
+   so the band reads as light falling in rather than a stripe of colour. */
+[data-titlebar] { --titlebar-blue: radial-gradient(56% 84% at 50% 0%, oklch(0.53 0.19 262 / 32%) 0%, oklch(0.53 0.19 262 / 10%) 54%, oklch(0.53 0.19 262 / 0%) 86%); background: var(--titlebar-blue), var(--background); border-bottom: 1px solid oklch(1 0 0 / 6%); }
+html:has(.app-rail) [data-titlebar] { background: var(--titlebar-blue), var(--app-chrome); border-bottom-color: transparent; }
 html:has(.app-rail) .chat-page { position: fixed; z-index: 20; top: calc(var(--app-title-height) + var(--app-shell-gap)); right: var(--app-shell-gap); bottom: var(--app-shell-gap); left: calc(var(--app-rail-width) + var(--app-shell-gap)); width: auto; height: auto; border: 1px solid var(--app-hairline); border-radius: var(--app-panel-radius); overflow: hidden; transition: left .28s cubic-bezier(.22, 1, .36, 1); }
 /* The history strip is only in the DOM while one of its sections is open, so the card keeps the
    whole width to itself the rest of the time instead of parking beside an empty gutter. */
@@ -834,7 +837,8 @@ html[data-reduce-motion="true"] *, html[data-reduce-motion="true"] *::before, ht
 .admin-status { font-style: normal; font-size: 11px; color: #9a9aa0; }
 .admin-status.succeeded, .admin-status.paid, .admin-status.completed { color: #b7e0bd; }
 .admin-status.failed, .admin-status.declined, .admin-status.refunded { color: #e0a186; }
-.admin-grants { display: flex; gap: 6px; flex-wrap: wrap; }
+.admin-grants { display: flex; gap: 6px; flex-wrap: nowrap; }
+.admin-shell .admin-control, .admin-shell .admin-chip, .admin-shell .admin-danger { white-space: nowrap; }
 .admin-chip { border: 1px solid #ffffff1f; border-radius: 999px; background: transparent; padding: 6px 11px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .1em; color: #c4c4c8; }
 .admin-chip:hover:not(:disabled) { border-color: #f5f0e8; color: #f5f0e8; }
 .admin-chip.is-current { border-color: #ffffff40; background: #ffffff12; color: #eeedeb; }
@@ -850,3 +854,43 @@ html[data-reduce-motion="true"] *, html[data-reduce-motion="true"] *::before, ht
 .admin-feed li b { color: #c4c4c8; font-weight: 500; text-transform: uppercase; font-size: 9.5px; letter-spacing: .14em; }
 .admin-feed li em { font-style: normal; color: #85858c; }
 .admin-feed li time { color: #75757b; }
+
+/* The live badge: a dot that goes the colour of a fault, plus a line that says when the ledger
+ * was last asked. It sits under the title, quiet, because the page is meant to be left open. */
+.admin-live { margin: 9px 0 0; font-size: 11.5px; color: #85858c; display: flex; align-items: center; gap: 8px; }
+.admin-live i { width: 7px; height: 7px; border-radius: 999px; background: #b7e0bd; box-shadow: 0 0 0 3px #b7e0bd22; flex: none; }
+.admin-live i.is-off { background: #e0a186; box-shadow: 0 0 0 3px #e0a18622; }
+
+/* A row that landed since the last read holds the milk colour for eight seconds. */
+@keyframes admin-row-arrival { from { background: #f5f0e814; } to { background: transparent; } }
+.admin-row-new td { animation: admin-row-arrival 8s ease-out both; }
+
+.admin-report { border: 1px solid #ffffff14; border-radius: 10px; padding: 18px 20px; background: #141517; display: grid; gap: 14px; }
+.admin-report p { margin: 0; font-size: 13px; line-height: 1.75; color: #c4c4c8; white-space: pre-wrap; }
+.admin-report-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+
+.admin-asks { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(340px, 1.15fr); gap: 22px; align-items: start; }
+.admin-asks ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; background: #ffffff10; border: 1px solid #ffffff12; border-radius: 10px; overflow: hidden; }
+.admin-asks li { display: grid; grid-template-columns: 46px 1fr auto; gap: 12px; align-items: baseline; padding: 11px 15px; background: #141517; }
+.admin-asks li b { font-weight: 500; font-size: 12px; color: #eeedeb; }
+.admin-asks li time { font-size: 10.5px; color: #75757b; white-space: nowrap; }
+.admin-ask-count { font-size: 10px; letter-spacing: .1em; color: #f5f0e8; border: 1px solid #f5f0e840; border-radius: 999px; padding: 2px 7px; justify-self: start; }
+.admin-usage { min-width: 0 !important; }
+@media (max-width: 900px) { .admin-asks { grid-template-columns: 1fr; } }
+
+.admin-blocked { display: inline-block; font-style: normal; margin-top: 7px; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: #e0a186; border: 1px solid #b4623f55; border-radius: 999px; padding: 3px 9px; }
+
+.admin-tasks li { grid-template-columns: 132px 86px 1fr; gap: 12px; }
+.admin-tasks li b { color: #eeedeb; font-weight: 500; font-size: 12px; text-transform: none; letter-spacing: 0; }
+.admin-tasks time { color: #75757b; font-size: 11px; }
+.admin-tasks span { grid-column: 2 / span 2; font-size: 10.5px; color: #85858c; }
+
+.admin-chat { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 10px; }
+.admin-chat li { display: grid; grid-template-columns: 74px 1fr; gap: 14px; align-items: baseline; border: 1px solid #ffffff12; border-radius: 10px; padding: 13px 16px; background: #141517; }
+.admin-chat li.owner { border-color: #ffffff20; }
+.admin-chat b { font-size: 9.5px; letter-spacing: .16em; text-transform: uppercase; color: #8e8e92; font-weight: 500; }
+.admin-chat li.owner b { color: #f5f0e8; }
+.admin-chat p { margin: 0; font-size: 12.5px; line-height: 1.7; color: #c4c4c8; white-space: pre-wrap; }
+.admin-ask { display: flex; gap: 9px; align-items: stretch; }
+.admin-ask .admin-field { font-size: 12.5px; }
+.admin-ask .admin-milk { align-self: auto; }

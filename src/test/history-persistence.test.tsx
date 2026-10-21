@@ -110,4 +110,13 @@ describe("conversation history", () => {
     expect(app).toContain("saveChat(chatId,");
     expect(app).toContain("if (chatIdRef.current === null)");
   });
+
+  it("does not mistake the first transcript save for the user switching chats", async () => {
+    // A fresh thread adopts its id in the send handler, then History writes it under the same id
+    // and makes that id the active one. The switch guard has to move with the id it just chose,
+    // or the catch-up aborts the run that had just started and wipes its transcript.
+    const app = await readFile("src/routes/index.tsx", "utf8");
+    expect(app).toContain("if (openChatRef.current === activeChatId) return;");
+    expect(app).toContain("chatIdRef.current = id; openChatRef.current = id;");
+  });
 });

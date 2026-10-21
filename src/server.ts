@@ -35,7 +35,7 @@ export function isLocalRuntime(url: URL) {
 }
 
 import { updateManifest } from "./lib/release";
-import { handleSiteApi, type SiteEnv } from "./lib/site-api";
+import { handleSiteApi, platformBindings, type SiteEnv } from "./lib/site-api";
 import { inferStreaming, PROFILE_MAX_TOKENS } from "./lib/inference";
 
 // One inference request, real upstream streaming, bounded provider fallbacks.
@@ -165,14 +165,19 @@ function isH3SwallowedErrorBody(body: string): boolean {
   }
 }
 
+/**
+ * The Cloudflare runtime hands the bindings to the request, not to this handler's second argument,
+ * so they are read off the request before the ledger is asked for anything.
+ */
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
-      const apiResponse = await handleApi(request, (env || {}) as SiteEnv);
+      const cloud = platformBindings(request, env);
+      const apiResponse = await handleApi(request, cloud);
       if (apiResponse) return apiResponse;
 
       const handler = await getServerEntry();
-      const response = await handler.fetch(request, env, ctx);
+      const response = await handler.fetch(request, cloud, ctx);
       return await normalizeCatastrophicSsrResponse(response);
     } catch (error) {
       console.error(error);

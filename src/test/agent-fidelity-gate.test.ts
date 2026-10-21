@@ -55,16 +55,18 @@ describe("screenshot fidelity gate", () => {
     expect(prompts(config).at(-1)).toContain("matches the user's screenshot");
   });
 
-  it("blocks the run when the render never measures close to the screenshot", async () => {
+  it("releases the pixel gate after repeated mismatches and makes the run say what differs", async () => {
     const config = build(
       [...buildSteps, reply("Done."), reply("Still done."), reply("Really done."), reply("Finished.")],
       [measured(61, [{ region: "top-left", diff: 40 }])],
     );
     const outcome = await runAgent(config);
-    expect(outcome.status).toBe("blocked");
-    expect(outcome.error).toContain("fresh pixel checks");
-    expect(outcome.error).toContain("61% similar");
-    expect(outcome.error).toContain("top-left 40%");
+    // Three fresh measurements is the budget. The disagreement then becomes something the
+    // reply has to disclose, not a reason to stop the run — and never a canned error.
+    expect(prompts(config).some((prompt) => prompt.includes("SCREENSHOT NOT VERIFIABLE"))).toBe(true);
+    expect(prompts(config).at(-1)).toContain("61% similar");
+    expect(outcome.error).toBeUndefined();
+    expect(outcome.status).toBe("finished");
   });
 
   it("leaves the run alone when no screenshot was sent", async () => {

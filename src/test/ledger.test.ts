@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { LEDGER_SCHEMA, accountEmail, deleteAccount, grantPlan, listAccounts, normalizePlan, recentEvents, recordSignIn, summarize, type D1Database } from "../lib/runtime/ledger";
-import { handleSiteApi } from "../lib/site-api";
+import { handleSiteApi, platformBindings } from "../lib/site-api";
 import { d1Shim } from "./sqlite-d1";
 
 let sqlite: DatabaseSync;
@@ -23,12 +23,11 @@ describe("ledger schema", () => {
   it("is the SQL the deployed migrations apply", () => {
     const read = (name: string) => readFileSync(resolve(process.cwd(), "migrations", name), "utf8");
     const deployed = new DatabaseSync(":memory:");
-    deployed.exec(read("0001_ledger.sql"));
-    deployed.exec(read("0002_account_location.sql"));
+    for (const file of ["0001_ledger.sql", "0002_account_location.sql", "0003_block_and_usage.sql"]) deployed.exec(read(file));
     const shape = (handle: DatabaseSync) =>
       [
-        ...["accounts", "events"].flatMap((table) => (handle.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((column) => `${table}.${column["name"]}`)),
-        ...(handle.prepare("PRAGMA index_list(events)").all() as { name: string }[]).map((index) => `events.index.${index["name"]}`),
+        ...["accounts", "events", "usage", "meta"].flatMap((table) => (handle.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((column) => `${table}.${column["name"]}`)),
+        ...["events", "usage"].flatMap((table) => (handle.prepare(`PRAGMA index_list(${table})`).all() as { name: string }[]).map((index) => `${table}.index.${index["name"]}`)),
       ].sort();
     expect(shape(deployed)).toEqual(shape(sqlite));
     deployed.close();
@@ -192,5 +191,38 @@ describe("the site API in front of the ledger", () => {
     } finally {
       globalThis.fetch = original;
     }
+  });
+});
+
+/**
+ * The deployed Worker's fetch handler is called with an empty second argument: the Cloudflare runtime
+ * entry keeps the bindings on the request it hands to the SSR service. Reading only the argument made
+ * every /api/site call answer "the ledger is not attached" even after the database was created and
+ * bound, which is how the owner console stayed shut.
+ */
+describe("the bindings the deployed Worker actually hands over", () => {
+  const cloudRequest = (env: unknown, authorization = "Bearer secretpart") => {
+    const request = new Request("https://calvras.com/api/site/admin/summary", { headers: { authorization } });
+    Object.assign(request, { runtime: { cloudflare: { env } } });
+    return request;
+  };
+
+  it("reads the ledger off the request when the fetch argument carries nothing", async () => {
+    const request = cloudRequest({ CALVRAS_DB: db, CALVRAS_ADMIN_TOKEN: "secretpart" });
+    const response = await handleSiteApi(request, platformBindings(request, undefined));
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toMatchObject({ ok: true, accounts: [], summary: { accounts: 0 } });
+  });
+
+  it("still prefers the argument when a runtime does pass bindings through", async () => {
+    const request = cloudRequest({});
+    expect(platformBindings(request, { CALVRAS_DB: db }).CALVRAS_DB).toBe(db);
+  });
+
+  it("answers the honest 503 when neither carries a ledger", async () => {
+    const request = cloudRequest(undefined);
+    const response = await handleSiteApi(request, platformBindings(request, undefined));
+    expect(response?.status).toBe(503);
+    expect((await response?.json())?.error).toMatch(/not attached/);
   });
 });

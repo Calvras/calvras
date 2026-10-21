@@ -13,13 +13,18 @@ export function feedbackContext(results: ToolFeedback[], detailed = true) {
 }
 
 const independent = new Set(["read_file", "list_dir", "get_file_info", "search_files", "find_files", "git_status", "git_diff", "git_log"]);
+/** Fill order has no risk of landing on the wrong control, so a form runs as one parallel pass
+ * instead of one action per model round — the eight-action browser chain costs milliseconds, not
+ * eight thinks. Clicks, uploads and scripts stay barriers because their order changes the page. */
+const pageFills = new Set(["fill_input"]);
 /** Only contiguous reads overlap. Every mutation is a barrier. Results stay ordered. */
 export async function executeInOrder(actions: AgentAction[], execute: (action: AgentAction) => Promise<ToolFeedback>, signal: AbortSignal) {
   const results: ToolFeedback[] = [];
   for (let i = 0; i < actions.length;) {
     signal.throwIfAborted();
     const batch = [actions[i++]!];
-    if (independent.has(batch[0]!.type)) while (i < actions.length && batch.length < 4 && independent.has(actions[i]!.type)) batch.push(actions[i++]!);
+    const splittable = independent.has(batch[0]!.type) || pageFills.has(batch[0]!.type);
+    if (splittable) while (i < actions.length && batch.length < 8 && (independent.has(actions[i]!.type) || pageFills.has(actions[i]!.type))) batch.push(actions[i++]!);
     results.push(...await Promise.all(batch.map(execute)));
   }
   return results;

@@ -8,7 +8,7 @@ export type ReplyRating = "up" | "down";
 /** A subagent as the worker pool reports it. Every field here comes from the server's own
  *  job record, so a row can only exist for work that was really handed to a worker. */
 export type SubagentJob = { id: string; role: string; task: string; status: string; startedAt?: number | undefined; endedAt?: number | undefined; updates?: string[] | undefined; result?: string | undefined; engine?: { profile?: string | undefined; model?: string | undefined } | undefined; worktree?: { branch?: string | undefined; path?: string | undefined; files?: number | undefined; error?: string | undefined } | undefined };
-interface AgentActivityProps { phases: AgentPhase[]; done: boolean; startedAt?: number | undefined; endedAt?: number | undefined; status?: string | undefined; error?: string | undefined; rating?: ReplyRating | undefined; subagents?: SubagentJob[] | undefined; onUndo?: ((id: string) => Promise<void>) | undefined; onRate?: ((rating: ReplyRating | null) => void) | undefined; onResume?: (() => void) | undefined; onResolve?: ((id: string, choice: "apply" | "discard") => Promise<void>) | undefined }
+interface AgentActivityProps { phases: AgentPhase[]; done: boolean; startedAt?: number | undefined; endedAt?: number | undefined; status?: string | undefined; stopReason?: string | undefined; error?: string | undefined; rating?: ReplyRating | undefined; subagents?: SubagentJob[] | undefined; unfinished?: string[] | undefined; onUndo?: ((id: string) => Promise<void>) | undefined; onRate?: ((rating: ReplyRating | null) => void) | undefined; onResume?: (() => void) | undefined; onResolve?: ((id: string, choice: "apply" | "discard") => Promise<void>) | undefined }
 function IconAction({ label, pressed, onClick, children }: { label: string; pressed?: boolean; onClick: () => void; children: ReactNode }) {
   return (
     <button
@@ -143,7 +143,7 @@ function SubagentRow({ job, now, live, resolve }: { job: SubagentJob; now: numbe
   );
 }
 /** One trace header per turn: Thinking → Thought for, Working → Worked for. */
-export function AgentActivity({ phases, done, startedAt, endedAt, status, error, rating, subagents, onUndo, onRate, onResume, onResolve }: AgentActivityProps) {
+export function AgentActivity({ phases, done, startedAt, endedAt, status, stopReason, error, rating, subagents, unfinished, onUndo, onRate, onResume, onResolve }: AgentActivityProps) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => { if (done) return; const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, [done]);
 
@@ -157,7 +157,13 @@ export function AgentActivity({ phases, done, startedAt, endedAt, status, error,
   const allMessages = groups.flatMap((group) => group.phases.map((phase) => phase.message?.trim() || "")).filter(Boolean);
   const replyText = allMessages.at(-1) ?? "";
   const failure = error && !allMessages.some((message) => message.includes(error)) ? error : undefined;
-  if (done && !groups.length && !failure && !subagents?.length && status !== "stopped") return null;
+  // A run that never reached a tool and recorded no open steps has no task to pick back up: it
+  // answered a question. Offering resume there made the app send its own "pick it up" brief at a
+  // list of programming languages and print the whole thing a second time. Same test the header
+  // uses to decide between Thinking and Working.
+  const didWork = phases.some((phase) => (phase.trace || []).some((node) => node.type !== "reasoning"));
+  const stoppedShort = done && (status === "stopped" || status === "limit" || (status === "blocked" && Boolean(unfinished?.length))) && (didWork || Boolean(unfinished?.length));
+  if (done && !groups.length && !failure && !subagents?.length && !stoppedShort) return null;
 
   return <div className="group flex w-full flex-col gap-4">
     {!done && !groups.length && <ThinkingState nodes={[]} autoPlay={false} running kind="thinking" measuredSeconds={Math.max(1, Math.round((now - (startedAt ?? now)) / 1000))} />}
@@ -190,8 +196,12 @@ export function AgentActivity({ phases, done, startedAt, endedAt, status, error,
     ) : null}
     {done && replyText && <ReplyActions text={replyText} rating={rating} onRate={onRate} />}
     {failure && <p role="alert" className="text-[13px] leading-6 text-amber-200/80">{failure}</p>}
-    {done && status === "stopped" && !failure && <p className="text-sm text-muted-foreground">Task stopped. Resume when you're ready to continue.</p>}
-    {done && status === "stopped" && onResume && <button onClick={onResume} className="w-fit rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground">Resume task</button>}
-    {done && !failure && status === "limit" && <p role="alert" className="text-sm text-muted-foreground">Action limit reached. The task is not complete.</p>}
+    {/* A run that stopped short names what it never reached and offers to carry on from there,
+        so a long task resumes from its own plan instead of being started over. */}
+    {done && !failure && stoppedShort && <div className="flex flex-col gap-2">
+      <p className="text-[13px] leading-6 text-muted-foreground">{status === "limit" ? "The run hit its action ceiling with work still outstanding." : status === "blocked" ? "It stopped with these steps still open:" : stopReason === "replaced" ? "You sent another message, so this one stopped where it stood. Anything already written is still in the project." : stopReason === "user" ? "You stopped this one. Anything already written is still in the project." : "This turn ended on its own with the work unfinished — nothing after the last step above was written."}</p>
+      {unfinished?.length ? <ul className="flex flex-col gap-1 border-l border-border/60 pl-3">{unfinished.map((step, stepIndex) => <li key={stepIndex} className="text-[12.5px] leading-5 text-foreground/80">{step}</li>)}</ul> : null}
+      {onResume && <button onClick={onResume} style={{ background: "#f5f0e8", color: "#1a1512" }} className="w-fit rounded-lg px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90">Pick it back up</button>}
+    </div>}
   </div>;
 }

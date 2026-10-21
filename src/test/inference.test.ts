@@ -110,6 +110,27 @@ describe("bounded inference", () => {
     expect((await inferStreaming({ messages, keys: { openrouter: "test-retry" }, firstTokenMs: 30, hedgeMs: 5 })).text).toBe("recovered");
     expect(calls).toBeGreaterThan(2);
   });
+  it("keeps the auto-router in play after the free allowance is spent", async () => {
+    // The ":free" daily allowance parks itself for the rest of the day, but openrouter/free answers
+    // from another pool. A run that dropped that candidate had nothing left to call and waited out
+    // its patience budget on models that were never going to answer again.
+    const models = async (key: string) => {
+      const seen: string[] = [];
+      vi.stubGlobal("fetch", vi.fn(async (_url, init) => {
+        const model = JSON.parse(init.body).model;
+        seen.push(model);
+        return model === "openrouter/free" ? stream("routed") : new Response(JSON.stringify({ error: { message: "Rate limit exceeded: free-models-per-day" } }), { status: 429 });
+      }));
+      const text = (await inferStreaming({ messages, keys: { openrouter: key }, hedgeMs: 5, rateLimitWaitMs: 5 })).text;
+      return { seen, text };
+    };
+    const first = await models("router-fallback-a");
+    expect(first.text).toBe("routed");
+    const second = await models("router-fallback-b");
+    expect(second.seen).toContain("openrouter/free");
+    expect(second.seen).not.toContain("google/gemma-4-31b-it:free");
+    expect(second.text).toBe("routed");
+  });
   it("has an overall deadline and propagates cancellation", async () => {
     vi.stubGlobal("fetch", vi.fn(async (_url, init) => new Promise((_, reject) => init.signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true }))));
     const started = performance.now();

@@ -91,6 +91,20 @@ export const COLLECT_TARGETS_SOURCE = `(() => {
 /** Remove the numbered overlay so the page the user sees is the page itself again. */
 export const CLEAR_MARKS_SOURCE = `(() => { const layer = document.getElementById('__calvras_marks'); if (layer) layer.remove(); return { ok: true }; })()`;
 
+/**
+ * What the page already says, read from inside it: the headline and the text within the fold.
+ * An open that returns only a title forces a second round just to find out where the agent landed,
+ * so the open itself carries this and the first instruction about the page can be answered from it.
+ */
+export const FIRST_SCREEN_SOURCE = `(() => {
+  const clean = (value) => String(value == null ? '' : value).replace(/\\s+/g, ' ').trim();
+  const body = document.body;
+  return {
+    heading: clean(document.querySelector('h1')?.textContent).slice(0, 160),
+    text: clean(body ? (body.innerText || body.textContent) : '').slice(0, 1200),
+  };
+})()`;
+
 /** What the page shows rather than says: pictures and moving media, so a text-only read is not blind. */
 export const PAGE_MEDIA_SOURCE = `(() => {
   const clean = (value) => String(value == null ? '' : value).replace(/\\s+/g, ' ').trim();
