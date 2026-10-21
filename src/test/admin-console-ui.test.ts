@@ -106,11 +106,18 @@ describe("the owner console in a browser", { timeout: 120_000 }, () => {
       expect(report).toContain("calvras_ai_key");
       await page.screenshot({ path: path.join(shots, "console-open.png"), fullPage: true });
 
-      // Phone: the same ledger has to be readable at 390px without dragging fourteen columns
-      // sideways, and each value still needs the heading it belongs to.
-      await page.setViewportSize({ width: 390, height: 844 });
+      // Phone: the same ledger has to be readable at 360px — the narrowest current Galaxy/Pixel
+      // class — without dragging fourteen columns sideways, and each value still needs the heading
+      // it belongs to.
+      await page.setViewportSize({ width: 360, height: 800 });
       await page.waitForTimeout(500);
       expect(await page.locator(".admin-scroll").first().evaluate((element) => element.scrollWidth - element.clientWidth), "the accounts table must not overflow").toBeLessThanOrEqual(1);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), "the page itself must not scroll sideways").toBeLessThanOrEqual(1);
+      // A stat tile is a number and its label, not a number stranded at the top of a tall box.
+      expect(await page.locator(".admin-stats span").first().evaluate((tile) => {
+        const [value, label] = [tile.querySelector("b")!, tile.querySelector("span")!];
+        return Number(label.getBoundingClientRect().top) - Number(value.getBoundingClientRect().bottom);
+      }), "the label sits under its number").toBeLessThan(12);
       const labelled = await accounts.locator("tr", { hasText: "shikari@calvras.com" }).first().locator("td").nth(5).evaluate((cell) => getComputedStyle(cell, "::before").content);
       expect(labelled, "the location cell says what it is").toContain("Location");
       expect((await page.locator(".admin-stats").first().evaluate((element) => getComputedStyle(element).gridTemplateColumns)).split(" ").length).toBe(2);
