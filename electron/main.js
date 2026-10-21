@@ -651,7 +651,19 @@ ipcMain.handle('update-install', async (_event, file) => {
   if (path.dirname(resolved) !== UPDATE_DIR || !/\.exe$/i.test(resolved)) return { ok: false, error: 'That is not a Calvras update file.' };
   if (!fs.existsSync(resolved)) return { ok: false, error: 'The downloaded update is no longer on this disk.' };
   try {
-    const child = spawnUpdate(resolved, [], { detached: true, stdio: 'ignore' });
+    // Silent, always. An interactive wizard let the person pick a folder, and Setup's default folder
+    // moves with elevation, so updating from a machine-wide copy installed a second per-user copy and
+    // the icon reopened the old one — the update looked like it had been thrown away.
+    //
+    // This process has to be gone before Setup can replace these files, so the app cannot relaunch
+    // itself: a detached shell waits for the installer to finish and then opens the copy Setup wrote.
+    // Setup always writes the per-user folder now, so that is the copy to open afterwards even on the
+    // first update from an old machine-wide install, which has not created it yet.
+    const relaunch = process.env.LOCALAPPDATA
+      ? path.join(process.env.LOCALAPPDATA, 'Programs', 'Calvras', 'Calvras.exe')
+      : process.execPath;
+    const script = `Start-Process -FilePath '${resolved.replace(/'/g, "''")}' -ArgumentList '/SILENT','/NORESTART','/SUPPRESSMSGBOXES' -Wait; Start-Process -FilePath '${relaunch.replace(/'/g, "''")}'`;
+    const child = spawnUpdate('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], { detached: true, stdio: 'ignore', windowsHide: true });
     child.unref();
   } catch (error) {
     return { ok: false, error: `The installer could not start: ${error.message}` };

@@ -9,9 +9,9 @@ import process from "node:process";
 const root = path.resolve(import.meta.dirname, "..");
 const skipAppBuild = process.argv.includes("--skip-app-build");
 
-function run(command, args, label) {
+function run(command, args, label, env) {
   console.log(`\n$ ${command} ${args.join(" ")}`);
-  const result = spawnSync(command, args, { cwd: root, stdio: "inherit", shell: true });
+  const result = spawnSync(command, args, { cwd: root, stdio: "inherit", shell: true, env: { ...process.env, ...(env ?? {}) } });
   if (result.error) throw new Error(`${label} could not start: ${result.error.message}`);
   if (result.status !== 0) throw new Error(`${label} failed with exit code ${result.status}`);
 }
@@ -38,7 +38,9 @@ async function verifyInstaller(setup) {
   fs.rmSync(installDir, { recursive: true, force: true });
   fs.mkdirSync(scratch, { recursive: true });
 
-  run(`"${setup}"`, ["/VERYSILENT", "/NORESTART", `/DIR="${installDir}"`, "/SUPPRESSMSGBOXES"], "Silent install");
+  // Setup removes a leftover machine-wide Calvras on a real update; this check runs on the machine
+  // that built it, so it keeps that copy alone and installs into the scratch folder only.
+  run(`"${setup}"`, ["/VERYSILENT", "/NORESTART", `/DIR="${installDir}"`, "/SUPPRESSMSGBOXES"], "Silent install", { CALVRAS_KEEP_LEGACY: "1" });
   try {
     const exe = path.join(installDir, "Calvras.exe");
     if (!fs.existsSync(exe)) throw new Error(`Silent install produced no ${exe}`);

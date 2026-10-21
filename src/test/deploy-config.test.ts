@@ -14,6 +14,7 @@ type DeployConfig = {
   account_id: string;
   routes: { pattern: string; custom_domain: boolean }[];
   build?: { command?: string };
+  vars?: Record<string, unknown>;
   d1_databases?: { binding: string; database_name: string; database_id: string; migrations_dir: string }[];
 };
 
@@ -69,7 +70,7 @@ describe("the hosted deploy config", () => {
   it("carries the console's analyst model in the generated config", () => {
     const writer = readFileSync(path.resolve(root, "scripts/write-root-wrangler.mjs"), "utf8");
     expect(writer).toMatch(/CALVRAS_AI_MODEL/);
-    expect(String(config.vars?.CALVRAS_AI_MODEL || "")).toMatch(/:free$/);
+    expect(String(config.vars?.["CALVRAS_AI_MODEL"] || "")).toMatch(/:free$/);
   });
 });
 

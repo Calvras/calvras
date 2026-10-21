@@ -26,7 +26,12 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
-DefaultDirName={autopf}\{#MyAppName}
+; One location, whatever elevation the run happens to have. {autopf} resolves to Program Files when
+; Setup is elevated and to LocalAppData\Programs when it is not, so an update driven by the app — which
+; cannot elevate — installed beside the copy it was meant to replace.
+DefaultDirName={localappdata}\Programs\{#MyAppName}
+; Never inherit the folder of an older machine-wide install: that is where the failed updates came from.
+UsePreviousAppDir=no
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 AllowNoIcons=yes
@@ -46,9 +51,9 @@ WizardSmallImageFile=wizard_small.bmp
 WizardImageBackColor=$111111
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-; Per-user install by default; the dialog override lets a machine-wide install happen on request.
+; Per-user, and only per-user: the elevation override used to offer a machine-wide install, which is
+; how two Calvras folders ended up on one machine with an icon that launches the older one.
 PrivilegesRequired=lowest
-PrivilegesRequiredOverridesAllowed=dialog
 CloseApplications=yes
 RestartApplications=no
 DisableWelcomePage=no
@@ -65,7 +70,10 @@ english.WelcomeLabel2=This will install {#MyAppName} version {#MyAppVersion} on 
 english.FinishedLabelNoIcons={#MyAppName} has been installed on your computer.%n%nLaunch it from the desktop or the Start menu.
 
 [Tasks]
-Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+; Checked by default: an app-driven update runs silently and cannot ask, and it may have just removed
+; the machine-wide desktop icon this copy replaces, so the person would be left with only a Start menu
+; entry for an app they reach from the desktop.
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 Name: "startup"; Description: "Start {#MyAppName} when I sign in to Windows"; Flags: unchecked
 
 [Files]
@@ -100,6 +108,46 @@ begin
   end;
 end;
 
+/// The first Calvras installs went in machine-wide through Program Files. Every installer since
+/// writes a per-user copy elsewhere, so that old copy stayed behind with its own desktop icon and
+/// that icon kept opening the older build however many times the app updated: an update that
+/// appeared to be thrown away. Take the leftover out so this machine ends up with one Calvras.
+procedure RemoveLegacyMachineCopy;
+var
+  Names: TArrayOfString;
+  Index: Integer;
+  Key, Name, Quiet, Uninstaller, Args: String;
+  I, First, Last, ResultCode: Integer;
+begin
+  // The build's own silent install/uninstall check must not be able to reach a real machine's
+  // Program Files, so it sets this and the leftover stays until an actual update runs.
+  if GetEnv('CALVRAS_KEEP_LEGACY') <> '' then Exit;
+  if not RegGetSubkeyNames(HKLM64, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall', Names) then Exit;
+  for Index := 0 to GetArrayLength(Names) - 1 do
+  begin
+    Key := 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\' + Names[Index];
+    if not RegQueryStringValue(HKLM64, Key, 'DisplayName', Name) then Continue;
+    if Copy(Name, 1, Length('{#MyAppName}')) <> '{#MyAppName}' then Continue;
+    if not RegQueryStringValue(HKLM64, Key, 'QuietUninstallString', Quiet) then Continue;
+    // Out of the quoted command, the uninstaller path is what sits between the first pair of quotes.
+    First := Pos('"', Quiet);
+    if First = 0 then Continue;
+    Last := 0;
+    for I := First + 1 to Length(Quiet) do
+      if Copy(Quiet, I, 1) = '"' then Last := I;
+    if Last <= First then Continue;
+    Uninstaller := Copy(Quiet, First + 1, Last - First - 1);
+    // Never touch the per-user copy this Setup owns.
+    if Pos(ExpandConstant('{localappdata}'), Lowercase(Uninstaller)) > 0 then Continue;
+    if not FileExists(Uninstaller) then Continue;
+    Args := Trim(Copy(Quiet, Last + 1, Length(Quiet) - Last));
+    if Args = '' then Args := '/S';
+    Log('Old machine-wide copy at ' + Uninstaller + ': removing it so updates land in one place.');
+    ShellExec('runas', Uninstaller, Args, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Log('Legacy removal exited with code ' + IntToStr(ResultCode) + ' (a cancelled prompt is not fatal).');
+  end;
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   Result := '';
@@ -109,4 +157,5 @@ begin
     Log('Upgrade detected in ' + ExpandConstant('{app}') + ': closing the running app first.');
     CloseCalvras;
   end;
+  RemoveLegacyMachineCopy;
 end;

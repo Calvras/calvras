@@ -99,28 +99,41 @@ describe("Windows installer", () => {
       "WizardSmallImageFile=wizard_small.bmp",
       "SetupIconFile=app.ico",
       "UninstallDisplayIcon={app}\\{#MyAppExeName}",
-      "DefaultDirName={autopf}\\{#MyAppName}",
+      "DefaultDirName={localappdata}\\Programs\\{#MyAppName}",
+      "UsePreviousAppDir=no",
       "OutputDir=..\\dist\\installer",
       "OutputBaseFilename=Calvras-Setup-win-x64",
       "Compression=lzma2",
       "SolidCompression=yes",
       "ArchitecturesInstallIn64BitMode=x64compatible",
       "PrivilegesRequired=lowest",
-      "PrivilegesRequiredOverridesAllowed=dialog",
       "CloseApplications=yes",
       "RestartApplications=no",
       "DisableProgramGroupPage=yes",
       'Source: "{#AppPayload}\\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs',
-      'Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked',
+      'Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"',
       'Filename: "{app}\\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent',
     ]) {
       expect(iss, line).toContain(line);
     }
+    // One folder, one elevation level. {autopf} moves between Program Files and LocalAppData
+    // depending on whether Setup happened to be elevated, and the dialog override let a person
+    // choose a machine-wide install, so updates kept landing beside the copy they were replacing
+    // and the desktop icon kept opening the older one.
+    expect(iss).not.toContain("PrivilegesRequiredOverridesAllowed");
+    expect(iss).not.toContain("DefaultDirName={autopf}");
+    expect(iss).toContain("procedure RemoveLegacyMachineCopy");
+    expect(iss).toContain("RemoveLegacyMachineCopy;");
     expect(iss).toContain("; SignTool=");
     expect(iss).toContain('#define AppPayload "..\\electron-dist\\win-unpacked"');
     expect(text("scripts/build-installer.mjs")).toContain("/DAppPayload=${relative}");
     expect(iss).toContain("This will install {#MyAppName} version {#MyAppVersion} on your computer.");
     expect(iss).toContain("procedure CloseCalvras");
+    // The app drives Setup itself, so it must never leave a wizard to click through — and the build's
+    // own silent install check must not be able to remove the machine's real leftover copy.
+    expect(iss).toContain("if GetEnv('CALVRAS_KEEP_LEGACY') <> '' then Exit;");
+    expect(text("scripts/build-installer.mjs")).toContain('CALVRAS_KEEP_LEGACY: "1"');
+    expect(text("electron/main.js")).toContain("'/SILENT','/NORESTART','/SUPPRESSMSGBOXES'");
   });
 
   it("wires the build through npm and points the exe icon at the same generated art", () => {
