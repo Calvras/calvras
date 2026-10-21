@@ -6,7 +6,7 @@
 export const REPO = "Calvras/calvras";
 
 /** Must match package.json's version; a unit test fails the build if the two drift apart. */
-export const RELEASE_VERSION = "10.0.7";
+export const RELEASE_VERSION = "10.0.8";
 
 /** Override this only when a build is published somewhere other than the tag's GitHub release. */
 export const RELEASE_INSTALLER = "";
