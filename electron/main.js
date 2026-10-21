@@ -396,6 +396,22 @@ const raiseMainWindow = () => {
   mainWindow.setAlwaysOnTop(false);
 };
 
+/**
+ * The page used to tell calvras.com about its own sign-in. The window reloads into the
+ * workspace the moment a sign-in succeeds and Chromium drops whatever request was still in flight,
+ * which is how accounts signed in for a day without a single one reaching the owner's ledger. The
+ * shell does it now: it has the ID token anyway, never navigates, and can keep trying — and a sign-in
+ * the site never confirmed is replayed on the next launch. See electron/site-report.cjs.
+ */
+const PENDING_SIGNIN_FILE = path.join(app.getPath('userData'), 'pending-signin.bin');
+const { createSignInReport } = require('./site-report.cjs');
+const signInReport = createSignInReport({
+  fs,
+  file: PENDING_SIGNIN_FILE,
+  storage: safeStorage,
+  getInfo: () => ({ platform: process.platform, version: app.getVersion() }),
+});
+
 ipcMain.handle('google-sign-in', async () => {
   try {
     const { clientId, clientSecret } = googleOAuthConfig();
@@ -408,7 +424,7 @@ ipcMain.handle('google-sign-in', async () => {
       onReturn: raiseMainWindow,
     });
     raiseMainWindow();
-    return { ok: true, ...profile };
+    return { ok: true, ...profile, site: await signInReport.report(profile.idToken) };
   } catch (error) {
     raiseMainWindow();
     return { ok: false, error: error instanceof Error ? error.message : 'Google sign-in failed.' };
@@ -696,6 +712,9 @@ app.whenReady().then(async () => {
   }
 
   console.log('[MAIN] Creating tray and main window...');
+  // A sign-in the site never got round to answering is reported again here, in the background, so the
+  // boot is never held up by a network that was down on the first try.
+  void signInReport.replay();
   if (readAppSettings().keepInMenuBar) createTray();
   // The renderer keeps its switch state in localStorage, so the main process has to re-apply
   // the sleep blocker here or the setting only works until the next restart.

@@ -3,7 +3,9 @@ export const USER_KEY = "calvras_user";
 
 export type CalvrasUser = { provider: "google"; email?: string; name?: string; picture?: string; plan?: string; joinedAt: number; /** The token calvras.com signed when it verified this Google account. The
  * app comes back with it on boot and after each task, which is how a plan the owner granted — or a
- * block they applied — reaches this computer. */ session?: string; /** Set by the site, not by anything on this machine: the owner switched this account off. */ blocked?: string };
+ * block they applied — reaches this computer. */ session?: string; /** Set by the site, not by anything on this machine: the owner switched this account off. */ blocked?: string; /** What calvras.com answered the last time this app tried to record the
+ * sign-in. The Account page shows it, so an account missing from the owner's console has a reason
+ * on screen instead of silence. */ recorded?: { at: number; ok: boolean; error?: string } };
 
 /** Only a real Google account counts as signed in. Anything older, blanked or hand-written in
  * storage sends the person to sign-in rather than into an app with no owner behind it. */

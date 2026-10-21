@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 import { WindowControls } from "./TitleBar";
-import { checkSession, reportSignIn } from "@/lib/site-session";
+import { checkSession, reportSignIn, type SignInReport } from "@/lib/site-session";
 import { storedUser, writeStoredUser, type CalvrasUser } from "@/lib/account";
 
 const SPLASH_MS = 2000;
@@ -24,7 +24,8 @@ export const installedVersion = async () => {
   try { return String((await desktopBridge()?.appVersion?.()) || ""); } catch { return ""; }
 };
 
-type GoogleAnswer = { ok?: boolean; email?: string; name?: string; picture?: string; idToken?: string | null; error?: string };
+type GoogleAnswer = { ok?: boolean; email?: string; name?: string; picture?: string; idToken?: string | null; error?: string; /** What calvras.com answered when the desktop shell reported
+ * this sign-in on its own, from a process the window reload cannot take down with it. */ site?: SignInReport };
 
 export function SplashScreen() {
   return (
@@ -65,7 +66,10 @@ export function AuthScreen({ onContinue, notice = "" }: { onContinue: (user: Cal
     }
     // Tell the site this person signed in, so the owner's console sees them and so a plan the owner
     // granted comes back with them. A site that cannot be reached does not lock anyone out.
-    const session = await reportSignIn({ ...(answer.idToken ? { idToken: answer.idToken } : {}), platform: navigator.platform, version: await installedVersion() });
+    // The desktop shell reports this sign-in to calvras.com from its own process, where a window
+    // reload cannot interrupt it. Only a page without that shell — a browser during development —
+    // has to make the call itself.
+    const session = answer.site || await reportSignIn({ ...(answer.idToken ? { idToken: answer.idToken } : {}), platform: navigator.platform, version: await installedVersion() });
     if (attempt.current !== mine) return;
     if (session?.blocked) {
       // The account ledger says no, so this computer says no too. Google proved who they are; the
@@ -75,7 +79,7 @@ export function AuthScreen({ onContinue, notice = "" }: { onContinue: (user: Cal
       return;
     }
     const plan = session?.ok && session.plan ? session.plan : undefined;
-    onContinue({ provider: "google", email: answer.email, name: answer.name ?? answer.email, ...(answer.picture ? { picture: answer.picture } : {}), ...(plan ? { plan } : {}), ...(session?.session ? { session: session.session } : {}), joinedAt: Date.now() });
+    onContinue({ provider: "google", email: answer.email, name: answer.name ?? answer.email, ...(answer.picture ? { picture: answer.picture } : {}), ...(plan ? { plan } : {}), ...(session?.session ? { session: session.session } : {}), recorded: { at: Date.now(), ok: Boolean(session?.ok), ...(session?.ok ? {} : { error: session?.error || "calvras.com did not answer." }) }, joinedAt: Date.now() });
   };
 
   return (

@@ -51,20 +51,30 @@ const answer = (status: number, body: Record<string, unknown>): SignInReport => 
 /**
  * Never throws and never blocks a sign-in: an unreachable site means the person still gets into
  * their own app, they just appear in the console once the site is reachable again.
+ *
+ * A request that dies on the way — a dropped connection, a hiccup at the edge — is retried, because
+ * the owner's console can only count a sign-in it was told about, and this was the app's one and
+ * only chance to say it. A 401 or 403 is a real answer about the token, so it is not retried.
  */
-export async function reportSignIn(input: { idToken?: string; platform?: string; version?: string }): Promise<SignInReport> {
+export async function reportSignIn(input: { idToken?: string; platform?: string; version?: string }, attempts = 3): Promise<SignInReport> {
   const idToken = String(input.idToken || "");
   if (!idToken) return { ok: false, error: "Google did not hand back an identity token." };
-  try {
-    const { status, body } = await post("/api/site/session", {
-      idToken,
-      platform: String(input.platform || "").slice(0, 40),
-      version: String(input.version || "").slice(0, 40),
-    }, 12_000);
-    return answer(status, body);
-  } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : "The site could not be reached." };
+  let last: SignInReport = { ok: false, error: "The sign-in was never sent." };
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (attempt) await new Promise((resolve) => setTimeout(resolve, attempt === 1 ? 700 : 2_000));
+    try {
+      const { status, body } = await post("/api/site/session", {
+        idToken,
+        platform: String(input.platform || "").slice(0, 40),
+        version: String(input.version || "").slice(0, 40),
+      }, 12_000);
+      last = answer(status, body);
+      if (last.ok || (status < 500 && status !== 408 && status !== 429)) return last;
+    } catch (error) {
+      last = { ok: false, error: error instanceof Error ? error.message : "The site could not be reached." };
+    }
   }
+  return last;
 }
 
 /**

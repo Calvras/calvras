@@ -34,6 +34,9 @@ beforeAll(async () => {
     const where = index === 0 ? { city: "Lahore", country: "PK" } : index === 1 ? { country: "DE" } : {};
     await recordSignIn(env.CALVRAS_DB!, { email, name, subject: `sub-${index}`, platform: "Win32", version: "10.0.3", ...where, at: now - index * 60_000 });
   }
+  // The same person signing in from a second city a day later: the console must show both places,
+  // newest first, rather than making it look like they moved.
+  await recordSignIn(env.CALVRAS_DB!, { email: "shikari@calvras.com", name: "shikari", subject: "sub-0", platform: "Win32", version: "10.0.3", city: "Karachi", country: "PK", at: now + 60_000 });
   await grantPlan(env.CALVRAS_DB!, "ada@calvras.com", "ultra", "owner", now);
   // Two finished turns and one that never landed — the console's usage column, its "did not finish"
   // tile and the Tasks drawer all read these rows, and asks group two of them under one heading.
@@ -88,10 +91,11 @@ describe("the owner console in a browser", { timeout: 120_000 }, () => {
       expect(await page.locator(".admin-live i.is-off").count()).toBe(0);
       const accounts = page.locator("table.admin-accounts");
       expect(await accounts.filter({ hasText: "ada@calvras.com" }).getByText("ultra", { exact: false }).first().isVisible()).toBe(true);
-      // The owner reads where each account signed in from: city plus country, country alone, or nothing.
-      for (const [email, place] of [["shikari@calvras.com", "Lahore, PK"], ["ada@calvras.com", "DE"], ["linus@calvras.com", "—"]] as [string, string][]) {
+      // The owner reads where each account signed in from: city plus country, country alone, nothing at
+      // all, and both cities for the one account that used Calvras from two places.
+      for (const [email, place] of [["shikari@calvras.com", ["Karachi, PK", "Lahore, PK"]], ["ada@calvras.com", ["DE"]], ["linus@calvras.com", []]] as [string, string[]][]) {
         const row = accounts.locator("tr", { hasText: email }).first();
-        expect((await row.locator("td").nth(5).innerText()).trim(), email).toBe(place);
+        expect(await row.locator("td").nth(5).locator(".admin-place").allInnerTexts(), email).toEqual(place);
       }
       // Usage is a column of its own now, and the daily report is written from the ledger itself
       // because this site has no model key — it must say so rather than invent a sentence.
@@ -101,6 +105,18 @@ describe("the owner console in a browser", { timeout: 120_000 }, () => {
       expect(report).toContain("build a landing page");
       expect(report).toContain("calvras_ai_key");
       await page.screenshot({ path: path.join(shots, "console-open.png"), fullPage: true });
+
+      // Phone: the same ledger has to be readable at 390px without dragging fourteen columns
+      // sideways, and each value still needs the heading it belongs to.
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.waitForTimeout(500);
+      expect(await page.locator(".admin-scroll").first().evaluate((element) => element.scrollWidth - element.clientWidth), "the accounts table must not overflow").toBeLessThanOrEqual(1);
+      const labelled = await accounts.locator("tr", { hasText: "shikari@calvras.com" }).first().locator("td").nth(5).evaluate((cell) => getComputedStyle(cell, "::before").content);
+      expect(labelled, "the location cell says what it is").toContain("Location");
+      expect((await page.locator(".admin-stats").first().evaluate((element) => getComputedStyle(element).gridTemplateColumns)).split(" ").length).toBe(2);
+      await page.screenshot({ path: path.join(shots, "console-mobile.png"), fullPage: true });
+      await page.setViewportSize({ width: 1440, height: 980 });
+      await page.waitForTimeout(300);
 
       // Grant Pro to the free account by pressing the chip the owner would press.
       const row = accounts.locator("tr", { hasText: "shikari@calvras.com" }).first();

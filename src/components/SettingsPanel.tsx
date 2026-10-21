@@ -8,6 +8,8 @@ import {
 } from "@/lib/preferences";
 import { clearUsage, readUsage } from "@/lib/telemetry";
 import { accountDataChanged, clearScoped, readChats, readScoped, storedUser, writeScoped, writeStoredUser } from "@/lib/account";
+import { reportSignIn } from "@/lib/site-session";
+import { installedVersion } from "./LaunchScreen";
 import { version } from "../../package.json";
 import { checkoutFor, paidPlans } from "@/lib/plans";
 import { Dialog, DialogContent, DialogTitle } from "./ui/dialog";
@@ -15,7 +17,7 @@ import { cn } from "@/lib/utils";
 
 const planLabel = (plan: string) => plan.charAt(0).toUpperCase() + plan.slice(1);
 const SUPPORT_EMAIL = "calvrasnoreply@gmail.com";
-type Profile = { provider?: string; email?: string; name?: string; picture?: string; plan?: string; joinedAt?: number };
+type Profile = { provider?: string; email?: string; name?: string; picture?: string; plan?: string; joinedAt?: number; session?: string; recorded?: { at: number; ok: boolean; error?: string } };
 type RememberedProject = { name: string; path?: string; tasks?: string[] };
 type Page = "general" | "application" | "appearance" | "projects" | "not-in-project" | "conversations" | "usage" | "shortcuts" | "feedback" | "account";
 type Route = { page: Page; project?: string };
@@ -32,6 +34,10 @@ type Desktop = {
   networkInfo?: () => Promise<{ lanAddress: string; port: number; remoteControl: boolean }>;
   openSystemNotifications?: () => Promise<{ ok: boolean; message?: string }>;
   openExternal?: (url: string) => Promise<{ ok: boolean; message?: string }>;
+  appVersion?: () => Promise<string>;
+  /** Google's answer, with the ID token the site needs to record this sign-in and whatever the
+   * desktop shell already reported to calvras.com on the way back. */
+  googleSignIn?: () => Promise<{ ok?: boolean; email?: string; name?: string; picture?: string; idToken?: string | null; error?: string; site?: { ok: boolean; plan?: string; session?: string; blocked?: boolean; error?: string } }>;
 };
 const desktop = (): Desktop | undefined => typeof window === "undefined" ? undefined : (window as unknown as { __electron?: Desktop }).__electron;
 
@@ -220,6 +226,7 @@ export function SettingsPanel({ open, onOpenChange }: { open: boolean; onOpenCha
   const [replyEvents, setReplyEvents] = useState(0);
   const [stats, setStats] = useState<UsageSnapshot | null>(null);
   const [store, setStore] = useState<StoreStatus>({ hasKey: false, live: false, keyHint: "", merchantId: "" });
+  const [recording, setRecording] = useState(false);
 
   const refresh = useCallback(() => {
     setPolicies(readPolicies());
@@ -234,6 +241,33 @@ export function SettingsPanel({ open, onOpenChange }: { open: boolean; onOpenCha
     setReplyEvents(Object.values(readChats()).reduce((total, chat) => total + chat.messages.filter((message) => (message as { role?: unknown })?.role === "assistant").length, 0));
     setProfile(storedUser() ?? {});
   }, []);
+
+  /** The owner's console can only show a sign-in this app reported, and that report happens once, in
+   * passing, while Google is still opening. This asks Google again and takes another run at the site,
+   * so an account that slipped through the first time is not missing for good. */
+  const reportAgain = async () => {
+    const bridge = desktop();
+    const account = storedUser();
+    if (!bridge?.googleSignIn || !account) { setNotice("Google sign-in runs in the Calvras desktop app."); return; }
+    setRecording(true);
+    setError("");
+    try {
+      const answer = await bridge.googleSignIn();
+      if (!answer?.ok || !answer.email) { setError(answer?.error || "Google sign-in failed."); return; }
+      const report = answer.site || await reportSignIn({ ...(answer.idToken ? { idToken: answer.idToken } : {}), platform: navigator.platform, version: await installedVersion() });
+      writeStoredUser({
+        ...account,
+        ...(report.ok && report.plan ? { plan: report.plan } : {}),
+        ...(report.ok && report.session ? { session: report.session } : {}),
+        recorded: { at: Date.now(), ok: report.ok, ...(report.ok ? {} : { error: report.error || "calvras.com did not answer." }) },
+      });
+      accountDataChanged();
+      refresh();
+      setNotice(report.ok ? `calvras.com has this sign-in${report.plan ? `, on the ${planLabel(report.plan)} plan` : ""}.` : `calvras.com turned this sign-in down: ${report.error || "no reason given"}.`);
+    } finally {
+      setRecording(false);
+    }
+  };
 
   // Usage and the store credential come from the local server, so a window that cannot reach it
   // shows nothing rather than a number invented on the client.
@@ -638,8 +672,13 @@ export function SettingsPanel({ open, onOpenChange }: { open: boolean; onOpenCha
             </Group>
             <Group label="Account">
               <Card>
-                <Row title="Your Plan: Calvras Local" description="This install runs entirely on this computer and is not tied to a hosted plan.">
+                <Row title={`Your plan: ${profile.plan ? planLabel(profile.plan) : "Calvras Local"}`} description={profile.plan ? `Set on calvras.com for ${profile.email || "this account"}.` : "calvras.com has not put this account on a plan, so it runs as Calvras Local."}>
                   <button type="button" className="settings-control" onClick={() => { const bridge = desktop(); if (bridge?.openExternal) void bridge.openExternal("https://calvras.com"); else setNotice("calvras.com — open it from a browser window."); }}>Learn more</button>
+                </Row>
+                <Row title="Known to calvras.com" description={profile.session
+                  ? `Yes — ${profile.email || "this account"} is in the owner's ledger, so plans and blocks reach this computer.`
+                  : `Not yet. ${profile.recorded?.error || "This app never got an answer from calvras.com when it reported the sign-in."}`}>
+                  <button type="button" className="settings-control" disabled={recording || !profile.email} onClick={() => void reportAgain()}>{recording ? "Sending…" : "Send again"}</button>
                 </Row>
                 <Row title="Email" description={profile.email || "Signed in locally without an email address."}>
                   <button type="button" className="settings-danger" onClick={() => { writeStoredUser(null); window.location.href = "/"; }}>Sign Out</button>

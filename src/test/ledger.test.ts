@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { LEDGER_SCHEMA, accountEmail, deleteAccount, grantPlan, listAccounts, normalizePlan, recentEvents, recordSignIn, summarize, type D1Database } from "../lib/runtime/ledger";
+import { LEDGER_SCHEMA, accountEmail, deleteAccount, findByEmail, grantPlan, listAccounts, normalizePlan, recentEvents, recordSignIn, summarize, type D1Database } from "../lib/runtime/ledger";
 import { handleSiteApi, platformBindings } from "../lib/site-api";
 import { d1Shim } from "./sqlite-d1";
 
@@ -23,7 +23,7 @@ describe("ledger schema", () => {
   it("is the SQL the deployed migrations apply", () => {
     const read = (name: string) => readFileSync(resolve(process.cwd(), "migrations", name), "utf8");
     const deployed = new DatabaseSync(":memory:");
-    for (const file of ["0001_ledger.sql", "0002_account_location.sql", "0003_block_and_usage.sql"]) deployed.exec(read(file));
+    for (const file of ["0001_ledger.sql", "0002_account_location.sql", "0003_block_and_usage.sql", "0004_account_places.sql"]) deployed.exec(read(file));
     const shape = (handle: DatabaseSync) =>
       [
         ...["accounts", "events", "usage", "meta"].flatMap((table) => (handle.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((column) => `${table}.${column["name"]}`)),
@@ -75,6 +75,16 @@ describe("sign-ins", () => {
     expect((await recentEvents(db))[0]?.detail).toBe("from lahore, PK");
     const second = await recordSignIn(db, { email: "dev@calvras.com", at: 2_000 });
     expect([second.city, second.country]).toEqual(["lahore", "PK"]);
+  });
+
+  it("keeps every place one account signs in from", async () => {
+    await recordSignIn(db, { email: "dev@calvras.com", at: 1_000, city: "lahore", country: "pk" });
+    await recordSignIn(db, { email: "dev@calvras.com", at: 2_000, city: "karachi", country: "pk" });
+    const both = await recordSignIn(db, { email: "dev@calvras.com", at: 3_000, city: "lahore", country: "pk" });
+    // A city seen again is not listed twice, and a sign-in with no geolocation adds nothing.
+    expect(both.places).toBe("lahore, PK;karachi, PK");
+    await recordSignIn(db, { email: "dev@calvras.com", at: 4_000 });
+    expect((await findByEmail(db, "dev@calvras.com"))?.places).toBe("lahore, PK;karachi, PK");
   });
 });
 

@@ -32,7 +32,7 @@ export const Route = createFileRoute("/admin-calvras")({
 type Account = {
   email: string; name: string; plan: string; plan_set_by: string; plan_set_at: number;
   first_seen: number; last_seen: number; signins: number; platform: string; version: string;
-  city: string; country: string; blocked: number; blocked_at: number; blocked_by: string; last_used: number;
+  city: string; country: string; places: string; blocked: number; blocked_at: number; blocked_by: string; last_used: number;
 };
 type LedgerEvent = { id: number; email: string; kind: string; detail: string; at: number };
 type Task = { id: number; email: string; status: string; prompt: string; tools: number; seconds: number; plan: string; at: number };
@@ -54,9 +54,16 @@ type Payload = {
 type Report = { ok: boolean; error?: string; at?: number; madeBy?: string; model?: string; text?: string; note?: string };
 type Turn = { role: "owner" | "analyst"; text: string };
 
-/** Cloudflare gives us a city when the plan exposes one and a country always; the console shows
- * whichever half it has, and nothing at all before the first sign-in is recorded with a location. */
-const place = (account: { city: string; country: string }) => [account.city, account.country].filter(Boolean).join(", ");
+/** Cloudflare gives us a city when the plan exposes one and a country always. The ledger keeps every
+ * distinct place an account has signed in from, and the console lists them newest first, so someone who
+ * uses Calvras in two cities shows both instead of looking like they moved. A row written before that
+ * column existed falls back to its last reported place. */
+const places = (account: { city: string; country: string; places?: string }) => {
+  const kept = String(account.places ?? "").split(";").map((value) => value.trim()).filter(Boolean).reverse();
+  if (kept.length) return kept;
+  const last = [account.city, account.country].filter(Boolean).join(", ");
+  return last ? [last] : [];
+};
 
 const when = (millis: number) => {
   if (!millis) return "—";
@@ -266,7 +273,7 @@ export function AdminConsole() {
     const usage = new Map((board?.perAccount || []).map((row) => [row.email, row]));
     for (const account of accounts) {
       const mine = usage.get(account.email);
-      rows.push([account.email, account.name, account.plan, account.plan_set_by, account.blocked ? "blocked" : "", String(account.signins), String(mine?.tasks ?? 0), String(mine?.failures ?? 0), new Date(account.first_seen).toISOString(), new Date(account.last_seen).toISOString(), account.last_used ? new Date(account.last_used).toISOString() : "", place(account), account.platform, account.version]);
+      rows.push([account.email, account.name, account.plan, account.plan_set_by, account.blocked ? "blocked" : "", String(account.signins), String(mine?.tasks ?? 0), String(mine?.failures ?? 0), new Date(account.first_seen).toISOString(), new Date(account.last_seen).toISOString(), account.last_used ? new Date(account.last_used).toISOString() : "", places(account).join(" · "), account.platform, account.version]);
     }
     const csv = `${rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n")}\n`;
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
@@ -367,10 +374,10 @@ export function AdminConsole() {
                 <thead><tr><th scope="col">Account</th><th scope="col">Tasks</th><th scope="col">Not finished</th><th scope="col">Last active</th></tr></thead>
                 <tbody>{board.perAccount.map((row) => (
                   <tr key={row.email}>
-                    <td>{row.email}</td>
-                    <td>{row.tasks}</td>
-                    <td>{row.failures ? <em className="admin-status failed">{row.failures}</em> : <span className="admin-status">—</span>}</td>
-                    <td>{ago(row.lastUsed)}</td>
+                    <td data-label="Account">{row.email}</td>
+                    <td data-label="Tasks">{row.tasks}</td>
+                    <td data-label="Failed">{row.failures ? <em className="admin-status failed">{row.failures}</em> : <span className="admin-status">—</span>}</td>
+                    <td data-label="Last active">{ago(row.lastUsed)}</td>
                   </tr>
                 ))}</tbody>
               </table>
@@ -393,13 +400,13 @@ export function AdminConsole() {
               <thead><tr><th scope="col">Reference</th><th scope="col">Buyer</th><th scope="col">Plan</th><th scope="col">Amount</th><th scope="col">Status</th><th scope="col">When</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
               <tbody>{sales.slice(0, 40).map((sale) => (
                 <tr key={sale.reference || `${sale.email}-${sale.at}`}>
-                  <td>{sale.reference || "—"}</td>
-                  <td>{sale.email || "—"}</td>
-                  <td>{sale.plan || "—"}</td>
-                  <td>{sale.amount === "" ? "—" : `${sale.currency || "$"}${sale.amount}`}</td>
-                  <td><em className={`admin-status ${String(sale.status).toLowerCase()}`}>{sale.status || "—"}</em></td>
-                  <td>{sale.at ? when(Date.parse(sale.at)) : "—"}</td>
-                  <td>
+                  <td data-label="Reference">{sale.reference || "—"}</td>
+                  <td data-label="Buyer">{sale.email || "—"}</td>
+                  <td data-label="Plan">{sale.plan || "—"}</td>
+                  <td data-label="Amount">{sale.amount === "" ? "—" : `${sale.currency || "$"}${sale.amount}`}</td>
+                  <td data-label="Status"><em className={`admin-status ${String(sale.status).toLowerCase()}`}>{sale.status || "—"}</em></td>
+                  <td data-label="When">{sale.at ? when(Date.parse(sale.at)) : "—"}</td>
+                  <td data-label="Action">
                     <div className="admin-row-actions">
                       {sale.email && accounts.some((account) => account.email === sale.email) && /pro|ultra/i.test(sale.plan) && (
                         <button type="button" className="admin-control" disabled={busy} onClick={() => void act("/api/site/admin/grant", { email: sale.email, plan: sale.plan.toLowerCase().includes("ultra") ? "ultra" : "pro" })}>Give {/ultra/i.test(sale.plan) ? "ultra" : "pro"}</button>
@@ -427,25 +434,25 @@ export function AdminConsole() {
                   const sale = paidFor.get(account.email);
                   return (
                     <tr key={account.email} className={`${open === account.email ? "admin-row-open" : ""} ${fresh.includes(account.email) ? "admin-row-new" : ""}`}>
-                      <td>
+                      <td data-label="Account">
                         <b>{account.name || account.email}</b>
                         <span className="admin-sub">{account.email}</span>
                         <span className="admin-sub">{[account.platform, account.version].filter(Boolean).join(" · ") || "device unknown"} · {account.signins} sign-in{account.signins === 1 ? "" : "s"} · first seen {when(account.first_seen)}</span>
                         {Boolean(account.blocked) && <em className="admin-blocked">blocked {ago(account.blocked_at)}{account.blocked_by ? ` by ${account.blocked_by}` : ""}</em>}
                       </td>
-                      <td><em className={`admin-plan ${account.plan}`}>{account.plan}</em>{account.plan_set_by && <span className="admin-sub">{account.plan_set_by} · {when(account.plan_set_at)}</span>}</td>
-                      <td>{sale ? <>{`${sale.currency || "$"}${sale.amount}`}<span className="admin-sub">{when(Date.parse(sale.at)) || "date unknown"}</span></> : <span className="admin-status">not paid</span>}</td>
-                      <td>{mine ? <>{mine.tasks} task{mine.tasks === 1 ? "" : "s"}{mine.failures ? <span className="admin-sub">{mine.failures} not finished</span> : null}</> : <span className="admin-status">nothing reported</span>}</td>
-                      <td>{ago(account.last_used || account.last_seen)}</td>
-                      <td>{place(account) || "—"}</td>
-                      <td>
+                      <td data-label="Plan"><em className={`admin-plan ${account.plan}`}>{account.plan}</em>{account.plan_set_by && <span className="admin-sub">{account.plan_set_by} · {when(account.plan_set_at)}</span>}</td>
+                      <td data-label="Paid">{sale ? <>{`${sale.currency || "$"}${sale.amount}`}<span className="admin-sub">{when(Date.parse(sale.at)) || "date unknown"}</span></> : <span className="admin-status">not paid</span>}</td>
+                      <td data-label="Usage">{mine ? <>{mine.tasks} task{mine.tasks === 1 ? "" : "s"}{mine.failures ? <span className="admin-sub">{mine.failures} not finished</span> : null}</> : <span className="admin-status">nothing reported</span>}</td>
+                      <td data-label="Last active">{ago(account.last_used || account.last_seen)}</td>
+                      <td data-label="Location">{places(account).length ? <div className="admin-places">{places(account).map((place) => <span key={place} className="admin-place">{place}</span>)}</div> : "—"}</td>
+                      <td data-label="Grant">
                         <div className="admin-grants">
                           {PLANS.map((plan) => (
                             <button key={plan} type="button" className={account.plan === plan ? "admin-chip is-current" : "admin-chip"} disabled={busy || account.plan === plan} onClick={() => void act("/api/site/admin/grant", { email: account.email, plan })}>{plan}</button>
                           ))}
                         </div>
                       </td>
-                      <td>
+                      <td data-label="Actions">
                         <div className="admin-row-actions">
                           <button type="button" className="admin-control" onClick={() => void showTasks(account.email)}>{open === account.email && tasks ? "Hide tasks" : "Tasks"}</button>
                           <button type="button" className="admin-control" onClick={() => void showHistory(account.email)}>History</button>

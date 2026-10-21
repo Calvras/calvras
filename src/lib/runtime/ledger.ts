@@ -14,7 +14,7 @@ export type D1Database = { prepare(sql: string): D1Statement };
 export type AccountRow = {
   email: string; subject: string; name: string; picture: string; plan: string;
   plan_set_by: string; plan_set_at: number; first_seen: number; last_seen: number;
-  signins: number; platform: string; version: string; city: string; country: string;
+  signins: number; platform: string; version: string; city: string; country: string; places: string;
   blocked: number; blocked_at: number; blocked_by: string; last_used: number;
 };
 export type EventRow = { id: number; email: string; kind: string; detail: string; at: number };
@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS accounts (
   version TEXT NOT NULL DEFAULT '',
   city TEXT NOT NULL DEFAULT '',
   country TEXT NOT NULL DEFAULT '',
+  places TEXT NOT NULL DEFAULT '',
   blocked INTEGER NOT NULL DEFAULT 0,
   blocked_at INTEGER NOT NULL DEFAULT 0,
   blocked_by TEXT NOT NULL DEFAULT '',
@@ -107,8 +108,21 @@ export async function recordSignIn(db: D1Database, input: { email: string; subje
       last_seen = excluded.last_seen, signins = signins + 1, platform = excluded.platform, version = excluded.version,
       city = COALESCE(NULLIF(excluded.city, ''), accounts.city), country = COALESCE(NULLIF(excluded.country, ''), accounts.country)`)
     .bind(email, text(input.subject, 100), text(input.name, 120), text(input.picture, 500), input.at, input.at, text(input.platform, 40), text(input.version, 40), city, country).run();
+  if (from) await addPlace(db, email, from);
   await note(db, email, "signin", from ? `from ${from}` : "", input.at);
   return (await db.prepare("SELECT * FROM accounts WHERE email = ?").bind(email).first<AccountRow>())!;
+}
+
+/**
+ * The console used to show one place per account — whichever city signed in last — so someone using
+ * Calvras in two cities looked like they had moved rather than travelled. Each distinct place is kept,
+ * newest last, capped so a nomad cannot grow the row forever.
+ */
+async function addPlace(db: D1Database, email: string, from: string): Promise<void> {
+  const current = await db.prepare("SELECT places FROM accounts WHERE email = ?").bind(email).first<{ places: string | null }>();
+  const seen = String(current?.places ?? "").split(";").filter(Boolean);
+  if (seen.includes(from)) return;
+  await db.prepare("UPDATE accounts SET places = ? WHERE email = ?").bind([...seen, from].slice(-4).join(";"), email).run();
 }
 
 export async function note(db: D1Database, email: string, kind: string, detail: string, at: number): Promise<void> {

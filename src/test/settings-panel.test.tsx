@@ -163,6 +163,24 @@ describe("settings", () => {
     expect(screen.getAllByRole("button", { name: "Account" }).at(-1)!.querySelector("img")).toHaveAttribute("src", "/calvras-logo.png");
   });
 
+  it("tells the truth about whether calvras.com has this account", () => {
+    values.set("calvras_user", JSON.stringify({ provider: "google", email: "hello@calvras.com", joinedAt: 1, recorded: { at: 1, ok: false, error: "Failed to fetch" } }));
+    render(<SettingsPanel open onOpenChange={vi.fn()} />);
+    goto("Account");
+    expect(screen.queryByText("Your Plan: Calvras Local")).not.toBeInTheDocument();
+    expect(screen.getByText("Your plan: Calvras Local")).toBeInTheDocument();
+    expect(screen.getByText(/Failed to fetch/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send again" })).toBeEnabled();
+  });
+
+  it("shows the plan the site granted, and that the ledger already knows the account", () => {
+    values.set("calvras_user", JSON.stringify({ provider: "google", email: "hello@calvras.com", plan: "pro", session: "sig.1", joinedAt: 1, recorded: { at: 1, ok: true } }));
+    render(<SettingsPanel open onOpenChange={vi.fn()} />);
+    goto("Account");
+    expect(screen.getByText("Your plan: Pro")).toBeInTheDocument();
+    expect(screen.getByText(/hello@calvras.com is in the owner's ledger/)).toBeInTheDocument();
+  });
+
   it("puts Usage above Shortcuts and totals the agent's real work", async () => {
     values.set("calvras_usage_log", JSON.stringify([{ at: Date.now(), kind: "task" }, { at: Date.now(), kind: "task" }]));
     values.set("calvras_chat_messages", JSON.stringify([{ role: "user" }, { role: "assistant" }, { role: "assistant" }]));

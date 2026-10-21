@@ -127,7 +127,11 @@ Roughly 70 tools are callable in a turn (`src/lib/tool-catalog.ts` and the runti
 **What the site learns about an account**
 - Signing in with Google writes one row on calvras.com: your email, display name, the city and country
   Cloudflare read off the request, your platform, the app version and a sign-in count. That row is what
-  carries your plan, and it is also what lets the owner switch your account off.
+  carries your plan, and it is also what lets the owner switch your account off. Sign in from a second
+  city and the console lists both, newest first, up to the last four places it has seen you.
+- The desktop app makes that report itself, from its own process, and keeps the sign-in for one retry on
+  the next launch if the site never answered. Settings → Account says in plain words whether calvras.com
+  knows about this sign-in, with a **Send again** button when it does not.
 - The app then sends one line per finished turn — the first 300 characters of what you typed, whether
   it finished, how many actions it took and how long it took. Never a file, never a key, never the
   agent's reply. It goes with a session token the site signed at that same Google verification, so a
