@@ -1029,10 +1029,17 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
     const isGlobalExpanded = manualExpanded ?? false;
 
     // With the timeline collapsed, the header alone says nothing about the work in progress,
-    // so the current step gets its own line until the user opens the full list.
-    const labeledNodes = nodes.filter((node) => node.primary);
-    const liveNode = [...labeledNodes].reverse().find((node) => node.status === "running" || node.status === "pending")
-      ?? labeledNodes[labeledNodes.length - 1];
+    // so the current step gets its own line until the user opens the full list. The line has to
+    // describe the moment it is drawn in: a step that already finished while the model composes
+    // the next one is history, and repeating it made an open page claim it was still opening.
+    const unfinished = [...nodes].reverse().find((node) => node.status === "running" || node.status === "pending");
+    const liveNode = unfinished?.primary ? unfinished : undefined;
+    const liveThought = !liveNode && unfinished?.type === "reasoning"
+      ? unfinished.sentences?.filter((sentence) => sentence.trim()).slice(-2).join(" ")
+      : undefined;
+    // A step that finished while the model writes its next sentence still belongs on the line,
+    // but as what it is: work already done, with the agent's own words on top of it.
+    const lastDone = !liveNode && !liveThought ? [...nodes].reverse().find((node) => Boolean(node.primary)) : undefined;
 
     // Opening the header is only worth offering when it would reveal something: a thought with
     // sentences, or a labelled step row. A turn that thought with nothing recorded shows plain
@@ -1088,11 +1095,11 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
           </p>
         )}
 
-        {isWorking && !isGlobalExpanded && liveNode && (
+        {isWorking && !isGlobalExpanded && (liveNode || liveThought || lastDone) && (
           <p className="mt-1.5 flex flex-wrap items-baseline gap-x-2 max-w-[68ch] text-[14.5px] leading-[1.7] text-foreground/90 text-pretty">
-            <span>{liveNode.primary}</span>
-            {liveNode.secondary && (
-              <span className="break-all font-mono text-[12px] leading-none text-muted-foreground/80">{liveNode.secondary}</span>
+            <span>{liveNode ? liveNode.primary : liveThought || `Done: ${lastDone?.primary}`}</span>
+            {(liveNode ?? lastDone)?.secondary && (
+              <span className="break-all font-mono text-[12px] leading-none text-muted-foreground/80">{(liveNode ?? lastDone)?.secondary}</span>
             )}
           </p>
         )}
