@@ -172,7 +172,7 @@
     "vite": "8.1.5",
     "vitest": "^4.1.10"
   },
-  "version": "10.0.8",
+  "version": "10.0.9",
   "description": "Calvras - Autonomous AI Coding Agent",
   "author": "Calvras <support@calvras.com>"
 }
