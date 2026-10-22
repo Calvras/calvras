@@ -27,7 +27,7 @@ import {
 import { useProjects } from "@/lib/project-context";
 import { memoryKeyFor, readMemoryAt, storedUser, writeMemoryAt, writeStoredUser, type StoredChat } from "@/lib/account";
 import { callAI, isProviderTrouble, patientBackoffMs, PROVIDER_PATIENCE_MS, type MediaAttachment } from "@/lib/gemini";
-import { CALVRAS_SYSTEM_PROMPT, CHAT_SYSTEM_PROMPT, policyNotes } from "@/lib/system-prompt";
+import { CALVRAS_SYSTEM_PROMPT, CHAT_SYSTEM_PROMPT, policyNotes, recordShapeTemplate } from "@/lib/system-prompt";
 import { playCompletionChimeWhenUnfocused } from "@/lib/completion-sound";
 import { decodeTextDataUrl, extractPdfText, isPdfAttachment, isTextLikeAttachment } from "@/lib/attachment-text";
 import { cn } from "@/lib/utils";
@@ -1002,6 +1002,10 @@ export function Index() {
         hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
       });
       fullPrompt = `[CURRENT TIME]: ${timeStr}\n\n${fullPrompt}`;
+      // A pasted block of records is a format contract, and describing it to the model did not
+      // hold — it re-invented a schema of its own. Extract the skeleton and put it in front.
+      const recordShape = recordShapeTemplate(`${conversationHistory.slice(-8).map((entry) => entry.content).join("\n")}\n${text || ""}`);
+      if (recordShape) fullPrompt = `${recordShape}\n\n${fullPrompt}`;
       if (directive) fullPrompt = `[TASK DIRECTIVE — how to approach this request]\n${directive}\n\n${fullPrompt}`;
       if (documentContext.length) fullPrompt = `${fullPrompt}\n\n${documentContext.join("\n\n")}`;
       if (storedAttachments.length) {
