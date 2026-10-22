@@ -69,7 +69,7 @@ function salvage(text: string) {
   return null;
 }
 
-/** First public token wins; losing requests are cancelled, never mixed together. */
+/** First provider to answer wins; losing requests are cancelled, never mixed together. */
 export async function inferStreaming(options: {
   messages: Message[];
   keys: Keys;
@@ -83,9 +83,13 @@ export async function inferStreaming(options: {
   rateLimitWaitMs?: number;
   timeoutMs?: number;
   idleTimeoutMs?: number;
+  /** Hold the reply back and let every candidate stream to its end, so the fastest to *finish* wins
+   * rather than the fastest to start. Conversation turns use it; work turns keep typing as they go. */
+  firstToFinish?: boolean;
   profile?: "quick" | "balanced" | "thorough";
 }): Promise<{ text: string; model: string; truncated: boolean }> {
   const lifetime = new AbortController();
+  const firstToFinish = Boolean(options.firstToFinish);
   /** When this request's providers said they would answer again, so the report can name it. */
   let parkedUntil = 0;
   const profile = options.profile === "quick" ? "quick" : options.profile === "thorough" ? "thorough" : "balanced";
@@ -149,19 +153,27 @@ export async function inferStreaming(options: {
         if (blocker >= 0) await tasks[blocker]?.catch(() => {});
         ownSignal.throwIfAborted();
         firstTokenTimer = setTimeout(() => own.abort(new Error("Provider took too long to respond.")), options.firstTokenMs ?? (profile === "quick" ? 12_000 : 30_000));
+        const claim = () => {
+          if (winner !== -1) return;
+          winner = index;
+          controllers.forEach((controller, i) => { if (i !== index) controller.abort(); });
+        };
         const append = (delta: string) => {
           if (!delta) return;
           ownSignal.throwIfAborted();
-          if (winner === -1) {
-            winner = index;
-            controllers.forEach((controller, i) => { if (i !== index) controller.abort(); });
+          // First-to-finish leaves the reply unclaimed until a stream actually ends. The candidate
+          // that answers first is regularly the one that then dribbles a sentence out for forty
+          // seconds, and for conversation that wait is the entire problem: measured on one casual
+          // line, the same model ranged from 0.5s to 44.2s.
+          if (!firstToFinish) {
+            claim();
+            if (winner !== index) return;
           }
-          if (winner !== index) return;
           clearTimeout(firstTokenTimer);
           clearTimeout(idleTimer);
           idleTimer = setTimeout(() => own.abort(new Error("Provider stopped streaming.")), options.idleTimeoutMs ?? 45_000);
           text += delta;
-          options.onDelta?.(delta, candidate.model);
+          if (!firstToFinish) options.onDelta?.(delta, candidate.model);
         };
         let url: string;
         let headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -214,9 +226,11 @@ export async function inferStreaming(options: {
           // throwing the turn away and making the user start over.
           const whole = text.length > 12 ? salvage(text) : null;
           if (!whole) throw error;
+          claim();
           return { text: whole, model: candidate.model, truncated: hitLengthCap };
         }
         if (!text.trim()) throw new Error("Provider returned an empty response.");
+        claim();
         return { text, model: candidate.model, truncated: hitLengthCap };
       } catch (error) {
         if (winner === -1 || winner === index) failures.push(error instanceof Error ? error.message : "Provider request failed.");

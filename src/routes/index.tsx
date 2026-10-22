@@ -1103,7 +1103,7 @@ export function Index() {
         // vague lines, so the one question where the list IS the answer gets its own note.
         fullPrompt = `${fullPrompt}\n\n[CONVERSATION MODE] This message is conversation, not file or code work. Reply directly in your own words with actions: [] and status complete. Do not call tools.${asksForCapabilities(text)
           ? " The user is asking what you can do, so name what you actually do: every capability as its own markdown bullet, each one specific about what happens, none left out, then exactly one follow-up question they can answer in a sentence — about something in that list or in what they said. No \"what would you like to work on?\", no \"which of these interests you?\", no second question, no numbered options."
-          : " Do not say the words project, folder, workspace, repository, files, or work on. Do not offer a menu of tasks, ask what the user wants to work on, or invite them to assign work. A greeting gets a one-line casual greeting back and nothing else — worded differently from every greeting already in this conversation, and with no emoji unless the user used one first. A question gets a direct answer to the question actually asked, in 1-4 sentences, then stop. That length is about padding, never about shape: when the answer holds two or more items, or the user said list / name / how many / what are they, put each item on its own markdown bullet rather than in one comma-separated sentence, and give all of them."}`;
+          : " Do not say the words project, folder, workspace, repository, files, or work on. Do not offer a menu of tasks, ask what the user wants to work on, or invite them to assign work. A greeting gets a one-line casual greeting back and nothing else — worded differently from every greeting already in this conversation, and with no emoji unless the user used one first. A question gets a direct answer to the question actually asked, in 1-4 sentences, then stop. That length is about padding, never about shape: when the answer holds two or more items, or the user said list / name / how many / what are they, put each item on its own markdown bullet rather than in one comma-separated sentence, and give all of them. Code, config and records the user would paste somewhere are not bullets: when they name a format — json, csv, code, an array — that format wins over the bullet rule, so give it back as one fenced block with the language named, whatever the item count."}`;
       }
       if (workspaceJournal.trim() && intent.requiresTools) {
         fullPrompt = `${fullPrompt}\n\n[PROJECT JOURNAL — recent work verified in this workspace]\n${workspaceJournal.trim()}\nStay consistent with this. Anything marked failed or unfinished is not done; verify before claiming it works.`;
@@ -1258,7 +1258,7 @@ export function Index() {
           const patientSince = Date.now();
           for (let attempt = 0; ; attempt++) {
             try {
-              return await callAI(prompt, turnSystem, mediaList, isChatTurn ? "" : `${projectSnapshot}\n${runtimeRef.current?.context || ""}`, controller.signal, onDelta, isChatTurn ? "Quick" : effort);
+              return await callAI(prompt, turnSystem, mediaList, isChatTurn ? "" : `${projectSnapshot}\n${runtimeRef.current?.context || ""}`, controller.signal, onDelta, isChatTurn ? "Quick" : effort, isChatTurn);
             } catch (error) {
               const reason = error instanceof Error ? error.message : "";
               if (!isProviderTrouble(reason) || controller.signal.aborted) throw error;

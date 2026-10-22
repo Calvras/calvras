@@ -44,7 +44,8 @@ export async function callAI(
   projectContext?: string,
   signal?: AbortSignal,
   onDelta?: (text: string) => void,
-  effort = "Balanced"
+  effort = "Balanced",
+  firstToFinish = false
 ): Promise<string> {
   signal?.throwIfAborted();
   // A model pinned in Settings overrides the automatic cascade for every request.
@@ -58,7 +59,7 @@ export async function callAI(
     const response = await fetch("/api/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...(pinned ? { model: pinned } : {}), messages, stream: true, max_tokens: effort === "Quick" ? 2048 : effort === "Thorough" ? 16384 : 8192, profile: effort === "Quick" ? "quick" : effort === "Thorough" ? "thorough" : "balanced",
+      body: JSON.stringify({ ...(pinned ? { model: pinned } : {}), messages, stream: true, max_tokens: effort === "Quick" ? 2048 : effort === "Thorough" ? 16384 : 8192, profile: effort === "Quick" ? "quick" : effort === "Thorough" ? "thorough" : "balanced", ...(firstToFinish ? { firstToFinish: true } : {}),
         keys: { gemini: getGeminiKey(), openrouter: getOpenRouterKey() } }),
       signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(180_000)]) : AbortSignal.timeout(180_000),
     });

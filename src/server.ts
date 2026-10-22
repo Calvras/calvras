@@ -48,7 +48,7 @@ async function handleChatCompletions(request: Request): Promise<Response> {
   const body = await request.json().catch(() => ({}));
   const messages = Array.isArray(body.messages) ? [...body.messages] : [];
   if (!messages.some((m: any) => m.role === "system")) messages.unshift({ role: "system", content: CALVRAS_SYSTEM_PROMPT });
-  const options = { messages, keys: { openrouter: body.keys?.openrouter || getOpenRouterKey(), gemini: body.keys?.gemini || getGeminiKey(), hf: getHFKey() }, maxTokens: Math.min(body.max_tokens || 8192, 16384), temperature: body.temperature ?? 0.2, ...(body.model ? { model: body.model } : {}), ...(["quick", "balanced", "thorough"].includes(body.profile) ? { profile: body.profile } : {}) };
+  const options = { messages, keys: { openrouter: body.keys?.openrouter || getOpenRouterKey(), gemini: body.keys?.gemini || getGeminiKey(), hf: getHFKey() }, maxTokens: Math.min(body.max_tokens || 8192, 16384), temperature: body.temperature ?? 0.2, ...(body.model ? { model: body.model } : {}), ...(body.firstToFinish ? { firstToFinish: true } : {}), ...(["quick", "balanced", "thorough"].includes(body.profile) ? { profile: body.profile } : {}) };
   const cancelled = new AbortController();
   const signal = AbortSignal.any([request.signal, cancelled.signal]);
   if (body.stream) {
@@ -58,6 +58,9 @@ async function handleChatCompletions(request: Request): Promise<Response> {
         const send = (data: unknown) => { if (!signal.aborted) controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`)); };
         try {
           const result = await inferStreaming({ ...options, signal, onDelta: (content, model) => send({ model, choices: [{ delta: { content }, finish_reason: null }] }) });
+          // A first-to-finish request streams nothing while the candidates race, so the winning text
+          // arrives here as one delta rather than never arriving at all.
+          if (options.firstToFinish) send({ model: result.model, choices: [{ delta: { content: result.text }, finish_reason: null }] });
           send({ model: result.model, choices: [{ delta: {}, finish_reason: result.truncated ? "length" : "stop" }] });
           if (!signal.aborted) { controller.enqueue(encoder.encode("data: [DONE]\n\n")); controller.close(); }
         } catch (error) {
