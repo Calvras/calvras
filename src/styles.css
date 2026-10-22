@@ -261,6 +261,19 @@
 .landing-hero h1 span, .landing-pitch h2 span { color: #959599; }
 .landing-download { display: inline-flex; align-items: center; gap: 13px; background: linear-gradient(135deg, #f4f3f1, #c3c3c5); color: #151618; padding: 17px 23px; border-radius: 6px; font-size: 13px; font-weight: 500; box-shadow: 0 5px 30px #0004; transition: transform .25s, box-shadow .25s; }
 .landing-download:hover { transform: translateY(-3px); box-shadow: 0 10px 35px #0008; }
+/* A 404 the visitor lands on from a wrong link, so it covers the app rail rather than sitting
+   beside it, and keeps the desktop title bar's height free when the app itself renders one. */
+.nf-page { position: fixed; inset: var(--app-title-height, 0px) 0 0; z-index: 50; overflow-y: auto; isolation: isolate; background: radial-gradient(ellipse at 76% 32%, #262729 0%, #161719 42%, #101112 80%); color: #f5f5f7; }
+.nf-grain { position: absolute; inset: 0; z-index: -1; pointer-events: none; opacity: .16; background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch' /%3E%3C/filter%3E%3Cpath fill='%23fff' filter='url(%23n)' opacity='.5' d='M0 0h180v180H0z' /%3E%3C/svg%3E"); }
+.nf-inner { max-width: 720px; margin: auto; padding: clamp(64px, 14vh, 150px) 24px 88px; }
+.nf-code { font-size: clamp(72px, 13vw, 148px); line-height: .9; font-weight: 400; letter-spacing: -.06em; margin: 22px 0 0; color: #f5f0e8; }
+.nf-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; margin: 26px 0 0; font-size: clamp(19px, 2.4vw, 25px); font-weight: 400; letter-spacing: -.02em; color: #f5f5f7; }
+.nf-path { max-width: 100%; overflow-x: auto; white-space: nowrap; border: 1px solid #ffffff1f; border-radius: 5px; background: #ffffff0a; padding: 4px 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .82em; color: #c7c7ca; }
+.nf-copy { max-width: 46ch; margin: 16px 0 30px; color: #929295; font-size: 14px; line-height: 1.85; }
+.nf-links { display: flex; flex-wrap: wrap; gap: 10px 26px; border-top: 1px solid #ffffff0f; margin-top: 42px; padding-top: 26px; }
+.nf-link { font-size: 13px; color: #b7b7ba; border-bottom: 1px solid transparent; padding-bottom: 3px; transition: color .2s, border-color .2s; }
+.nf-link:hover { color: #f5f0e8; border-bottom-color: #f5f0e855; }
+.nf-foot { margin-top: 46px; padding-top: 26px; border-top: 1px solid #ffffff0f; }
 .landing-hero-bottom { position: absolute; bottom: 32px; left: 8%; right: 8%; display: flex; align-items: center; justify-content: space-between; font-size: 9px; letter-spacing: .22em; color: #69696d; }
 .landing-scroll-line { width: 1px; height: 40px; background: linear-gradient(transparent, #8c8c8e); animation: calvras-line 3s ease-in-out infinite; }
 .landing-pitch { display: grid; grid-template-columns: 1fr 1fr; gap: 8%; align-items: center; max-width: 1440px; padding: 130px 8% 100px; margin: auto; }

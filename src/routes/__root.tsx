@@ -16,25 +16,42 @@ import { CalvrasSidebar } from "../components/CalvrasSidebar";
 import { ProjectProvider, useProjects } from "../lib/project-context";
 import { TitleBar } from "../components/TitleBar";
 import { servesWorkspace } from "../lib/workspace-host";
+import { useLatestRelease } from "../components/DownloadDetails";
+import { ArrowUpRight, Download } from "lucide-react";
 
+const SITE_LINKS = [
+  { to: "/capabilities", label: "What it does" },
+  { to: "/docs", label: "Docs" },
+  { to: "/changelog", label: "Changelog" },
+  { to: "/about", label: "About" },
+  { to: "/support", label: "Support" },
+  { to: "/signin", label: "Sign in" },
+];
+
+/** The site has a dozen pages, so a 404 that only says "not found" wastes the visit: this one
+ * names the address that came back empty, points at the download, and lists the pages that exist. */
 function NotFoundComponent() {
+  const router = useRouter();
+  const path = router.state.location.pathname;
+  const installer = useLatestRelease().installer;
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="max-w-md text-center">
-        <h1 className="text-7xl font-bold text-foreground">404</h1>
-        <h2 className="mt-4 text-xl font-semibold text-foreground">Page not found</h2>
-        <p className="mt-2 text-sm text-muted-foreground">
-          The page you're looking for doesn't exist or has been moved.
-        </p>
-        <div className="mt-6">
-          <Link
-            to="/"
-            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            Go home
-          </Link>
+    <div className="nf-page">
+      <div className="nf-grain" aria-hidden="true" />
+      <main className="nf-inner">
+        <span className="landing-eyebrow">CALVRAS / 404</span>
+        <h1 className="nf-code">404</h1>
+        <p className="nf-head">Nothing lives at <code className="nf-path">{path}</code></p>
+        <p className="nf-copy">That address is not one of ours, and no page is hiding behind it. Calvras is a Windows app, so here is the download and everything the site does hold.</p>
+        <a href={installer} className="landing-download"><Download size={17} /> Download for Windows <ArrowUpRight size={17} /></a>
+        <nav className="nf-links" aria-label="Site pages">
+          {SITE_LINKS.map((link) => (
+            <Link key={link.to} to={link.to} className="nf-link">{link.label}</Link>
+          ))}
+        </nav>
+        <div className="nf-foot">
+          <Link to="/" className="landing-text-link">Back to the home page <ArrowUpRight size={17} /></Link>
         </div>
-      </div>
+      </main>
     </div>
   );
 }
