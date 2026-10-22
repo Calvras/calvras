@@ -19,6 +19,7 @@ export function CalvrasSidebar({ projects = [], recents = [], onNewChat, onSelec
   const [newName, setNewName] = useState("");
   const actions = (label: string, save: ((name: string) => void) | undefined, remove: (() => void) | undefined) => <details className="sidebar-menu"><summary aria-label={`Options for ${label}`}><MoreHorizontal size={14} /></summary><div>{save && <button onClick={() => { setNewName(label); setRenaming({ save }); }}>Rename</button>}{remove && <button onClick={remove}>Remove from sidebar</button>}</div></details>;
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const drawer = useRef<HTMLDivElement>(null);
   const panel = useRef<HTMLElement>(null);
   const rail = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -26,14 +27,21 @@ export function CalvrasSidebar({ projects = [], recents = [], onNewChat, onSelec
       if ((event.ctrlKey || event.metaKey) && event.key === ",") { event.preventDefault(); setSettings(true); }
       if (event.key === "Escape") setSection(null);
     };
-    const pointer = (event: PointerEvent) => { if (!panel.current?.contains(event.target as Node) && !rail.current?.contains(event.target as Node)) setSection(null); };
+    // Clicks in the window chrome own the drawer's open state, so closing on outside-click has to
+    // leave the title bar's toggle alone — otherwise its pointerdown shuts the drawer the same
+    // click is about to toggle.
+    const pointer = (event: PointerEvent) => { if ((event.target as Element)?.closest?.("[data-titlebar]")) return; if (!drawer.current?.contains(event.target as Node)) setSection(null); };
     const openSettings = () => setSettings(true);
-    document.addEventListener("keydown", key); document.addEventListener("pointerdown", pointer); window.addEventListener("calvras:open-settings", openSettings);
-    return () => { document.removeEventListener("keydown", key); document.removeEventListener("pointerdown", pointer); window.removeEventListener("calvras:open-settings", openSettings); };
+    // The drawer is shut by default, so its only permanent home is a control in the window chrome.
+    const toggleDrawer = () => setSection((current) => current ? null : "projects");
+    document.addEventListener("keydown", key); document.addEventListener("pointerdown", pointer); window.addEventListener("calvras:open-settings", openSettings); window.addEventListener("calvras:toggle-drawer", toggleDrawer);
+    return () => { document.removeEventListener("keydown", key); document.removeEventListener("pointerdown", pointer); window.removeEventListener("calvras:open-settings", openSettings); window.removeEventListener("calvras:toggle-drawer", toggleDrawer); };
   }, []);
   const toggle = (next: "projects" | "history") => { setSection((current) => current === next ? null : next); setQuery(""); };
   const newChat = () => { onNewChat?.(); setSection(null); };
+  const open = Boolean(section);
   return <>
+    <div ref={drawer} className={cn("app-drawer", open && "is-open")} aria-hidden={!open}>
     <nav ref={rail} aria-label="Main navigation" className="app-rail">
       <button className="shell-icon-button rail-brand" aria-label="Calvras home" title="Calvras" onClick={newChat}><img src="/calvras-logo.png" alt="" className="size-7 object-contain" /></button>
       <button className="shell-icon-button" aria-label="New chat" title="New chat" onClick={newChat}><SquarePen size={18} /></button>
@@ -53,6 +61,7 @@ export function CalvrasSidebar({ projects = [], recents = [], onNewChat, onSelec
       </div>
       <footer className="border-t border-white/[0.06] px-5 py-4 text-[10px] text-white/30">On this computer</footer>
     </aside>}
+    </div>
     <SettingsPanel open={settings} onOpenChange={setSettings} />
     <Dialog open={Boolean(renaming)} onOpenChange={(open) => { if (!open) setRenaming(null); }}><DialogContent className="rounded-2xl"><DialogTitle>Rename</DialogTitle><form className="space-y-4" onSubmit={(event) => { event.preventDefault(); if (newName.trim()) { renaming?.save(newName.trim()); setRenaming(null); } }}><input aria-label="New name" autoFocus className="settings-control w-full" value={newName} onChange={(event) => setNewName(event.target.value)} /><button className="rounded-lg bg-white/90 px-4 py-2 text-xs text-black" disabled={!newName.trim()}>Save name</button></form></DialogContent></Dialog>
   </>;

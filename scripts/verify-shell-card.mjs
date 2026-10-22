@@ -46,77 +46,82 @@ const toneOf = (s) => {
   return lumOf(s);
 };
 
-// ── 1. the computed shell, with the history strip open ────────────────────────────────────────
-await page.getByRole("button", { name: "Chat history", exact: true }).click();
-await page.getByRole("complementary", { name: "History sidebar" }).waitFor({ timeout: 15_000 });
-await page.waitForTimeout(700);
-
-const styles = await page.evaluate(() => {
+// ── 1. the shell with the drawer shut: the card owns the whole window ─────────────────────────
+const readStyles = () => page.evaluate(() => {
   const box = (el) => { const r = el.getBoundingClientRect(); return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) }; };
+  const drawer = document.querySelector(".app-drawer");
   const rail = document.querySelector(".app-rail");
   const side = document.querySelector(".app-sidebar");
   const chat = document.querySelector(".chat-page");
-  const rs = getComputedStyle(rail), ss = getComputedStyle(side), cs = getComputedStyle(chat);
+  const ds = getComputedStyle(drawer), rs = getComputedStyle(rail), cs = getComputedStyle(chat);
   return {
     viewport: { w: innerWidth, h: innerHeight },
     gap: parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--app-shell-gap")),
+    title: parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--app-title-height")),
     body: getComputedStyle(document.body).backgroundColor,
-    rail: { ...box(rail), bg: rs.backgroundColor, shadow: rs.boxShadow, radius: rs.borderRadius },
-    side: { ...box(side), bg: ss.backgroundColor, shadow: ss.boxShadow, radius: ss.borderRadius },
-    chat: { ...box(chat), bg: cs.backgroundColor, radius: cs.borderRadius, borderWidth: cs.borderTopWidth, borderColor: cs.borderTopColor, shadow: cs.boxShadow, clip: cs.overflow },
+    open: drawer.classList.contains("is-open"),
+    drawer: { ...box(drawer), bg: ds.backgroundColor, visibility: ds.visibility, borderRight: ds.borderRightWidth },
+    rail: { ...box(rail), bg: rs.backgroundColor },
+    side: side ? { ...box(side) } : null,
+    chat: { ...box(chat), bg: cs.backgroundColor, radius: cs.borderRadius, top: cs.borderTopWidth, left: cs.borderLeftWidth, right: cs.borderRightWidth, bottom: cs.borderBottomWidth, borderColor: cs.borderTopColor, shadow: cs.boxShadow, clip: cs.overflow },
   };
 });
 
-check("window canvas is the lighter chrome", toneOf(styles.body) - toneOf(styles.chat.bg) > 3, `canvas ${styles.body} vs card ${styles.chat.bg}`);
-check("rail is flat on the chrome", styles.rail.bg === "rgba(0, 0, 0, 0)" && styles.rail.shadow === "none", `${styles.rail.bg} / ${styles.rail.shadow}`);
-check("history strip is flat on the chrome", styles.side.bg === "rgba(0, 0, 0, 0)" && styles.side.shadow === "none" && styles.side.radius === "0px", `${styles.side.bg} / ${styles.side.radius}`);
-check("rail starts at the window edge", styles.rail.x === 0 && styles.rail.y <= 34, JSON.stringify(styles.rail));
-check("history strip butts against the rail", styles.side.x === styles.rail.w, JSON.stringify({ side: styles.side.x, rail: styles.rail.w }));
-check("conversation is an inset rounded card", styles.chat.radius === "10px" && styles.chat.clip === "hidden", JSON.stringify({ radius: styles.chat.radius, border: `${styles.chat.borderWidth} ${styles.chat.borderColor}`, shadow: styles.chat.shadow }));
-check("card has a hairline edge, not a drop shadow", parseFloat(styles.chat.borderWidth) >= 0.5 && parseFloat(styles.chat.borderWidth) <= 1.5 && styles.chat.shadow === "none" && toneOf(styles.chat.borderColor) - toneOf(styles.chat.bg) > 3, `${styles.chat.borderWidth} ${styles.chat.borderColor} / ${styles.chat.shadow}`);
-check("card is inset on all four sides", styles.chat.x > styles.side.x + styles.side.w && Math.abs(styles.chat.y - (styles.rail.y + styles.gap)) <= 1 && Math.abs(styles.viewport.w - (styles.chat.x + styles.chat.w) - styles.gap) <= 1 && Math.abs(styles.viewport.h - (styles.chat.y + styles.chat.h) - styles.gap) <= 1,
-  JSON.stringify({ chat: styles.chat, side: styles.side, rail: styles.rail, viewport: styles.viewport, gap: styles.gap }));
+const shut = await readStyles();
+check("window canvas is the lighter chrome", toneOf(shut.body) - toneOf(shut.chat.bg) > 3, `canvas ${shut.body} vs card ${shut.chat.bg}`);
+check("the drawer is shut and holds nothing on screen", !shut.open && shut.drawer.visibility === "hidden", JSON.stringify(shut.drawer));
+check("rail lives inside the drawer, not on the window edge", shut.rail.bg === "rgba(0, 0, 0, 0)" && shut.drawer.x === 0 && shut.rail.x === 0, JSON.stringify({ rail: shut.rail, drawer: shut.drawer.x }));
+check("conversation is an inset rounded card", shut.chat.radius === "10px" && shut.chat.clip === "hidden", JSON.stringify({ radius: shut.chat.radius }));
+check("card keeps a hairline on its top and left only", parseFloat(shut.chat.top) >= 0.5 && parseFloat(shut.chat.left) >= 0.5 && parseFloat(shut.chat.right) === 0 && parseFloat(shut.chat.bottom) === 0 && shut.chat.shadow === "none" && toneOf(shut.chat.borderColor) - toneOf(shut.chat.bg) > 3, JSON.stringify({ top: shut.chat.top, left: shut.chat.left, right: shut.chat.right, bottom: shut.chat.bottom, color: shut.chat.borderColor }));
+check("a shut drawer gives the card the whole width", shut.chat.x === shut.gap && Math.abs(shut.viewport.w - (shut.chat.x + shut.chat.w) - shut.gap) <= 1 && Math.abs(shut.chat.y - (shut.title + shut.gap)) <= 1 && Math.abs(shut.viewport.h - (shut.chat.y + shut.chat.h) - shut.gap) <= 1,
+  JSON.stringify({ chat: shut.chat, title: shut.title, gap: shut.gap, viewport: shut.viewport }));
+check("the top bar is a slim strip", shut.title <= 22 && shut.chat.y === shut.title + shut.gap, `--app-title-height ${shut.title}px`);
 
 // ── 2. the same claims from captured pixels ───────────────────────────────────────────────────
 const px = await probe(`
   const mid = Math.round(css[1] * 0.55);
-  const cardLeft = ${styles.chat.x};
+  const cardLeft = ${shut.chat.x};
   const row = [];
-  for (let x = cardLeft - 14; x < cardLeft + 14; x++) row.push([x, Math.round(lum(at(x, mid))), at(x, mid).join(",")]);
+  for (let x = cardLeft - 6; x < cardLeft + 14; x++) row.push([x, Math.round(lum(at(x, mid))), at(x, mid).join(",")]);
   const corner = [];
-  for (let y = ${styles.chat.y}; y < ${styles.chat.y} + 26; y++) {
+  for (let y = ${shut.chat.y}; y < ${shut.chat.y} + 26; y++) {
     let edge = -1;
     for (let x = cardLeft - 6; x < cardLeft + 26; x++) { if (lum(at(x, y)) < 20) { edge = x; break; } }
     corner.push([y, edge]);
   }
+  const rightEdge = [];
+  for (let y = ${shut.chat.y} + 40; y < ${shut.chat.y} + ${shut.chat.h} - 40; y += 90) rightEdge.push(at(${shut.chat.x + shut.chat.w} - 1, y).join(","));
   return {
     chrome: at(Math.round(css[0] * 0.18), mid).join(","),
-    gutter: at(cardLeft - 5, mid).join(","),
+    gutter: at(cardLeft - 3, mid).join(","),
     card: at(cardLeft + 90, mid).join(","),
-    railTop: at(28, ${styles.rail.y + 60}).join(","),
-    row, corner,
+    leftOfCard: at(cardLeft - 20, mid).join(","),
+    row, corner, rightEdge,
   };
 `);
 check("captured chrome is lighter than the captured card", lumOf(px.chrome) - lumOf(px.card) > 3, `chrome ${px.chrome} vs card ${px.card}`);
-check("no second card hides behind the rail", lumOf(px.railTop) - lumOf(px.chrome) < 3, `rail ${px.railTop} vs chrome ${px.chrome}`);
 const hairline = px.row.map(([, l]) => l);
-check("a brighter hairline sits on the card edge", Math.max(...hairline) - lumOf(px.chrome) >= 3 && Math.max(...hairline) - lumOf(px.card) >= 8, px.row.map(([x, l]) => `${x}:${l}`).join(" "));
+check("a brighter hairline sits on the card's left edge", Math.max(...hairline) - lumOf(px.chrome) >= 3 && Math.max(...hairline) - lumOf(px.card) >= 8, px.row.map(([x, l]) => `${x}:${l}`).join(" "));
 const edges = px.corner.filter(([, e]) => e > 0).map(([, e]) => e);
 check("the card corner curves", edges.length > 3 && edges[0] - edges[edges.length - 1] >= 2, px.corner.map(([y, e]) => `${y}:${e}`).join(" "));
-
-await fs.writeFile(path.join(OUT, "history.png"), await page.screenshot());
-await fs.writeFile(path.join(OUT, "measures.json"), JSON.stringify({ styles, px }, null, 2));
-
-// ── 2b. with no section open the strip is gone, so the card takes the width back ───────────────
-await page.getByRole("button", { name: "Close sidebar" }).click();
-await page.getByRole("complementary", { name: "History sidebar" }).waitFor({ state: "detached", timeout: 10_000 });
-await page.waitForTimeout(600);
-const closed = await page.evaluate(() => {
-  const r = document.querySelector(".chat-page").getBoundingClientRect();
-  return { x: Math.round(r.x), w: Math.round(r.width), strip: Boolean(document.querySelector(".app-sidebar")), rail: Math.round(document.querySelector(".app-rail").getBoundingClientRect().width) };
-});
-check("an empty strip reserves no width", !closed.strip && closed.x === closed.rail + styles.gap && closed.w > styles.chat.w, JSON.stringify({ closed, gap: styles.gap, openCard: styles.chat }));
+check("no hairline is painted on the card's right edge", px.rightEdge.every((p) => lumOf(p) < 22), px.rightEdge.join(" "));
 await fs.writeFile(path.join(OUT, "closed.png"), await page.screenshot());
+
+// ── 2b. opening the drawer slides it over the card, which keeps its width ─────────────────────
+await page.getByRole("button", { name: "Toggle sidebar" }).click();
+await page.waitForSelector(".app-drawer.is-open", { timeout: 15_000 });
+await page.getByRole("complementary", { name: /sidebar/ }).waitFor({ timeout: 15_000 });
+await page.waitForTimeout(700);
+const open = await readStyles();
+check("the drawer slides in over the card", open.open && open.drawer.visibility === "visible" && open.drawer.x === 0 && open.drawer.w === open.rail.w + (open.side?.w ?? 0), JSON.stringify({ drawer: open.drawer, rail: open.rail.w, side: open.side?.w }));
+check("the card gives up no width to the drawer", open.chat.x === shut.chat.x && open.chat.w === shut.chat.w, JSON.stringify({ open: open.chat, shut: shut.chat }));
+check("the drawer is a flat panel with one edge rule", toneOf(open.drawer.bg) - toneOf(open.chat.bg) > 3 && parseFloat(open.drawer.borderRight) === 1, JSON.stringify({ bg: open.drawer.bg, border: open.drawer.borderRight }));
+await fs.writeFile(path.join(OUT, "history.png"), await page.screenshot());
+await fs.writeFile(path.join(OUT, "measures.json"), JSON.stringify({ shut, open, px }, null, 2));
+await page.getByRole("button", { name: "Toggle sidebar" }).click();
+await page.waitForTimeout(600);
+const reclosed = await readStyles();
+check("the same control shuts it again", !reclosed.open && reclosed.chat.x === shut.chat.x, JSON.stringify({ open: reclosed.open, x: reclosed.chat.x }));
 
 // ── 3. the terminal dock stays inside the card ────────────────────────────────────────────────
 await page.getByRole("button", { name: "Show terminal" }).click();

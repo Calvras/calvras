@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { PanelLeftOpen } from "lucide-react";
 
 // Window control helpers via Electron IPC bridge
 const e = typeof window !== "undefined" ? (window as any).__electron : null;
@@ -51,7 +52,7 @@ function TitleBarMenu({ label, items }: { label: string; items: { label?: string
       <button
         onClick={() => setOpen((o) => !o)}
         className="px-3 h-full text-[12px] font-medium text-white/80 hover:bg-white/15 hover:text-white transition-colors"
-        style={{ height: 22, borderRadius: 8 }}
+        style={{ height: 18, borderRadius: 6 }}
       >
         {label}
       </button>
@@ -99,7 +100,7 @@ export function WindowControls() {
         title="Minimize"
         aria-label="Minimize"
         className="flex items-center justify-center text-white/80 hover:bg-white/20 hover:text-white transition-colors"
-        style={{ width: 42, height: 22, borderRadius: 8 }}
+        style={{ width: 38, height: 18, borderRadius: 6 }}
       >
         <MinimizeIcon />
       </button>
@@ -110,7 +111,7 @@ export function WindowControls() {
         title={isMax ? "Restore" : "Maximize"}
         aria-label={isMax ? "Restore" : "Maximize"}
         className="flex items-center justify-center text-white/80 hover:bg-white/20 hover:text-white transition-colors"
-        style={{ width: 42, height: 22, borderRadius: 8 }}
+        style={{ width: 38, height: 18, borderRadius: 6 }}
       >
         <MaximizeIcon isMax={isMax} />
       </button>
@@ -121,7 +122,7 @@ export function WindowControls() {
         title="Close"
         aria-label="Close"
         className="flex items-center justify-center text-white/80 hover:bg-red-600 hover:text-white transition-colors"
-        style={{ width: 42, height: 22, borderRadius: 8 }}
+        style={{ width: 38, height: 18, borderRadius: 6 }}
       >
         <CloseIcon />
       </button>
@@ -152,13 +153,22 @@ export function TitleBar() {
       data-titlebar=""
       className="fixed top-0 left-0 right-0 z-[100] flex items-center gap-1 select-none"
       style={{
-        height: 28,
+        height: 20,
         paddingLeft: 6,
         WebkitAppRegion: "drag",
       } as any}
     >
       {/* Left: menus */}
       <div className="flex items-center h-full" style={{ WebkitAppRegion: "no-drag" } as any}>
+        <button
+          onClick={() => window.dispatchEvent(new CustomEvent("calvras:toggle-drawer"))}
+          title="Projects and history"
+          aria-label="Toggle sidebar"
+          className="flex items-center justify-center text-white/70 hover:bg-white/15 hover:text-white transition-colors"
+          style={{ width: 26, height: 18, borderRadius: 6 } as any}
+        >
+          <PanelLeftOpen size={13} />
+        </button>
         <TitleBarMenu label="File" items={fileItems} />
         <TitleBarMenu label="View" items={viewItems} />
         <TitleBarMenu label="Window" items={windowItems} />
