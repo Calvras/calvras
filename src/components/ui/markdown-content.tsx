@@ -307,16 +307,51 @@ function parseMarkdown(text: string): React.ReactNode[] {
       continue;
     }
 
-    // 9. Standard Paragraph
-    nodes.push(
-      <p key={`p-${i}`} className="text-[14.5px] leading-[1.7] text-foreground select-text text-pretty">
-        {renderInline(line)}
-      </p>
-    );
-    i++;
+    // 9. A run of plain lines. Code the model did not fence — a JSON array, a stack of records —
+    // used to render as one paragraph per line, which is the wall of text the user complained
+    // about. Recognise it here so the shape survives whatever the model chose to wrap it in.
+    const blockStart = i;
+    const block: string[] = [];
+    while (i < lines.length && !isBlockStart(lines[i]!) && lines[i]!.trim() !== "") {
+      block.push(lines[i]!);
+      i++;
+    }
+
+    // An intro sentence ahead of the data stays prose, and anything after the closing bracket does
+    // too — the array ends wherever it stops parsing, because a JSON line can hold a whole sentence.
+    const dataAt = block.findIndex((entry) => /^\s*[[{]/.test(entry));
+    let language = "";
+    let dataEnd = block.length;
+    if (dataAt !== -1) {
+      for (let end = dataAt + 1; end <= block.length; end++) {
+        const shape = codeShape(block.slice(dataAt, end).join("\n"));
+        if (shape) { language = shape; dataEnd = end; break; }
+      }
+    }
+
+    if (language) {
+      block.slice(0, dataAt).forEach((text, n) => paragraph(nodes, blockStart + n, text));
+      nodes.push(<CopyableCodeBlock key={`code-${blockStart}`} lang={language} code={block.slice(dataAt, dataEnd).join("\n").trim()} />);
+      i = blockStart + dataEnd;
+      continue;
+    }
+    block.forEach((text, n) => paragraph(nodes, blockStart + n, text));
   }
 
   return nodes;
+}
+
+const paragraph = (nodes: React.ReactNode[], key: number, text: string) =>
+  nodes.push(<p key={`p-${key}`} className="text-[14.5px] leading-[1.7] text-foreground select-text text-pretty">{renderInline(text)}</p>);
+
+const BLOCK_START = /^\s*(?:```|\||>|#|\$\$|[-*+]\s|\d+[.)]\s)/;
+const isBlockStart = (line: string) => BLOCK_START.test(line);
+
+/** Only ever a guess, so it stays narrow: a run of lines that parses as JSON. Prose does not. */
+function codeShape(block: string): string {
+  const trimmed = block.trim();
+  if (!/^[[{]/.test(trimmed) || !/[\]}]$/.test(trimmed)) return "";
+  try { JSON.parse(trimmed); return "json"; } catch { return ""; }
 }
 
 function parseTableRow(line: string): string[] {
