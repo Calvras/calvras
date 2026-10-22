@@ -6,7 +6,7 @@ commands, drives a browser, and shows you what it did while it does it. It is ma
 product is the app, and calvras.com is the site, the download, and the update feed. There
 is no web version of the app — the site never runs the agent.
 
-Current published build: **10.0.7** (`Calvras-Setup-10.0.7.exe`, or `Calvras-10.0.7-win.zip` unpacked).
+Current published build: **10.0.8** (`Calvras-Setup-10.0.8.exe`, or `Calvras-10.0.8-win.zip` unpacked).
 Sign-in is Google only, by decision.
 
 ## How it behaves
@@ -21,11 +21,16 @@ Sign-in is Google only, by decision.
   queueing behind it.
 - **It keeps its own instructions private.** Asked for its system prompt, rules, tool list or model, it
   declines in one line and offers what it can actually give.
-- **A long build brief is executed, not discussed.** Give it a multi-section spec ("inspect the repo,
-  then implement end to end, verify, report honestly") and it inspects the folder first, keeps the stack
-  it found, turns the brief into an ordered phase plan, and ships one working phase at a time. It reports
-  the result section by section as implemented, implemented with limits, or not implemented — and a
-  feature it cannot deliver for real is labelled as what it actually is rather than faked.
+- **A big build is executed, not discussed — whatever length you asked for it in.** "Build a movie
+  website" is a whole product in six words and is treated like a written spec: it inspects the folder
+  first, keeps the stack it found, and writes the phases down in build order as a task plan before
+  touching a screen. Then it ships one working phase at a time and reports the result phase by phase as
+  implemented, implemented with limits, or not implemented — and a feature it cannot deliver for real is
+  labelled as what it actually is rather than faked. It does not send back a list of questions asking you
+  to spec out something it is able to decide; you can redirect a plan, you cannot redirect a question.
+- **A multi-section spec is answered section by section.** Give it numbered sections, a feature list, or
+  "inspect first, implement end to end, verify, report honestly" and each part gets one line of report,
+  none of them marked done just because a file with that name exists.
 - **Provider trouble stays invisible to you.** Quota, rate limits and dropped streams are retried inside
   the run — up to ten minutes of backoff per call — and a round that runs out of patience ends on the
   agent's own last line. You are never shown a provider error banner, and nothing in the app prints a
@@ -47,6 +52,14 @@ Sign-in is Google only, by decision.
   conversation, not routed to the file tools.
 - **A conversation turn ends when it is answered.** The first reply to a chat message is the answer: the
   loop does not re-ask the model under a *Thinking…* header looking for actions that were never coming.
+- **Code and data arrive as code, not bullets.** A program, a command, HTML, a config, a table of records
+  or a JSON array comes back in one fenced block with its language named, every line break real, whatever
+  the item count — and when the model returns that data un-fenced the bubble fences it anyway, so a stack
+  of records never renders as six paragraphs or twenty list items. Bullets stay where they belong: prose
+  you are explaining.
+- **"Continue" reads the shape it just wrote.** Say *continue*, *go on* or *more* and it carries on in the
+  same style — same fence or bullet form, same numbering, same level of detail — starting at the item or
+  line the last reply stopped on, instead of restating what it said or switching format mid-answer.
 - **It drives a site instead of describing it.** For web work it opens the page, screenshots it, clicks
   the numbered control, types into the focused field, scrolls until the thing it needs appears, and reads
   what the page says after each move. When one route is shut it ranks the alternatives — another entry
