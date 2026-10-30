@@ -132,11 +132,11 @@ export function TasksPanel({ projectPath, projectName, accessMode, tasks, agents
   const preview = safePreviewUrl(previewUrl);
 
   return (
-    <aside aria-label="Tasks" className="fixed right-3 top-[calc(var(--app-title-height,0px)+70px)] bottom-3 z-40 flex w-[min(390px,calc(100vw-24px))] flex-col overflow-hidden rounded-xl border border-white/[0.08] bg-[#161617] text-white animate-in slide-in-from-right-4 fade-in duration-300">
-      <div className="flex shrink-0 items-start justify-between gap-3 border-b border-white/[0.06] px-5 py-4">
+    <aside aria-label="Tasks" className="fixed right-3 top-[calc(var(--app-title-height,0px)+70px)] bottom-3 z-40 flex w-[min(390px,calc(100vw-24px))] flex-col overflow-hidden rounded-xl border border-white/[0.07] bg-[var(--background)] text-white animate-in slide-in-from-right-4 fade-in duration-300">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-white/[0.06] px-5 py-3.5">
         <div className="min-w-0">
-          <h2 className="flex items-center gap-2 text-[14px] font-medium tracking-tight text-white/90"><ListTodo className="size-4 text-white/45" />Tasks</h2>
-          <p className="mt-0.5 truncate text-[11px] text-white/40">{projectName || "No folder selected"}</p>
+          <h2 className="flex items-center gap-2 text-[14px] font-medium tracking-tight text-white/90"><ListTodo className="size-4 text-white/50" />Tasks</h2>
+          <p className="mt-1 truncate pl-6 text-[10px] text-white/40">{projectName || "No folder selected"}</p>
         </div>
         <div className="flex items-center gap-1">
           <button type="button" aria-label="Refresh workspace details" title="Refresh" disabled={!projectPath || loading} onClick={() => void refresh()} className="rounded-lg p-1.5 text-white/40 transition-colors hover:bg-white/[0.06] hover:text-white/80 disabled:opacity-30">
@@ -146,9 +146,9 @@ export function TasksPanel({ projectPath, projectName, accessMode, tasks, agents
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5" style={{ scrollbarWidth: "none" }}>
-        <section aria-label="Environment" className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-4">
-          <h3 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">Environment</h3>
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4" style={{ scrollbarWidth: "none" }}>
+        <section aria-label="Environment" className="border-b border-white/[0.06] pb-4">
+          <h3 className="text-[10px] font-medium uppercase tracking-[0.12em] text-white/40">Environment</h3>
           <div className="mt-3 space-y-2.5 text-[12px]">
             <div className="flex items-start gap-2.5"><FolderGit2 className="mt-0.5 size-3.5 shrink-0 text-white/35" /><div className="min-w-0"><p className="text-white/80">{projectName || "No folder yet"}</p><p className="mt-0.5 break-all text-[10px] leading-4 text-white/35">{projectPath || "Use the folder chip below the composer to add one."}</p></div></div>
             <div className="flex items-center gap-2.5"><GitBranch className="size-3.5 shrink-0 text-white/35" /><span className="text-white/65">{branch || (projectPath ? "No git branch" : "—")}</span></div>
@@ -164,8 +164,8 @@ export function TasksPanel({ projectPath, projectName, accessMode, tasks, agents
           )}
         </section>
 
-        <section aria-label="Current work" className="mt-6">
-          <h3 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">Current work</h3>
+        <section aria-label="Current work" className="mt-4">
+          <h3 className="text-[10px] font-medium uppercase tracking-[0.12em] text-white/40">Current work</h3>
           {tasks.length > 0 ? (
             <ul className="mt-2 space-y-1">
               {tasks.map((task, index) => (
@@ -185,12 +185,12 @@ export function TasksPanel({ projectPath, projectName, accessMode, tasks, agents
               ))}
             </ul>
           ) : (
-            <p className="mt-2 px-2 text-[12px] leading-5 text-white/35">Nothing is running right now. Ask Calvras for something and its steps show up here.</p>
+            <p className="mt-2 px-1 text-[11px] leading-[1.65] text-white/40">Nothing is running right now. Ask Calvras for something and its steps show up here.</p>
           )}
         </section>
 
-        <section aria-label="Scheduled work" className="mt-6">
-          <h3 className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35"><CalendarClock className="size-3" />Scheduled work</h3>
+        <section aria-label="Scheduled work" className="mt-4">
+          <h3 className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-white/40"><CalendarClock className="size-3" />Scheduled work</h3>
           {scheduled && scheduled.length > 0 ? (
             <ul className="mt-2 space-y-1">
               {scheduled.map((run) => (
@@ -221,13 +221,13 @@ export function TasksPanel({ projectPath, projectName, accessMode, tasks, agents
               ))}
             </ul>
           ) : (
-            <p className="mt-2 px-2 text-[12px] leading-5 text-white/35">Nothing is set to start on its own. Ask Calvras to run something later and it appears here, and it still fires after the app closes and reopens.</p>
+            <p className="mt-2 px-1 text-[11px] leading-[1.65] text-white/40">Nothing is set to start on its own. Ask Calvras to run something later and it appears here, and it still fires after the app closes and reopens.</p>
           )}
           {scheduleError && <p className="mt-2 px-2 text-[11px] leading-4 text-red-300">{scheduleError}</p>}
         </section>
 
-        <section aria-label="Working together" className="mt-6">
-          <h3 className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35"><Users className="size-3" />Working together</h3>
+        <section aria-label="Working together" className="mt-4">
+          <h3 className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-white/40"><Users className="size-3" />Working together</h3>
           <div className="mt-2 space-y-1">
             {workers.map(({ role, label }) => {
               const agent = agents.find((worker) => worker.role === role);

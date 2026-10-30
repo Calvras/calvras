@@ -934,6 +934,9 @@ export interface ThinkingStateProps extends React.HTMLAttributes<HTMLDivElement>
   workingLabel?: string;
   /** Thinking phases read "Thinking… / Thought for"; working phases read "Working… / Worked for". */
   kind?: "thinking" | "working";
+  /** The agent's own sentence for the step in progress. It replaces the canned tool label on the
+   * live line, so the turn never shows the same moment twice. */
+  liveMessage?: string | undefined;
   onSettled?: () => void;
 }
 
@@ -949,6 +952,7 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
       onSettled,
       running,
       measuredSeconds,
+      liveMessage,
       className,
       style,
       ...props
@@ -1095,12 +1099,12 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
           </p>
         )}
 
-        {isWorking && !isGlobalExpanded && (liveNode || liveThought || lastDone) && (
+        {isWorking && !isGlobalExpanded && (liveMessage || liveNode || liveThought || lastDone) && (
           <p className="mt-1.5 flex flex-wrap items-baseline gap-x-2 max-w-[68ch] text-[14.5px] leading-[1.7] text-foreground/90 text-pretty">
-            <span>{liveNode ? liveNode.primary : liveThought || `Done: ${lastDone?.primary}`}</span>
-            {(liveNode ?? lastDone)?.secondary && (
-              <span className="break-all font-mono text-[12px] leading-none text-muted-foreground/80">{(liveNode ?? lastDone)?.secondary}</span>
-            )}
+            {/* Only the sentence. The path or command this step touched stays on the timeline row,
+             * where the user opens it deliberately — printing it here turned "what I am doing" into
+             * a file listing nobody asked to watch. The agent's own words lead over the label. */}
+            <span>{liveMessage || (liveNode ? liveNode.primary : liveThought || lastDone?.primary)}</span>
           </p>
         )}
 
@@ -1154,6 +1158,20 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
 );
 ThinkingState.displayName = "ThinkingState";
 
+const normalizePhaseText = (value: string) => value.toLowerCase().replace(/\s+/g, " ").trim();
+
+/** Which phase messages belong on screen. A model that restates itself — the same clarification
+ * ask once as a fragment and again inside a longer paragraph — used to print both, which reads to
+ * the user as two different answers to a question they never got asked twice. The fuller copy
+ * wins, and an exact repeat keeps only its first appearance. */
+export function pickPhaseMessages<T extends { message?: string }>(phases: readonly T[]) {
+  const texts = phases.map((phase) => normalizePhaseText(phase.message || ""));
+  return texts.map((mine, idx) => {
+    if (!mine) return false;
+    return !texts.some((other, j) => j !== idx && other.includes(mine) && (other.length > mine.length || j < idx));
+  });
+}
+
 /* ─────────────────────────────────────────────────────────
  * MULTI-PHASE AGENT WORKFLOW ORCHESTRATOR
  * ───────────────────────────────────────────────────────── */
@@ -1176,6 +1194,7 @@ export function AgentWorkflow({
   const [phaseStatus, setPhaseStatus] = React.useState<"trace" | "message">("trace");
   const onCompleteRef = React.useRef(onComplete);
   onCompleteRef.current = onComplete;
+  const showMessage = React.useMemo(() => pickPhaseMessages(phases), [phases]);
 
   const handleTraceSettled = React.useCallback((idx: number) => {
     if (idx === currentPhaseIdx) {
@@ -1211,7 +1230,7 @@ export function AgentWorkflow({
         const shouldPlayTrace = isCurrentPhase && phaseStatus === "trace";
         const isTraceFinished = !isCurrentPhase || phaseStatus === "message";
 
-        const shouldShowMessage = isTraceFinished && !!phase.message;
+        const shouldShowMessage = isTraceFinished && !!phase.message && showMessage[idx] === true;
         const shouldStreamMessage = isCurrentPhase && phaseStatus === "message";
 
         return (

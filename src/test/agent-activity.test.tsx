@@ -1,6 +1,26 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { AgentActivity } from "../components/AgentActivity";
+import { pickPhaseMessages } from "../components/ui/ai-agent-response";
+
+describe("phase messages on screen", () => {
+  it("shows one copy when the agent restates its own ask", () => {
+    // The reply the user saw: a clarification question landed once as a fragment and again inside
+    // a longer paragraph, so the same ask appeared twice under one Working header.
+    const fragment = "For example: do you want to schedule multiple subjects, or integrate with a calendar?";
+    const fuller = `I see you have a basic scheduler already. Could you tell me what you need? ${fragment}`;
+    expect(pickPhaseMessages([{ message: fragment }, { message: fuller }])).toEqual([false, true]);
+  });
+  it("keeps the first copy when the text repeats exactly", () => {
+    expect(pickPhaseMessages([{ message: "Which folder should this live in?" }, { message: "Which folder should this live in?" }])).toEqual([true, false]);
+  });
+  it("shows every message when they are genuinely different", () => {
+    expect(pickPhaseMessages([{ message: "Reading the project setup." }, { message: "The scheduler page is built and verified." }])).toEqual([true, true]);
+  });
+  it("ignores phases that carried no message", () => {
+    expect(pickPhaseMessages([{ trace: [] }, { message: "Done." }])).toEqual([false, true]);
+  });
+});
 
 describe("agent activity", () => {
   it("offers resume beside an interrupted response", () => {
@@ -96,7 +116,8 @@ describe("agent activity", () => {
     expect(screen.queryByText("Thinking…")).not.toBeInTheDocument();
     // The step finished, so repeating it bare as the current line made an open page claim it was
     // still opening. It now reads as work already done.
-    expect(screen.getByText("Done: Typing into the page")).toBeInTheDocument();
+    expect(screen.getByText("Typing into the page")).toBeInTheDocument();
+    expect(screen.queryByText(/^Done: /)).not.toBeInTheDocument();
   });
   it("puts the agent's own words on the live line while the next action is being composed", () => {
     render(<AgentActivity done={false} phases={[{ trace: [
@@ -109,8 +130,27 @@ describe("agent activity", () => {
   it("names the step in progress while the timeline stays collapsed", () => {
     render(<AgentActivity done={false} phases={[{ trace: [{ id: "open", type: "tool", primary: "Opening the page", secondary: "http://localhost:5173", status: "running" as const }], activity: "working" }]} />);
     expect(screen.getByText("Opening the page")).toBeInTheDocument();
-    expect(screen.getByText("http://localhost:5173")).toBeInTheDocument();
+    // The path or address a step touched stays on the timeline row. Printed beside the live
+    // sentence it turned "what I am doing" into a file listing nobody asked to watch.
+    expect(screen.queryByText("http://localhost:5173")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Working/ })).toHaveAttribute("aria-expanded", "false");
+  });
+  it("keeps a file name off the live line while it is being read", () => {
+    render(<AgentActivity done={false} phases={[{ trace: [{ id: "read", type: "tool", toolName: "read_file", primary: "I'm reading what is already there", secondary: "package.json", status: "completed" as const }], activity: "working" }]} />);
+    expect(screen.getByText("I'm reading what is already there")).toBeInTheDocument();
+    expect(screen.queryByText("package.json")).not.toBeInTheDocument();
+  });
+  it("says the current step once while the turn is still running", () => {
+    // The double response the user photographed: the canned label and the agent's own sentence
+    // both printed under one Working header, so the same "I'm …" idea appeared twice.
+    render(<AgentActivity done={false} phases={[{ trace: [{ id: "read", type: "tool", toolName: "read_file", primary: "I'm reading what is already there", status: "completed" as const }], message: "I'm reading the main component file so I can fix the grid." }]} />);
+    expect(screen.getByText("I'm reading the main component file so I can fix the grid.")).toBeInTheDocument();
+    expect(screen.queryByText("I'm reading what is already there")).not.toBeInTheDocument();
+    expect(screen.getAllByText(/^I'm /)).toHaveLength(1);
+  });
+  it("prints the agent's closing message under the finished header", () => {
+    render(<AgentActivity done startedAt={1000} endedAt={9000} phases={[{ trace: [{ id: "read", type: "tool", toolName: "read_file", primary: "I'm reading what is already there", status: "completed" as const }], message: "The grid fills the window now, and the check passed.", startedAt: 1000, endedAt: 9000 }]} />);
+    expect(screen.getByText("The grid fills the window now, and the check passed.")).toBeInTheDocument();
   });
   it("shows thinking before inference produces a phase", () => {
     render(<AgentActivity done={false} phases={[]} />);
@@ -118,7 +158,9 @@ describe("agent activity", () => {
   });
   it("shows live tools and public updates before the run finishes", () => {
     const { rerender } = render(<AgentActivity done={false} phases={[{ trace: [{ id: "read", type: "tool", primary: "Read file", secondary: "app.ts", status: "running" }], message: "Checking the entry point." }]} />);
-    expect(screen.getByText("app.ts")).toBeInTheDocument();
+    // The live line is a sentence about the work, never the path it touched; the path waits on
+    // the timeline row for anyone who wants to open it.
+    expect(screen.queryByText("app.ts")).not.toBeInTheDocument();
     expect(screen.getByText("Checking the entry point.")).toBeInTheDocument();
     rerender(<AgentActivity done={false} phases={[
       { trace: [{ id: "read", type: "tool", primary: "Read file", secondary: "app.ts", status: "completed" }], message: "Read the entry point.", startedAt: 1000, endedAt: 3000 },
@@ -129,6 +171,7 @@ describe("agent activity", () => {
     // step line is what the user sees while work runs; expand to reach the row itself.
     fireEvent.click(screen.getByRole("button", { name: /Working/ }));
     expect(screen.getByRole("button", { name: "Run tests" })).toBeInTheDocument();
+    expect(screen.getByText("app.ts")).toBeInTheDocument();
     expect(screen.getByText("Working…")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /Working/ })).toHaveLength(1);
   });

@@ -31,10 +31,10 @@ function createSignInReport({
   wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   now = () => Date.now(),
 }) {
-  const store = (token) => {
+  const store = (token, provider) => {
     try {
       if (!storage.isEncryptionAvailable()) return;
-      fs.writeFileSync(file, storage.encryptString(JSON.stringify({ idToken: token, at: now() })));
+      fs.writeFileSync(file, storage.encryptString(JSON.stringify({ token, provider, at: now() })));
     } catch { /* nothing kept for the next launch */ }
   };
 
@@ -42,9 +42,10 @@ function createSignInReport({
     try {
       if (!storage.isEncryptionAvailable()) return null;
       const stored = JSON.parse(storage.decryptString(fs.readFileSync(file)));
-      const idToken = typeof stored.idToken === 'string' ? stored.idToken : '';
-      if (!idToken || now() - (Number(stored.at) || 0) > ID_TOKEN_FRESH_MS) { drop(); return null; }
-      return idToken;
+      // A file written before GitHub existed holds `idToken` rather than `token`.
+      const token = typeof stored.token === 'string' ? stored.token : typeof stored.idToken === 'string' ? stored.idToken : '';
+      if (!token || now() - (Number(stored.at) || 0) > ID_TOKEN_FRESH_MS) { drop(); return null; }
+      return { token, provider: stored.provider === 'github' ? 'github' : 'google' };
     } catch { return null; }
   };
 
@@ -52,10 +53,12 @@ function createSignInReport({
     try { fs.rmSync(file, { force: true }); } catch { /* already gone */ }
   }
 
-  async function report(idToken) {
-    if (!idToken) return { ok: false, error: 'Google did not hand back an identity token.' };
+  async function report(token, provider = 'google') {
+    if (!token) return { ok: false, error: provider === 'github' ? 'GitHub did not hand back an access token.' : 'Google did not hand back an identity token.' };
     const { platform, version } = getInfo();
-    const payload = JSON.stringify({ idToken, platform, version });
+    // Each provider answers to a different proof: Google signs a token the site verifies by
+    // signature, GitHub hands out an access token the site verifies by asking GitHub itself.
+    const payload = JSON.stringify({ ...(provider === 'github' ? { githubToken: token } : { idToken: token }), platform, version });
     let last = { ok: false, error: 'calvras.com did not answer.' };
     for (let attempt = 0; attempt < ATTEMPTS; attempt += 1) {
       if (attempt) await wait(attempt === 1 ? 700 : 2000);
@@ -86,15 +89,15 @@ function createSignInReport({
         last = { ok: false, error: error instanceof Error ? error.message : 'calvras.com could not be reached.' };
       }
     }
-    store(idToken);
+    store(token, provider);
     return last;
   }
 
-  /** One replay per launch: a sign-in the site never confirmed, while Google still trusts the token. */
+  /** One replay per launch: a sign-in the site never confirmed, while the provider still trusts the token. */
   async function replay() {
-    const token = kept();
-    if (!token) return null;
-    return report(token);
+    const pending = kept();
+    if (!pending) return null;
+    return report(pending.token, pending.provider);
   }
 
   return { report, replay };

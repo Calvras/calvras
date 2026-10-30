@@ -11,7 +11,8 @@ type DesktopBridge = {
   maximize?: () => void;
   close?: () => void;
   appVersion?: () => Promise<string>;
-  googleSignIn?: () => Promise<GoogleAnswer>;
+  googleSignIn?: () => Promise<SignInAnswer>;
+  githubSignIn?: () => Promise<SignInAnswer>;
 };
 
 /** Present only in the desktop build, where the window has no frame of its own to lean on. */
@@ -24,8 +25,12 @@ export const installedVersion = async () => {
   try { return String((await desktopBridge()?.appVersion?.()) || ""); } catch { return ""; }
 };
 
-type GoogleAnswer = { ok?: boolean; email?: string; name?: string; picture?: string; idToken?: string | null; error?: string; /** What calvras.com answered when the desktop shell reported
+type SignInProvider = "google" | "github";
+
+type SignInAnswer = { ok?: boolean; email?: string; name?: string; picture?: string; idToken?: string | null; /** GitHub proves the person with an access token the site checks against GitHub's own API. */ githubToken?: string | null; error?: string; /** What calvras.com answered when the desktop shell reported
  * this sign-in on its own, from a process the window reload cannot take down with it. */ site?: SignInReport };
+
+const PROVIDER_LABEL: Record<SignInProvider, string> = { google: "Google", github: "GitHub" };
 
 export function SplashScreen() {
   return (
@@ -40,28 +45,29 @@ export function SplashScreen() {
 
 export function AuthScreen({ onContinue, notice = "" }: { onContinue: (user: CalvrasUser) => void; notice?: string }) {
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  // Google opens its own tab. If the person closes that tab instead of finishing, the bridge
+  const [busy, setBusy] = useState<SignInProvider | null>(null);
+  // The provider opens its own tab. If the person closes that tab instead of finishing, the bridge
   // promise can sit there forever, so Back retires the attempt and the late answer is dropped.
   const attempt = useRef(0);
 
-  const back = () => { attempt.current += 1; setBusy(false); setError(""); };
+  const back = () => { attempt.current += 1; setBusy(null); setError(""); };
 
-  const google = async () => {
+  const start = async (provider: SignInProvider) => {
     const mine = attempt.current + 1;
     attempt.current = mine;
     setError("");
     const bridge = desktopBridge();
-    if (!bridge?.googleSignIn) {
-      setError("Google sign-in runs in the Calvras desktop app.");
+    const call = provider === "google" ? bridge?.googleSignIn : bridge?.githubSignIn;
+    if (!call) {
+      setError(`${PROVIDER_LABEL[provider]} sign-in runs in the Calvras desktop app.`);
       return;
     }
-    setBusy(true);
-    const answer: GoogleAnswer = await bridge.googleSignIn().catch((reason) => ({ ok: false, error: reason instanceof Error ? reason.message : String(reason) }));
+    setBusy(provider);
+    const answer: SignInAnswer = await call().catch((reason) => ({ ok: false, error: reason instanceof Error ? reason.message : String(reason) }));
     if (attempt.current !== mine) return;
     if (!answer?.ok || !answer.email) {
-      setBusy(false);
-      setError(answer?.error || "Google sign-in failed.");
+      setBusy(null);
+      setError(answer?.error || `${PROVIDER_LABEL[provider]} sign-in failed.`);
       return;
     }
     // Tell the site this person signed in, so the owner's console sees them and so a plan the owner
@@ -69,17 +75,22 @@ export function AuthScreen({ onContinue, notice = "" }: { onContinue: (user: Cal
     // The desktop shell reports this sign-in to calvras.com from its own process, where a window
     // reload cannot interrupt it. Only a page without that shell — a browser during development —
     // has to make the call itself.
-    const session = answer.site || await reportSignIn({ ...(answer.idToken ? { idToken: answer.idToken } : {}), platform: navigator.platform, version: await installedVersion() });
+    const session = answer.site || await reportSignIn({
+      ...(answer.idToken ? { idToken: answer.idToken } : {}),
+      ...(answer.githubToken ? { githubToken: answer.githubToken } : {}),
+      platform: navigator.platform,
+      version: await installedVersion(),
+    });
     if (attempt.current !== mine) return;
     if (session?.blocked) {
-      // The account ledger says no, so this computer says no too. Google proved who they are; the
-      // owner decided what that person may do.
-      setBusy(false);
+      // The account ledger says no, so this computer says no too. The provider proved who they are;
+      // the owner decided what that person may do.
+      setBusy(null);
       setError(session.error || "This account has been blocked by the owner.");
       return;
     }
     const plan = session?.ok && session.plan ? session.plan : undefined;
-    onContinue({ provider: "google", email: answer.email, name: answer.name ?? answer.email, ...(answer.picture ? { picture: answer.picture } : {}), ...(plan ? { plan } : {}), ...(session?.session ? { session: session.session } : {}), recorded: { at: Date.now(), ok: Boolean(session?.ok), ...(session?.ok ? {} : { error: session?.error || "calvras.com did not answer." }) }, joinedAt: Date.now() });
+    onContinue({ provider, email: answer.email, name: answer.name ?? answer.email, ...(answer.picture ? { picture: answer.picture } : {}), ...(plan ? { plan } : {}), ...(session?.session ? { session: session.session } : {}), recorded: { at: Date.now(), ok: Boolean(session?.ok), ...(session?.ok ? {} : { error: session?.error || "calvras.com did not answer." }) }, joinedAt: Date.now() });
   };
 
   return (
@@ -103,12 +114,12 @@ export function AuthScreen({ onContinue, notice = "" }: { onContinue: (user: Cal
 
         <button
           type="button"
-          onClick={() => void google()}
-          disabled={busy}
+          onClick={() => void start("google")}
+          disabled={busy !== null}
           aria-label="Continue with Google"
-          className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-white/[0.12] bg-white/[0.04] px-4 py-3 text-[13px] font-medium text-white/85 transition-colors hover:bg-white/[0.08] disabled:opacity-50"
+          className="flex w-full items-center gap-2.5 border-b border-white/[0.12] px-1 py-3.5 text-left text-[13px] font-medium text-white/85 transition-colors hover:text-white disabled:opacity-50"
         >
-          {busy ? <Loader2 className="size-4 animate-spin" /> : (
+          {busy === "google" ? <Loader2 className="size-4 animate-spin" /> : (
             <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
               <path fill="#4285F4" d="M23.5 12.27c0-.79-.07-1.54-.2-2.27H12v4.3h6.47a5.53 5.53 0 0 1-2.4 3.63v3h3.88c2.27-2.09 3.55-5.17 3.55-8.66Z" />
               <path fill="#34A853" d="M12 24c3.24 0 5.96-1.07 7.95-2.91l-3.88-3c-1.08.72-2.46 1.15-4.07 1.15-3.13 0-5.78-2.11-6.73-4.96H1.27v3.09A12 12 0 0 0 12 24Z" />
@@ -116,23 +127,42 @@ export function AuthScreen({ onContinue, notice = "" }: { onContinue: (user: Cal
               <path fill="#EA4335" d="M12 4.75c1.76 0 3.34.61 4.59 1.8l3.44-3.44A11.97 11.97 0 0 0 12 0 12 12 0 0 0 1.27 6.63l4 3.09C6.22 6.86 8.87 4.75 12 4.75Z" />
             </svg>
           )}
-          {busy ? "Signing in…" : "Continue with Google"}
+          {busy === "google" ? "Signing in…" : "Continue with Google"}
         </button>
 
         <button
           type="button"
-          onClick={back}
-          aria-label="Back"
-          className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-xl px-4 py-2 text-[12px] text-white/45 transition-colors hover:bg-white/[0.04] hover:text-white/70"
+          onClick={() => void start("github")}
+          disabled={busy !== null}
+          aria-label="Continue with GitHub"
+          className="flex w-full items-center gap-2.5 px-1 py-3.5 text-left text-[13px] font-medium text-white/85 transition-colors hover:text-white disabled:opacity-50"
         >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M19 12H5m7-7-7 7 7 7" /></svg>
-          Back
+          {busy === "github" ? <Loader2 className="size-4 animate-spin" /> : (
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A7.99 7.99 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
+            </svg>
+          )}
+          {busy === "github" ? "Signing in…" : "Continue with GitHub"}
         </button>
+
+        {/* Only while a sign-in is in flight: closing the provider's tab leaves the attempt
+            hanging, and this is how the person gets back to the two buttons to start again. */}
+        {busy !== null && (
+          <button
+            type="button"
+            onClick={back}
+            aria-label="Back"
+            className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-full px-4 py-2 text-[12px] text-white/45 transition-colors hover:bg-white/[0.04] hover:text-white/70"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M19 12H5m7-7-7 7 7 7" /></svg>
+            Back
+          </button>
+        )}
 
         {notice && !error && <p role="status" className="mt-3 text-center text-[11px] text-white/55">{notice}</p>}
         {error && <p role="alert" className="mt-3 text-center text-[11px] text-red-300">{error}</p>}
 
-        <p className="mt-6 text-center text-[10px] leading-5 text-white/25">By continuing you agree to the Calvras <a href="https://calvras.com/terms" target="_blank" rel="noopener noreferrer" className="text-white/45 underline underline-offset-2 hover:text-white/70">terms</a> and <a href="https://calvras.com/privacy" target="_blank" rel="noopener noreferrer" className="text-white/45 underline underline-offset-2 hover:text-white/70">privacy policy</a>.<br />Your projects stay on this computer; Google is only used to identify you.</p>
+        <p className="mt-6 text-center text-[10px] leading-5 text-white/25">By continuing you agree to the Calvras <a href="https://calvras.com/terms" target="_blank" rel="noopener noreferrer" className="text-white/45 underline underline-offset-2 hover:text-white/70">terms</a> and <a href="https://calvras.com/privacy" target="_blank" rel="noopener noreferrer" className="text-white/45 underline underline-offset-2 hover:text-white/70">privacy policy</a>.<br />Your projects stay on this computer; Google or GitHub only identifies you.</p>
       </div>
     </div>
   );

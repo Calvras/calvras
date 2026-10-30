@@ -60,7 +60,8 @@ export function validateToolAction(value: Record<string, any>): ToolAction {
   if (type === "wait_for_window" && !value["title"]) throw new Error("Provide part of the window title.");
   if (type === "run_page_script") require("code", "JavaScript to run in the page");
   if (type === "web_search") require("query");
-  if (type === "probe_key") require("url", "URL");
+  // probe_key deliberately has no field requirement here: the runtime message that fires when
+  // both url and provider are missing is the one that names all three ways to supply a key.
   if (type === "queue_batch" && !(Array.isArray(value["targets"]) && value["targets"].length)) throw new Error("queue_batch needs targets: [{ url, label }].");
   if (type === "report_batch") { require("id", "batch target id"); if (!["queued", "running", "done", "blocked", "skipped"].includes(String(value["status"]))) throw new Error("A batch target ends as done, blocked, or skipped."); if (String(value["status"]) === "done" && !String(value["reference"] ?? "").trim()) throw new Error("report_batch done needs reference: the confirmation text the page itself printed after the submit, such as the reference number it showed."); }
   if (["open_browser", "navigate_browser"].includes(type)) require("url", "URL");

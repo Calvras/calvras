@@ -37,12 +37,30 @@ describe("launch screen", () => {
     await waitFor(() => expect(onContinue).toHaveBeenCalledWith(expect.objectContaining({ provider: "google", email: "hello@calvras.com", name: "Shikari" })));
   });
 
+  it("signs in with the account GitHub hands back", async () => {
+    Object.defineProperty(window, "__electron", { value: { githubSignIn: async () => ({ ok: true, email: "ada@github.dev", name: "Ada" }) }, configurable: true });
+    const onContinue = vi.fn();
+    render(<AuthScreen onContinue={onContinue} />);
+    fireEvent.click(screen.getByRole("button", { name: "Continue with GitHub" }));
+    expect(screen.getByText("Signing in…")).toBeInTheDocument();
+    await waitFor(() => expect(onContinue).toHaveBeenCalledWith(expect.objectContaining({ provider: "github", email: "ada@github.dev", name: "Ada" })));
+  });
+
   it("refuses to pretend Google signed in when the desktop bridge is not there", async () => {
     Object.defineProperty(window, "__electron", { value: undefined, configurable: true });
     const onContinue = vi.fn();
     render(<AuthScreen onContinue={onContinue} />);
     fireEvent.click(screen.getByRole("button", { name: "Continue with Google" }));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Google sign-in runs in the Calvras desktop app."));
+    expect(onContinue).not.toHaveBeenCalled();
+  });
+
+  it("refuses to pretend GitHub signed in when the desktop bridge is not there", async () => {
+    Object.defineProperty(window, "__electron", { value: undefined, configurable: true });
+    const onContinue = vi.fn();
+    render(<AuthScreen onContinue={onContinue} />);
+    fireEvent.click(screen.getByRole("button", { name: "Continue with GitHub" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("GitHub sign-in runs in the Calvras desktop app."));
     expect(onContinue).not.toHaveBeenCalled();
   });
 
@@ -56,7 +74,25 @@ describe("launch screen", () => {
     expect(onContinue).not.toHaveBeenCalled();
   });
 
-  it("offers Google and nothing else — no email field, no code, no send request", () => {
+  it("offers a way out only while a provider is open in the browser", async () => {
+    type Answer = { ok: boolean; email: string; name: string };
+    let finish: (answer: Answer) => void = () => {};
+    const pending = new Promise<Answer>((resolve) => { finish = resolve; });
+    Object.defineProperty(window, "__electron", { value: { githubSignIn: () => pending }, configurable: true });
+    const onContinue = vi.fn();
+    render(<AuthScreen onContinue={onContinue} />);
+    expect(screen.queryByRole("button", { name: "Back" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Continue with GitHub" }));
+    expect(screen.getByText("Signing in…")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    // The closed tab must not sign anyone in after the fact: the buttons are live again.
+    expect(screen.getByRole("button", { name: "Continue with GitHub" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Back" })).not.toBeInTheDocument();
+    await act(async () => { finish({ ok: true, email: "ada@github.dev", name: "Ada" }); });
+    expect(onContinue).not.toHaveBeenCalled();
+  });
+
+  it("offers both providers and nothing else — no email field, no code, no send request", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     render(<AuthScreen onContinue={vi.fn()} />);
@@ -66,6 +102,7 @@ describe("launch screen", () => {
     expect(screen.queryByText(/Check your email/)).not.toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Continue with Google" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Continue with GitHub" })).toBeInTheDocument();
   });
 
   it("gives the desktop sign-in window its own controls", () => {
@@ -114,6 +151,13 @@ describe("launch screen", () => {
   it("skips the splash for an already started session", () => {
     sessionStorage.setItem("calvras_session_started", "1");
     localStorage.setItem("calvras_user", JSON.stringify({ provider: "google", email: "hello@calvras.com", joinedAt: 1 }));
+    render(<LaunchGate><p>Workspace ready</p></LaunchGate>);
+    expect(screen.getByText("Workspace ready")).toBeInTheDocument();
+  });
+
+  it("opens straight into the workspace for a GitHub account too", () => {
+    sessionStorage.setItem("calvras_session_started", "1");
+    localStorage.setItem("calvras_user", JSON.stringify({ provider: "github", email: "ada@github.dev", name: "Ada", joinedAt: 1 }));
     render(<LaunchGate><p>Workspace ready</p></LaunchGate>);
     expect(screen.getByText("Workspace ready")).toBeInTheDocument();
   });

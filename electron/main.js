@@ -13,6 +13,7 @@ const net  = require('net');
 const os   = require('os');
 const fs   = require('fs');
 const { signInWithGoogle } = require('./google-oauth.cjs');
+const { signInWithGitHub } = require('./github-oauth.cjs');
 
 // ─── Single-instance lock ─────────────────────────────────────────────────────
 if (!app.requestSingleInstanceLock()) {
@@ -378,12 +379,22 @@ ipcMain.handle('pick-folder', async () => {
 // can be repointed at another Google project without a rebuild. Google issues a secret for
 // desktop clients and its token endpoint insists on it; PKCE remains the real proof that the
 // browser and this process are the same app.
+const localConfigDir = () => path.join(process.env['LOCALAPPDATA'] || path.join(os.homedir(), '.local', 'share'), 'Calvras');
+
 const googleOAuthConfig = () => {
   try {
-    const dir = path.join(process.env['LOCALAPPDATA'] || path.join(os.homedir(), '.local', 'share'), 'Calvras');
-    const stored = JSON.parse(fs.readFileSync(path.join(dir, 'google-oauth.json'), 'utf8'));
+    const stored = JSON.parse(fs.readFileSync(path.join(localConfigDir(), 'google-oauth.json'), 'utf8'));
     return { clientId: stored.clientId || null, clientSecret: stored.clientSecret || undefined };
   } catch { return { clientId: null }; }
+};
+
+// GitHub's OAuth App values live beside Google's, in the same per-install folder rather than in
+// the bundle, so the app can be repointed at another OAuth App without a rebuild.
+const githubOAuthConfig = () => {
+  try {
+    const stored = JSON.parse(fs.readFileSync(path.join(localConfigDir(), 'github-oauth.json'), 'utf8'));
+    return { clientId: stored.clientId || null, clientSecret: stored.clientSecret || null };
+  } catch { return { clientId: null, clientSecret: null }; }
 };
 
 /** Chrome holds the foreground after the redirect, so a plain focus() can be ignored by
@@ -428,6 +439,23 @@ ipcMain.handle('google-sign-in', async () => {
   } catch (error) {
     raiseMainWindow();
     return { ok: false, error: error instanceof Error ? error.message : 'Google sign-in failed.' };
+  }
+});
+
+ipcMain.handle('github-sign-in', async () => {
+  try {
+    const { clientId, clientSecret } = githubOAuthConfig();
+    const profile = await signInWithGitHub({
+      clientId,
+      clientSecret,
+      openBrowser: (url) => shell.openExternal(url),
+      onReturn: raiseMainWindow,
+    });
+    raiseMainWindow();
+    return { ok: true, ...profile, site: await signInReport.report(profile.accessToken, 'github') };
+  } catch (error) {
+    raiseMainWindow();
+    return { ok: false, error: error instanceof Error ? error.message : 'GitHub sign-in failed.' };
   }
 });
 

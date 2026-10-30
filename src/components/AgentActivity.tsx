@@ -174,6 +174,10 @@ export function AgentActivity({ phases, done, startedAt, endedAt, status, stopRe
       // only credible when it comes from a real tool call, which always produces one.
       const trace = group.phases.flatMap((phase) => phase.trace.filter((node) => node.type !== "step")).map((node) => withAttachments(node, onUndo));
       const message = [...group.phases].reverse().find((phase) => phase.message?.trim())?.message?.trim() || "";
+      // While the turn is running, the agent's own sentence IS the live step line, so it is handed
+      // to the header rather than printed a second time under it. Two "I'm …" lines stacked under
+      // one Working header is what read to the user as a double response.
+      const narration = live ? "" : message;
       const start = group.phases[0]?.startedAt ?? startedAt ?? now;
       const lastPhase = group.phases[group.phases.length - 1];
       const end = lastPhase?.endedAt ?? (live ? now : endedAt ?? start);
@@ -184,8 +188,8 @@ export function AgentActivity({ phases, done, startedAt, endedAt, status, stopRe
       const kind: "thinking" | "working" = trace.some(isToolRow) ? "working" : "thinking";
       return (
         <div key={groupIndex} className="flex flex-col gap-1">
-          <ThinkingState nodes={trace} autoPlay={false} running={live} measuredSeconds={seconds} kind={kind} workingLabel="Working…" />
-          {message && <MarkdownContent content={message} className="text-[14.5px] leading-[1.7] text-foreground" />}
+          <ThinkingState nodes={trace} autoPlay={false} running={live} measuredSeconds={seconds} kind={kind} workingLabel="Working…" liveMessage={live ? message : undefined} />
+          {narration && <MarkdownContent content={narration} className="text-[14.5px] leading-[1.7] text-foreground" />}
         </div>
       );
     })}

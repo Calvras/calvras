@@ -29,6 +29,20 @@ describe("real agent loop", () => {
     expect(config.execute).not.toHaveBeenCalled();
     expect(onPhaseComplete).toHaveBeenCalledWith("1. Python\n2. Go");
   });
+  it("sends a prose question back as an ask_user card instead of ending on it", async () => {
+    // Mid-build the agent stopped with "Could you tell me what specific features you need?" typed
+    // into the bubble. Nothing can be answered there, so the round that asks gets one correction.
+    const config = options([
+      reply("Reading what is already there.", [list], "continue"),
+      reply("Could you tell me what specific features you need?", [], "continue"),
+      reply("Asking the one thing that changes the build.", [{ type: "ask_user", question: "Is this for your own subjects, or for clients booking you?" }], "continue"),
+      reply("Waiting on their answer."),
+    ]);
+    config.maxSteps = 8;
+    await runAgent(config);
+    expect(String(config.infer.mock.calls[2]?.[0])).toContain("renders in their input box");
+    expect(config.execute.mock.calls[1]?.[0]).toEqual([{ type: "ask_user", question: "Is this for your own subjects, or for clients booking you?" }]);
+  });
   it("keeps a submitted target closed when the receipt it quoted was never read", async () => {
     const config = options([
       reply("Read the listing, queued it.", [{ type: "read_page" }, { type: "queue_batch", title: "jobs", targets: [{ url: "http://127.0.0.1/post/4", label: "Data Engineer" }] }], "continue"),

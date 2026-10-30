@@ -1,7 +1,8 @@
 /**
- * The desktop app proves who it is by handing calvras.com the Google token it just received. The
- * site verifies that token and writes the sign-in into its ledger, and answers with the plan the
- * owner has set for that address — which is how a grant made in the admin console reaches the app.
+ * The desktop app proves who it is by handing calvras.com the proof its provider gave it: a Google ID
+ * token the site checks by signature, or a GitHub access token the site checks by asking GitHub. The
+ * site verifies that proof and writes the sign-in into its ledger, and answers with the plan the
+ * owner has set for that email — which is how a grant made in the admin console reaches the app.
  */
 
 const OVERRIDE_KEY = "calvras_site_base";
@@ -56,15 +57,17 @@ const answer = (status: number, body: Record<string, unknown>): SignInReport => 
  * the owner's console can only count a sign-in it was told about, and this was the app's one and
  * only chance to say it. A 401 or 403 is a real answer about the token, so it is not retried.
  */
-export async function reportSignIn(input: { idToken?: string; platform?: string; version?: string }, attempts = 3): Promise<SignInReport> {
+export async function reportSignIn(input: { idToken?: string; githubToken?: string; platform?: string; version?: string }, attempts = 3): Promise<SignInReport> {
   const idToken = String(input.idToken || "");
-  if (!idToken) return { ok: false, error: "Google did not hand back an identity token." };
+  const githubToken = String(input.githubToken || "");
+  const proof = githubToken ? { githubToken } : idToken ? { idToken } : null;
+  if (!proof) return { ok: false, error: "The sign-in did not hand back a token." };
   let last: SignInReport = { ok: false, error: "The sign-in was never sent." };
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     if (attempt) await new Promise((resolve) => setTimeout(resolve, attempt === 1 ? 700 : 2_000));
     try {
       const { status, body } = await post("/api/site/session", {
-        idToken,
+        ...proof,
         platform: String(input.platform || "").slice(0, 40),
         version: String(input.version || "").slice(0, 40),
       }, 12_000);

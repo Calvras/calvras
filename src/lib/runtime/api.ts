@@ -10,6 +10,7 @@ import { storeAttachments } from "./attachments";
 import { appendJournal, readJournal } from "./journal";
 import { addSchedule, claimDue, listSchedule, removeSchedule, reportRun, setScheduleEnabled } from "./schedule";
 import { sanitizeRouting } from "./worker-pool";
+import { fetchPageText, searchWeb } from "../web-search";
 
 /** Rules the browser Settings page owns; re-sanitized because they arrive over HTTP. */
 function enforcement(raw: unknown): EnforcementRules {
@@ -32,6 +33,16 @@ export async function handleAgentApi(request: Request, infer: Inference): Promis
       return Response.json(await testProvider(String(body.provider || "")));
     }
     if (url.pathname === "/api/agent/usage" && request.method === "GET") return Response.json(usageStats());
+    // Neither needs a session or a folder, and both fetch from this server: the packaged
+    // renderer's origin rules make a search engine unreachable from the page itself.
+    if (url.pathname === "/api/agent/web/search" && request.method === "POST") {
+      const body = await request.json();
+      return Response.json(await searchWeb(String(body.query || ""), AbortSignal.timeout(30_000)));
+    }
+    if (url.pathname === "/api/agent/web/page" && request.method === "POST") {
+      const body = await request.json();
+      return Response.json(await fetchPageText(String(body.url || ""), AbortSignal.timeout(20_000)));
+    }
     if (url.pathname === "/api/agent/payments") {
       if (request.method === "GET") return Response.json({ ok: true, ...paymentsStatus() });
       if (request.method === "POST") { const body = await request.json(); return Response.json({ ok: true, ...setPaymentsConfig(body || {}) }); }

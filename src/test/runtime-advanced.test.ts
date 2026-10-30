@@ -7,6 +7,18 @@ import { AgentSession } from "../lib/runtime/agent-runtime";
 import { ApprovalNeeded } from "../lib/runtime/permissions";
 import type { ToolAction } from "../lib/tool-catalog";
 
+/** A saved key the machine does not hold, so the probe tests prove the runtime reaches the
+ * store by provider name without depending on (or echoing) anybody's real credential. */
+const SAVED_GEMINI_KEY = "AIzaTEST-ONLY-not-a-real-credential";
+vi.mock("../lib/runtime/providers", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/runtime/providers")>();
+  return {
+    ...actual,
+    providerKeys: () => ({ openrouter: "", gemini: SAVED_GEMINI_KEY, hf: "" }),
+    providerKeySource: (provider: string) => (provider === "gemini" ? "the key saved in Calvras" : ""),
+  };
+});
+
 let root: string;
 let session: AgentSession;
 const infer = vi.fn(async (prompt: string, _delta?: unknown, system?: string) => {
@@ -103,5 +115,61 @@ describe("advanced runtime executes real operations", () => {
     await session.execute({ type: "write_file", path: "keep.ts", content: "x" }, {});
     await expect(session.execute({ type: "git_restore", path: "keep.ts" }, { userInitiated: true })).rejects.toBeInstanceOf(ApprovalNeeded);
     expect(await fs.stat(path.join(root, "keep.ts")).then(() => true, () => false)).toBe(true);
+  });
+});
+describe("probe_key tests a key the user names or one Calvras already holds", () => {
+  /** The endpoint the probe hits is chosen by the harness, so the assertions are about what the
+   * runtime sends and what it hands back — never about a live provider account. */
+  function stubFetch(status: number, body: string) {
+    const calls: { url: string; headers: Record<string, string> }[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: any, init: any) => {
+      calls.push({ url: String(input), headers: (init?.headers ?? {}) as Record<string, string> });
+      return new Response(body, { status });
+    }));
+    return calls;
+  }
+  it("reaches the stored key from a provider name alone and sends it to that provider's endpoint", async () => {
+    const calls = stubFetch(200, `{"models":["gemini-2.5-flash"], "key":"${SAVED_GEMINI_KEY}"}`);
+    const result = await session.execute({ type: "probe_key", provider: "gemini" });
+    expect(result.status).toBe(200);
+    expect(calls[0]?.url).toContain("generativelanguage.googleapis.com");
+    expect(calls[0]?.headers["x-goog-api-key"]).toBe(SAVED_GEMINI_KEY);
+    // An endpoint that echoes the credential back must not put it in front of the model or the user.
+    expect(JSON.stringify(result)).not.toContain(SAVED_GEMINI_KEY);
+    expect(result.response).toContain("[redacted]");
+    // Which copy answered is part of the answer: an environment variable can shadow the saved key,
+    // and a rejection means something different for each of them.
+    expect(result.keySource).toBe("the key saved in Calvras");
+  });
+  it("says plainly when the named provider has no key saved rather than probing a blank header", async () => {
+    const calls = stubFetch(200, "{}");
+    const result = await session.execute({ type: "probe_key", provider: "hf" });
+    expect(String(result.error)).toContain("No key is saved for hf");
+    expect(calls.length).toBe(0);
+  });
+  it("names every way to supply a key when the call carries neither a url nor a provider", async () => {
+    const result = await session.execute({ type: "probe_key" });
+    expect(String(result.error)).toContain("needs a url, or a provider name");
+  });
+  it("refuses a provider it cannot resolve instead of silently probing the wrong account", async () => {
+    const result = await session.execute({ type: "probe_key", provider: "anthropic" });
+    expect(String(result.error)).toContain('one of "gemini", "openrouter" or "hf"');
+  });
+  it("calls a rejected key rejected", async () => {
+    stubFetch(401, `{"error":{"message":"No credentials provided for key sk-or-v1-FAKETHISISNOTREAL"}}`);
+    const result = await session.execute({ type: "probe_key", url: "https://openrouter.ai/api/v1/auth/key", key: "sk-or-v1-FAKETHISISNOTREAL" });
+    expect(result.status).toBe(401);
+    expect(String(result.verdict)).toContain("REJECTED");
+    expect(JSON.stringify(result)).not.toContain("FAKETHISISNOTREAL");
+  });
+  it("calls an unfunded account a billing wall, not a broken key", async () => {
+    stubFetch(402, `{"error":{"message":"You have no credits"}}`);
+    const result = await session.execute({ type: "probe_key", url: "https://huggingface.co/api/v1/inference/any", key: "hf_FAKEFORSAMPLEONLY000000" });
+    expect(String(result.verdict)).toContain("billing wall");
+    expect(JSON.stringify(result)).not.toContain("hf_FAKEFORSAMPLEONLY000000");
+  });
+  it("refuses an http endpoint, since a key must never travel unencrypted", async () => {
+    const result = await session.execute({ type: "probe_key", url: "http://example.com/any", key: "anything" });
+    expect(String(result.error)).toContain("HTTPS");
   });
 });

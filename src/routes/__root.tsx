@@ -136,6 +136,7 @@ function RootShell({ children }: { children: ReactNode }) {
   );
 }
 
+
 function SidebarWithProjects() {
   const { projects, triggerNewChat, setActiveProject, openChat, deleteRecent, deleteProject, renameRecent, renameProject, chats } = useProjects();
   const router = useRouter();
@@ -216,7 +217,7 @@ function RootComponent() {
         {isElectron && <TitleBar />}
         {isElectron && (
           <style dangerouslySetInnerHTML={{ __html: `
-            :root { --app-title-height: 20px; }
+            :root { --app-title-height: 34px; }
             body { padding-top: 28px !important; }
             .chat-page { padding-top: 0 !important; }
           ` }} />

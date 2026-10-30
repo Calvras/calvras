@@ -34,6 +34,35 @@ describe("automatic task continuation", () => {
     // The same words aimed at the workspace are code work, not browsing.
     expect(agentIntent("open the pricing page and change the layout", [], true).webFirst).toBe(false);
   });
+  it("searches the web when the user names the web, even with no folder open", () => {
+    // "browse through the web and tell me about examglow" used to fall through to the chat turn,
+    // whose prompt said it had no browsing, and the reply was "I cannot browse the live web".
+    for (const text of ["browse through the web and tell me about examglow", "search the web for examglow", "find out who examglow is online"]) {
+      expect(agentIntent(text, [], false)).toMatchObject({ webFirst: true, requiresTools: true, initialActions: [{ type: "web_search" }] });
+    }
+    // A search aimed at the code stays code work.
+    expect(agentIntent("search the repo for the handler", [], true).webFirst).toBe(false);
+  });
+  it("keeps a live lookup out of the chat turn and able to run with no folder", async () => {
+    const source = await readFile("src/routes/index.tsx", "utf8");
+    expect(source).toContain("!intent.webFirst && !hasAttachments && !wantsLiveInfo");
+    expect(source).toContain('const webOnlyTurn = actions.length > 0 && actions.every((action) => action.type === "web_search" || action.type === "search_documentation")');
+    expect(source).toContain('!activePath && (action.type === "web_search" || action.type === "search_documentation")');
+    // The renderer's origin cannot reach a search engine, so the lookup has to go through the server.
+    expect(source).toContain('action.type === "web_search" ? "/api/agent/web/search" : "/api/agent/web/page"');
+    expect(source).toContain("|web|internet|online|");
+  });
+  it("forces a real lookup for a question whose answer changes after training", () => {
+    // Two consecutive runs answered "the latest version of Electron" with 44.1.1 and then
+    // 43.2.0, and neither run called a tool. A live fact must cost one.
+    for (const text of ["what is the latest version of electron", "what's the news today", "what is the current price of bitcoin"]) {
+      expect(agentIntent(text, [], false)).toMatchObject({ requiresTools: true, initialActions: [{ type: "web_search" }] });
+      expect(agentIntent(text, [], true).requiresTools).toBe(true);
+    }
+    // The clock is already in the prompt, and a plain question about how something works is not live.
+    expect(agentIntent("what's today's date", [], false).requiresTools).toBe(false);
+    expect(agentIntent("how does the router work?", [], true).requiresTools).toBe(false);
+  });
   it("leaves a question about a link as a question", () => {
     expect(agentIntent("what does https://example.com/pricing say about seats?", [], true).webFirst).toBe(false);
     expect(agentIntent("launch it", [], true).webFirst).toBe(false);

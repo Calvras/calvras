@@ -43,10 +43,24 @@ beforeAll(async () => {
   const env: SiteEnv = { CALVRAS_DB: d1Shim(sqlite), CALVRAS_ADMIN_TOKEN: ADMIN_TOKEN, GOOGLE_CLIENT_ID: CLIENT_ID };
 
   // Google's certificates come from the real URL, because that is where the verifier looks; every
-  // other request goes over the loopback socket below.
+  // other request goes over the loopback socket below. GitHub's API is stood in for the same way:
+  // the token names the fixture account, and a token without the scope the app asks for is refused.
   globalThis.fetch = (async (input: any, init?: any) => {
     const url = String(typeof input === "string" ? input : input?.url ?? input);
     if (url.includes("googleapis.com/oauth2/v3/certs")) return new Response(JSON.stringify({ keys: [jwk] }), { headers: { "content-type": "application/json" } });
+    if (url.startsWith("https://api.github.com/")) {
+      const token = new Headers(init?.headers ?? {}).get("authorization")?.replace(/^Bearer\s+/i, "");
+      if (token === "gho_bad") return Response.json({ message: "Bad credentials" }, { status: 401 });
+      if (url.endsWith("/user/emails")) {
+        const emails = token === "gho_unverified"
+          ? [{ email: "unverified@github.dev", primary: true, verified: false }]
+          : [{ email: "ada@github.dev", primary: true, verified: true }, { email: "old@github.dev", primary: false, verified: false }];
+        return Response.json(emails, { headers: { "content-type": "application/json" } });
+      }
+      return Response.json({ id: 4242, login: "ada", name: "Ada Lovelace", avatar_url: "https://avatars.githubusercontent.com/u/4242" }, {
+        headers: { "content-type": "application/json", "x-oauth-scopes": token === "gho_narrow" ? "read:user" : "read:user, user:email" },
+      });
+    }
     return originalFetch(input as never, init as never);
   }) as typeof fetch;
 
@@ -269,5 +283,54 @@ describe("the owner's controls over a live account", () => {
     } finally {
       globalThis.fetch = original;
     }
+  });
+});
+
+/**
+ * GitHub's proof is an access token, so the site asks GitHub who it belongs to rather than
+ * checking a signature. Everything after that is the same ledger: plan, block, session.
+ */
+describe("GitHub sign-in over HTTP", () => {
+  it("records the account GitHub vouches for and hands back a session", async () => {
+    const answer = await postJson("/api/site/session", { githubToken: "gho_fixture", platform: "Win32", version: "10.0.8" });
+    expect(answer.status).toBe(200);
+    expect(answer.body).toMatchObject({ ok: true, email: "ada@github.dev", plan: "free" });
+    expect(typeof answer.body.session).toBe("string");
+    expect(sqlite.prepare("SELECT subject, name, picture FROM accounts WHERE email = 'ada@github.dev'").get())
+      .toEqual(expect.objectContaining({ subject: "github:4242", name: "Ada Lovelace" }));
+
+    const pulse = await postJson("/api/site/pulse", { session: answer.body.session });
+    expect(pulse.body).toMatchObject({ ok: true, email: "ada@github.dev" });
+  });
+
+  it("refuses a token GitHub does not accept", async () => {
+    const answer = await postJson("/api/site/session", { githubToken: "gho_bad" });
+    expect(answer.status).toBe(401);
+    expect(answer.body.error).toMatch(/GitHub did not accept this sign-in/);
+  });
+
+  it("refuses a token that was not minted for a Calvras sign-in", async () => {
+    const answer = await postJson("/api/site/session", { githubToken: "gho_narrow" });
+    expect(answer.status).toBe(401);
+    expect(answer.body.error).toMatch(/not issued for a Calvras sign-in/);
+    expect(sqlite.prepare("SELECT COUNT(*) AS n FROM accounts WHERE email = 'ada@github.dev'").get()).toEqual(expect.objectContaining({ n: 1 }));
+  });
+
+  it("refuses an account with no verified email", async () => {
+    const answer = await postJson("/api/site/session", { githubToken: "gho_unverified" });
+    expect(answer.status).toBe(401);
+    expect(answer.body.error).toMatch(/no verified email/);
+    expect(sqlite.prepare("SELECT COUNT(*) AS n FROM accounts WHERE email = 'unverified@github.dev'").get()).toEqual(expect.objectContaining({ n: 0 }));
+  });
+
+  it("keys the same person by address whichever provider signed them in", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const viaGoogle = await postJson("/api/site/session", {
+      idToken: await signedToken({ iss: "https://accounts.google.com", aud: CLIENT_ID, sub: "4242", exp: now + 3600, iat: now, email: "ada@github.dev", email_verified: true, name: "Ada" }),
+    });
+    expect(viaGoogle.body).toMatchObject({ ok: true, email: "ada@github.dev" });
+    expect(sqlite.prepare("SELECT COUNT(*) AS n FROM accounts WHERE email = 'ada@github.dev'").get()).toEqual(expect.objectContaining({ n: 1 }));
+    expect((await postJson("/api/site/session", { githubToken: "gho_fixture" })).body).toMatchObject({ ok: true, email: "ada@github.dev" });
+    expect(sqlite.prepare("SELECT COUNT(*) AS n FROM accounts WHERE email = 'ada@github.dev'").get()).toEqual(expect.objectContaining({ n: 1 }));
   });
 });

@@ -36,7 +36,7 @@ import { RightDock, type DockTab } from "@/components/RightDock";
 import { TerminalDock } from "@/components/TerminalDock";
 import { browserBridge, hasInAppBrowser, isInAppBrowserTool } from "@/lib/browser-bridge";
 import { evaluatePreviewHealth } from "@/lib/preview-health";
-import { Copy, CheckCheck, ListTodo, PanelRight, SquareTerminal } from "lucide-react";
+import { Copy, CheckCheck, ListTodo, PanelRight, SquareTerminal, PanelLeft } from "lucide-react";
 import { SideChat } from "@/components/SideChat";
 import { UpdatePill } from "@/components/UpdatePill";
 
@@ -73,15 +73,15 @@ const TOOL_NARRATION: Record<string, string> = {
   search_knowledge: "Searching the module map",
   read_module: "Reading a module card",
   build_knowledge: "Mapping the folder's modules",
-  read_file: "Opening a file",
+  read_file: "Reading what is already there",
   read_image: "Looking at an image",
-  list_files: "Listing the files",
-  list_dir: "Listing the folder",
+  list_files: "Looking at how the folder is laid out",
+  list_dir: "Looking at how the folder is laid out",
   directory_tree: "Mapping the folder",
-  get_file_info: "Checking a file",
+  get_file_info: "Checking what the file holds",
   grep_search: "Searching the code",
   search_files: "Searching the code",
-  find_files: "Finding files",
+  find_files: "Looking for the file that matters",
   search_symbols: "Searching the code",
   go_to_definition: "Following the code",
   find_references: "Following the code",
@@ -90,7 +90,7 @@ const TOOL_NARRATION: Record<string, string> = {
   read_diagnostics: "Reading the errors",
   get_errors: "Reading the errors",
   get_stack_trace: "Reading the errors",
-  read_package_json: "Reading the setup",
+  read_package_json: "Checking which stack this project already uses",
   analyze_project: "Getting a read on the project",
   detect_framework: "Getting a read on the project",
   read_project_structure: "Getting a read on the project",
@@ -211,11 +211,15 @@ function humanToolLabel(action: { type: string; command?: string | undefined; in
   // a call that came back without one.
   const intent = action.intent?.trim().replace(/\s+/g, " ");
   if (intent && intent.length > 3) return intent.charAt(0).toUpperCase() + intent.slice(1);
+  // A label from the tables is a bare activity, so it gets spoken in the first person like the
+  // model's own sentence would have been — "I'm installing dependencies", not "Installing dependencies".
+  const speak = (phrase: string) => `I'm ${phrase.charAt(0).toLowerCase() + phrase.slice(1)}`;
   const command = action.command?.trim().toLowerCase() ?? "";
   if (action.type === "run_command" || action.type === "run_terminal") {
-    for (const [pattern, label] of COMMAND_NARRATION) if (pattern.test(command)) return label;
+    for (const [pattern, label] of COMMAND_NARRATION) if (pattern.test(command)) return speak(label);
   }
-  return TOOL_NARRATION[action.type] ?? action.type.replaceAll("_", " ");
+  const label = TOOL_NARRATION[action.type];
+  return label ? speak(label) : action.type.replaceAll("_", " ");
 }
 
 interface Message {
@@ -1096,8 +1100,8 @@ export function Index() {
       // Conversation is decided by what the message asks for, never by whether a folder happens
       // to be open — that is what made "hey" answer with a workspace listing. Anything wanting
       // live or external information stays on the full agent path so it can actually go look.
-      const wantsLiveInfo = /\b(search|look\s?up|latest|current|today|this\s+week|news|weather|price|version|changelog|github|gitlab|website|url|http|docs?|documentation)\b/i.test(text);
-      const isChatTurn = !intent.requiresTools && !intent.requiresWork && !hasAttachments && !wantsLiveInfo;
+      const wantsLiveInfo = /\b(search|look\s?up|browse|web|internet|online|latest|current|today|this\s+week|news|weather|price|version|changelog|github|gitlab|website|url|http|docs?|documentation)\b/i.test(text);
+      const isChatTurn = !intent.requiresTools && !intent.requiresWork && !intent.webFirst && !hasAttachments && !wantsLiveInfo;
       const directAttachmentReview = hasAttachments && !intent.requiresWork;
       if (directAttachmentReview) {
         fullPrompt = `${fullPrompt}\n\n[ATTACHMENT REVIEW MODE] The user's attached file content is already included above — text, PDF text, or the image itself. Review it directly now with actions: [] and status complete. Never call file or workspace tools to read an attachment. Answer the actual question in your own words using the attached evidence, with a direct verdict and specific reasons.`;
@@ -1177,12 +1181,15 @@ export function Index() {
         node.status = health.healthy ? "completed" : "failed";
         node.durationMs = Date.now() - started;
         node.output = [
-          `Preview ${health.healthy ? "verified" : "needs work"}: ${title || pageUrl}`,
+          `Preview ${health.healthy ? "passed the DOM check" : "needs work"}: ${title || pageUrl}`,
           `URL: ${pageUrl}`,
-          layout ? `Layout: ${layout.textLength ?? 0} chars of text, ${layout.visibleElements ?? 0} visible elements, ${layout.richElements ?? 0} media/interactive, ${layout.styleTags ?? 0} inline styles, ${layout.stylesheetLinks ?? 0} stylesheet links.` : "Layout: could not be inspected.",
+          layout ? `Layout: ${layout.textLength ?? 0} chars of text, ${layout.visibleElements ?? 0} visible elements, ${layout.richElements ?? 0} media/interactive, ${layout.cssRules ?? 0} CSS rules in effect, ${layout.designedControls ?? 0}/${layout.controls ?? 0} controls carrying any styling of their own, ${layout.overlaps ?? 0} overlapping text blocks, content paints ${Math.round((Number(layout.contentWidth ?? 0) / Math.max(1, Number(layout.viewportWidth ?? 1))) * 100)}% of the ${layout.viewportWidth ?? 0}px window, default browser font: ${layout.defaultFont ? "yes" : "no"}.` : "Layout: could not be inspected.",
           text ? `Visible page text:\n${text.slice(0, 3000)}` : "Visible page text: (none)",
           health.issues.length ? `Problems:\n${health.issues.map((issue) => `- ${issue}`).join("\n")}` : "Problems: none",
           consoleErrors.length ? `Console errors:\n${consoleErrors.map((entry) => `- ${entry}`).join("\n")}` : "Console errors: none",
+          // The numeric check can only see the DOM, never the design, so it must not be allowed
+          // to read as a verdict the agent can quote instead of looking at the picture.
+          health.healthy && shot?.image ? "This check only proves the DOM loaded. A screenshot of this exact render is attached to your next turn: look at it and say what a person would see — layout, spacing, type, colour — and judge it against the design bar before you call it done." : health.healthy ? "This check only proves the DOM loaded, and no screenshot came back, so the page is visually unverified: take one before calling it done." : "Fix the rendered page for real, then call check_preview again.",
         ].filter(Boolean).join("\n");
         if (shot?.image) {
           node.image = shot.image;
@@ -1208,6 +1215,11 @@ export function Index() {
             styleTags: layout.styleTags,
             stylesheetLinks: layout.stylesheetLinks,
             stylesheetCount: layout.stylesheetCount,
+            cssRules: layout.cssRules,
+            overlaps: layout.overlaps,
+            defaultFont: layout.defaultFont,
+            controls: layout.controls,
+            designedControls: layout.designedControls,
             overlay: layout.overlay || "",
           } : null,
         };
@@ -1331,7 +1343,10 @@ export function Index() {
           currentPhase.activity = "working";
           publish();
           const browserOnlyTurn = hasInAppBrowser() && accessMode === "full" && actions.length > 0 && actions.every((action) => isInAppBrowserTool(action.type));
-          if (!activePath && !browserOnlyTurn) {
+          // A search or a page fetch needs no folder, so an open project is not a precondition
+          // for looking something up.
+          const webOnlyTurn = actions.length > 0 && actions.every((action) => action.type === "web_search" || action.type === "search_documentation");
+          if (!activePath && !browserOnlyTurn && !webOnlyTurn) {
             const canCreate = actions.some((action) => action.type === "create_file" || action.type === "write_file") && !actions.some((action) => action.type === "read_file" || action.type === "list_dir");
             if (!canCreate) {
               // No workspace: skip project actions instead of hardcoding a user-facing
@@ -1437,6 +1452,16 @@ export function Index() {
                     : { ok: false, error: "The user did not allow running JavaScript on this page. Use click_element, fill_input or press_page_key instead." };
                 }
                 else data = await browserBridge.execute(action.type, action, activePath);
+              } else if (!activePath && (action.type === "web_search" || action.type === "search_documentation")) {
+                // The page this app renders cannot call a search engine cross-origin, so the
+                // server does the lookup and hands back what it actually read.
+                const response = await fetch(action.type === "web_search" ? "/api/agent/web/search" : "/api/agent/web/page", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(action.type === "web_search" ? { query: String(action['query'] || action.task || action.prompt || text) } : { url: String(action.url || "") }),
+                  signal: controller.signal,
+                });
+                data = await response.json().catch(() => ({ ok: false, error: "The web request did not return an answer." }));
               } else {
                 const client = await ensureRuntime(activePath!, text);
                 data = await client.execute(action, controller.signal, (output) => { node.output = ((node.output || "") + output).slice(-32000); publish(); });
@@ -1795,7 +1820,18 @@ export function Index() {
         .chat-scroll-area::-webkit-scrollbar { display: none; }
       ` }} />
 
-      <header className="workspace-header">{isLoading && <span role="status" className="workspace-run-state"><span className="run-state-text">Working</span></span>}</header>
+      <header className="workspace-header">
+        <button
+          type="button"
+          className="sidebar-toggle-btn"
+          aria-label="Toggle sidebar"
+          title="Toggle sidebar"
+          onClick={() => window.dispatchEvent(new CustomEvent("calvras:toggle-drawer"))}
+        >
+          <PanelLeft size={18} />
+        </button>
+        {isLoading && <span role="status" className="workspace-run-state"><span className="run-state-text">Working</span></span>}
+      </header>
 
       {/* ── ChapterScrubber — right side, vertically centered ──────────── */}
       {scrubberChapters.length > 0 && !dockOpen && (

@@ -1,20 +1,23 @@
 /** The account signed into this copy of Calvras, read from the session the splash screen set. */
 export const USER_KEY = "calvras_user";
 
-export type CalvrasUser = { provider: "google"; email?: string; name?: string; picture?: string; plan?: string; joinedAt: number; /** The token calvras.com signed when it verified this Google account. The
+export type SignInProvider = "google" | "github";
+
+export type CalvrasUser = { provider: SignInProvider; email?: string; name?: string; picture?: string; plan?: string; joinedAt: number; /** The token calvras.com signed when it verified this account. The
  * app comes back with it on boot and after each task, which is how a plan the owner granted — or a
  * block they applied — reaches this computer. */ session?: string; /** Set by the site, not by anything on this machine: the owner switched this account off. */ blocked?: string; /** What calvras.com answered the last time this app tried to record the
  * sign-in. The Account page shows it, so an account missing from the owner's console has a reason
  * on screen instead of silence. */ recorded?: { at: number; ok: boolean; error?: string } };
 
-/** Only a real Google account counts as signed in. Anything older, blanked or hand-written in
- * storage sends the person to sign-in rather than into an app with no owner behind it. */
+/** Only a real Google or GitHub account counts as signed in. Anything older, blanked or hand-written
+ * in storage sends the person to sign-in rather than into an app with no owner behind it. */
 export function storedUser(): CalvrasUser | null {
   try {
     const raw = window.localStorage.getItem(USER_KEY);
     if (!raw) return null;
     const value = JSON.parse(raw) as Partial<CalvrasUser> | null;
-    return value?.provider === "google" && typeof value.email === "string" && value.email ? value as CalvrasUser : null;
+    const provider = value?.provider === "github" ? "github" : value?.provider === "google" ? "google" : null;
+    return provider && typeof value?.email === "string" && value.email ? { ...value, provider } as CalvrasUser : null;
   } catch { return null; }
 }
 
@@ -26,8 +29,8 @@ export function writeStoredUser(user: CalvrasUser | null) {
 }
 
 /** Whose shelf this computer's data is on. Everything below the sign-in screen belongs to one
- * Google account, so a second person signing in on the same machine never sees the first one's
- * folders, chats or notes. */
+ * account, so a second person signing in on the same machine never sees the first one's folders,
+ * chats or notes — and the same address through Google or GitHub lands on the same shelf. */
 export function accountScope(): string {
   const email = storedUser()?.email;
   return email ? email.toLowerCase() : "signed-out";

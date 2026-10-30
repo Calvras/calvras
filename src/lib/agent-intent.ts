@@ -1,7 +1,7 @@
 import type { AgentAction } from "./agent-run";
 import { TOOL_NAMES } from "./tool-catalog";
 
-const TASK_VERB = /\b(?:check|inspect|read|edit|fix|build|create|implement|run|start|launch|boot|serve|deploy|search|update|test|remove|delete|add|change|replace|rename|move|refactor|redesign|restyle|style|improve|make|write|adjust|increase|decrease|tweak|clean|install|configure|integrate|apply|convert|migrate|hide|show|swap|reorder|align|resize|open|close|set\s+up|setup|help\s+me)\b/i;
+const TASK_VERB = /\b(?:check|inspect|read|edit|fix|build|create|implement|run|start|launch|boot|serve|deploy|search|browse|look\s+up|find\s+out|update|test|remove|delete|add|change|replace|rename|move|refactor|redesign|restyle|style|improve|make|write|adjust|increase|decrease|tweak|clean|install|configure|integrate|apply|convert|migrate|hide|show|swap|reorder|align|resize|open|close|set\s+up|setup|help\s+me)\b/i;
 const WORK_VERB = /\b(?:edit|fix|build|create|implement|remove|delete|add|change|replace|rename|move|refactor|redesign|restyle|style|improve|make|write|adjust|increase|decrease|tweak|clean|install|configure|integrate|apply|convert|migrate|hide|show|swap|reorder|align|resize|deploy|update|test|run|start|launch|boot|serve|open|close)\b/i;
 
 /** A screenshot only sets a visual target when the words around it ask for that screen. */
@@ -47,6 +47,13 @@ const withScheme = (url: string) => (/^https?:\/\//i.test(url) ? url : `https://
 const ABOUT_AGENT = /\b(?:you|calvras|the model)\s+(?:can|could|know|know\s+of|support|supports|have|has|are|is|do|does)\b/i;
 const WORKSPACE_TARGET = /\b(?:files?|folders?|directories|directory|repo|repository|codebase|project|workspace|components?|classes?\b|pages?|routes?|src\/|\.tsx?\b|\.jsx?\b|\.py\b)\b/i;
 
+/** Facts that change after the model was trained. A "what is the latest X" question answered
+ * without a lookup is a guess, and the same question gave two different version numbers in
+ * consecutive runs — so a turn like this has to run a real tool. */
+const LIVE_FACT = /\b(?:latest|newest|most\s+recent|current\s+(?:version|release|price|status|news)|today|tonight|this\s+(?:week|month)|right\s+now|these\s+days|news|headlines|weather|forecast|exchange\s+rate|release\s+notes|changelog)\b/i;
+/** The clock is in the prompt, so "what's the date" is not a reason to search. */
+const CLOCK_QUESTION = /\b(?:what(?:'s| is)\s+(?:the\s+)?(?:date|time|day)(?:\s+(?:today|now))?|what\s+time\s+is\s+it|what(?:'s| is)\s+(?:today|tomorrow)(?:'s)?\s+(?:date|day)|what\s+day\s+is\s+(?:it|today))\b/i;
+
 export function asksAboutTheAgent(text: string): boolean {
   return ABOUT_AGENT.test(text) && !WORKSPACE_TARGET.test(text);
 }
@@ -59,7 +66,8 @@ export function agentIntent(text: string, previousRequests: string[], hasProject
   // "Show me what you can do" carries the verb "show", which made it a workspace task and answered a
   // question about the agent with a folder listing. A question about itself needs no tools.
   const aboutItself = asksForCapabilities(request) || asksAboutTheAgent(request);
-  const requiresTools = !aboutItself && (mentionsTool(request) || (!explanation && TASK_VERB.test(request)));
+  const needsLive = !aboutItself && !CLOCK_QUESTION.test(request) && LIVE_FACT.test(request);
+  const requiresTools = needsLive || (!aboutItself && (mentionsTool(request) || (!explanation && TASK_VERB.test(request))));
   // A task that asks for a change must produce a real side effect. Without this the loop
   // accepted "I removed it" as an answer even when no tool ever touched the workspace.
   const requiresWork = !aboutItself && !explanation && WORK_VERB.test(request);
@@ -73,15 +81,15 @@ export function agentIntent(text: string, previousRequests: string[], hasProject
   // "navigate", so they are not in this list.)
   const changesSomething = /\b(?:edit|fix|build|create|implement|remove|delete|add|change|replace|rename|move|refactor|redesign|restyle|style|improve|write|adjust|increase|decrease|tweak|clean|install|configure|integrate|convert|migrate|hide|show|swap|reorder|align|resize|deploy|update)\b/i;
   const browsing = !changesSomething.test(request)
-    && /\b(?:open|visit|browse|go\s+to|navigat\w*|search\s+for|look\s+up|google)\b/i.test(request)
-    && /\b(?:website|web\s*site|web\s*page|page|site|url|link|browser|online)\b/i.test(request);
+    && /\b(?:open|visit|browse|go\s+to|navigat\w*|search|look\s+up|google|find\s+out)\b/i.test(request)
+    && (/\b(?:website|web\s*site|web\s*page|web|page|site|url|link|browser|online|internet)\b/i.test(request) || /\bgoogle\b/i.test(request));
   const webIntent = /\b(?:open|browse|visit|go\s+to|check|look|search|find|apply|book|message|sign\s*up|fill|scroll|click)\b/i.test(request);
   const webFirst = !explanation && webIntent && (Boolean(address) || browsing);
   const initialActions: AgentAction[] = server
     ? [{ type: "read_file", path: "package.json" }]
     : webFirst && address
     ? [{ type: "open_browser", url: withScheme(address) }]
-    : webFirst && hasProject
+    : webFirst || (needsLive && !hasProject)
     ? [{ type: "web_search", query: request }]
     : requiresTools && hasProject ? [{ type: "list_dir", path: "." }] : [];
   const finishOnServerReady = requiresTools && /\b(?:run|start|launch|boot|serve)\b/i.test(request) && /\b(?:server|app|application|project|website|site|it|this|workspace)\b/i.test(request) && !/\b(?:build|create|fix|edit|implement|update|deploy|tests?|lint|typecheck|install|electron|desktop|mobile|android|ios|production)\b/i.test(request);

@@ -35,10 +35,13 @@ type Desktop = {
   openSystemNotifications?: () => Promise<{ ok: boolean; message?: string }>;
   openExternal?: (url: string) => Promise<{ ok: boolean; message?: string }>;
   appVersion?: () => Promise<string>;
-  /** Google's answer, with the ID token the site needs to record this sign-in and whatever the
+  /** The provider's answer, with the token the site needs to record this sign-in and whatever the
    * desktop shell already reported to calvras.com on the way back. */
-  googleSignIn?: () => Promise<{ ok?: boolean; email?: string; name?: string; picture?: string; idToken?: string | null; error?: string; site?: { ok: boolean; plan?: string; session?: string; blocked?: boolean; error?: string } }>;
+  googleSignIn?: () => Promise<SignInAnswer>;
+  githubSignIn?: () => Promise<SignInAnswer>;
 };
+
+type SignInAnswer = { ok?: boolean; email?: string; name?: string; picture?: string; idToken?: string | null; githubToken?: string | null; error?: string; site?: { ok: boolean; plan?: string; session?: string; blocked?: boolean; error?: string } };
 const desktop = (): Desktop | undefined => typeof window === "undefined" ? undefined : (window as unknown as { __electron?: Desktop }).__electron;
 
 const SECURITY_PRESETS: { value: Policies["securityPreset"]; label: string; description: string }[] = [
@@ -243,18 +246,21 @@ export function SettingsPanel({ open, onOpenChange }: { open: boolean; onOpenCha
   }, []);
 
   /** The owner's console can only show a sign-in this app reported, and that report happens once, in
-   * passing, while Google is still opening. This asks Google again and takes another run at the site,
-   * so an account that slipped through the first time is not missing for good. */
+   * passing, while the provider is still opening. This asks the same provider again and takes another
+   * run at the site, so an account that slipped through the first time is not missing for good. */
   const reportAgain = async () => {
-    const bridge = desktop();
     const account = storedUser();
-    if (!bridge?.googleSignIn || !account) { setNotice("Google sign-in runs in the Calvras desktop app."); return; }
+    const bridge = desktop();
+    const github = account?.provider === "github";
+    const call = github ? bridge?.githubSignIn : bridge?.googleSignIn;
+    const label = github ? "GitHub" : "Google";
+    if (!call || !account) { setNotice(`${label} sign-in runs in the Calvras desktop app.`); return; }
     setRecording(true);
     setError("");
     try {
-      const answer = await bridge.googleSignIn();
-      if (!answer?.ok || !answer.email) { setError(answer?.error || "Google sign-in failed."); return; }
-      const report = answer.site || await reportSignIn({ ...(answer.idToken ? { idToken: answer.idToken } : {}), platform: navigator.platform, version: await installedVersion() });
+      const answer = await call();
+      if (!answer?.ok || !answer.email) { setError(answer?.error || `${label} sign-in failed.`); return; }
+      const report = answer.site || await reportSignIn({ ...(answer.idToken ? { idToken: answer.idToken } : {}), ...(answer.githubToken ? { githubToken: answer.githubToken } : {}), platform: navigator.platform, version: await installedVersion() });
       writeStoredUser({
         ...account,
         ...(report.ok && report.plan ? { plan: report.plan } : {}),

@@ -102,8 +102,8 @@
 }
 
 .dark {
-  /* Palette sampled from the reference: #121212 page, lifted soft-black panels */
-  --background: oklch(0.182 0 0);
+  /* Main app background: #181818 */
+  --background: oklch(0.209 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.215 0 0);
   --card-foreground: oklch(0.985 0 0);
@@ -173,6 +173,9 @@
   padding: 6rem 1.5rem 2rem;
   text-align: center;
 }
+/* A docked sidebar and a docked preview can leave this column narrow; balance the two lines
+   instead of letting the last word sit alone. */
+.chat-welcome h1 { text-wrap: balance; }
 
 .chat-composer {
   position: absolute;
@@ -274,6 +277,93 @@
 .nf-link { font-size: 13px; color: #b7b7ba; border-bottom: 1px solid transparent; padding-bottom: 3px; transition: color .2s, border-color .2s; }
 .nf-link:hover { color: #f5f0e8; border-bottom-color: #f5f0e855; }
 .nf-foot { margin-top: 46px; padding-top: 26px; border-top: 1px solid #ffffff0f; }
+.calvras-landing { background: #181818; color: #ededed; }
+.calvras-landing .landing-hero { min-height: 0; background: #181818; }
+.calvras-landing .landing-hero-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr); align-items: center; gap: clamp(36px, 5vw, 64px); max-width: 1180px; min-height: 510px; margin: 0 auto; padding: 42px 7% 54px; }
+.calvras-landing .landing-hero-content { max-width: none; padding: 0; }
+.calvras-landing .landing-hero h1 { margin: 22px 0 20px; font-size: clamp(46px, 4.6vw, 64px); line-height: 1.02; }
+.calvras-landing .landing-lede { max-width: 430px; font-size: 14px; line-height: 1.8; }
+.landing-product-preview { overflow: hidden; border: 1px solid #303030; border-radius: 9px; background: #1c1c1c; box-shadow: 0 24px 70px #0002; }
+.preview-window-bar { display: flex; align-items: center; gap: 9px; height: 46px; padding: 0 15px; border-bottom: 1px solid #ffffff10; color: #bdbdbd; font-size: 10px; }
+.preview-mark { display: grid; width: 18px; height: 18px; place-items: center; border: 1px solid #ffffff28; border-radius: 5px; color: #eee; font-size: 10px; font-weight: 600; }
+.preview-window-bar i { padding: 0 3px; color: #5f5f5f; font-style: normal; }
+.preview-live { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; color: #9d9d9d; font-size: 8px; letter-spacing: .08em; }
+.preview-live b { width: 6px; height: 6px; border-radius: 50%; background: #9d9d9d; }
+.preview-workspace { display: grid; grid-template-columns: 146px 1fr; min-height: 280px; }
+.preview-sidebar { display: flex; flex-direction: column; gap: 8px; padding: 18px 11px; border-right: 1px solid #ffffff10; }
+.preview-sidebar-label, .preview-main-label { color: #787878; font-size: 8px; letter-spacing: .14em; }
+.preview-project { display: flex; align-items: center; gap: 7px; margin-top: 2px; color: #c1c1c1; font-size: 10px; }
+.preview-project svg { color: #8e8e8e; }
+.preview-sidebar-label-spaced { margin-top: 20px; }
+.preview-nav-item { padding: 7px 8px; border-radius: 4px; color: #929292; font-size: 10px; }
+.preview-nav-item.is-active { background: #ffffff0c; color: #ededed; }
+.preview-main { padding: 24px 22px 18px; }
+.preview-main h2 { margin: 12px 0 6px; color: #eee; font-size: 18px; font-weight: 450; letter-spacing: -.025em; }
+.preview-main > p { margin: 0; color: #969696; font-size: 10px; line-height: 1.6; }
+.preview-change { display: flex; align-items: center; gap: 9px; margin-top: 23px; padding: 12px 10px; border: 1px solid #ffffff11; border-radius: 5px; color: #aaa; }
+.preview-change > span:nth-child(2) { display: grid; gap: 4px; }
+.preview-change b { color: #d6d6d6; font-size: 10px; font-weight: 500; }
+.preview-change small { color: #858585; font-size: 9px; }
+.preview-done { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; color: #b1b1b1; font-size: 9px; }
+.preview-terminal { display: grid; gap: 8px; margin-top: 12px; padding: 11px 10px; border-radius: 5px; background: #171717; }
+.preview-terminal > span, .preview-terminal > b { display: flex; align-items: center; gap: 6px; font-size: 9px; }
+.preview-terminal > span { color: #818181; letter-spacing: .08em; }
+.preview-terminal > b { color: #c4c4c4; font-weight: 450; }
+.preview-footer { display: flex; justify-content: space-between; gap: 12px; padding: 12px 15px; border-top: 1px solid #ffffff10; color: #8e8e8e; font-size: 9px; }
+.preview-footer span:last-child { display: inline-flex; align-items: center; gap: 5px; color: #b4b4b4; }
+.calvras-landing .landing-grain, .calvras-landing .landing-watermark, .calvras-landing .landing-hero-bottom { display: none; }
+.calvras-landing .landing-nav { max-width: 1180px; padding: 18px 7%; }
+.calvras-landing .landing-brand img { width: 34px; height: 34px; }
+.calvras-landing .landing-brand span { font-size: 12px; letter-spacing: .2em; }
+.calvras-landing .landing-nav nav { gap: 26px; }
+.calvras-landing .landing-nav nav .landing-nav-download { border-color: #ffffff22; border-radius: 5px; padding: 9px 13px; background: transparent; }
+.calvras-landing .landing-nav nav .landing-nav-download:hover { background: #ffffff0b; }
+.calvras-landing .landing-hero-content { max-width: 1180px; padding: clamp(76px, 12vh, 132px) 7% 72px; }
+.calvras-landing .landing-eyebrow { letter-spacing: .15em; color: #969696; }
+.calvras-landing .landing-hero h1 { max-width: 850px; margin: 24px 0 22px; font-size: clamp(48px, 7.2vw, 88px); line-height: 1.02; font-weight: 450; letter-spacing: -.06em; }
+.calvras-landing .landing-hero h1 span, .calvras-landing .home-journey-heading h2 span { color: #a9a9a9; }
+.landing-lede { max-width: 520px; margin: 0; color: #a5a5a5; font-size: 15px; line-height: 1.75; }
+.landing-hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 24px; margin-top: 30px; }
+.calvras-landing .landing-download { gap: 11px; padding: 12px 15px; border-radius: 5px; background: #e7e7e7; color: #181818; box-shadow: none; transition: background .18s ease; }
+.calvras-landing .landing-download:hover { background: #fff; transform: none; box-shadow: none; }
+.calvras-landing .landing-text-link { border: 0; padding: 0; color: #b5b5b5; }
+.calvras-landing .landing-text-link:hover { color: #fff; }
+.calvras-landing .download-details { margin-top: 16px; color: #888; }
+.landing-capability-strip { display: flex; flex-wrap: wrap; gap: 18px 34px; max-width: 1180px; margin: 0 auto; padding: 18px 7% 28px; border-top: 1px solid #ffffff12; color: #a5a5a5; font-size: 12px; }
+.landing-capability-strip span { display: inline-flex; align-items: center; gap: 8px; }
+.landing-capability-strip svg { color: #b8b8b8; }
+.calvras-landing .home-journey { max-width: none; padding: 76px max(7%, calc((100% - 1015px) / 2)) 86px; border-top: 1px solid #ffffff12; }
+.calvras-landing .home-journey-heading { text-align: left; }
+.calvras-landing .home-journey-heading h2 { margin: 18px 0 12px; font-size: clamp(34px, 4.2vw, 54px); font-weight: 430; letter-spacing: -.05em; }
+.calvras-landing .home-journey-heading p { color: #a0a0a0; font-size: 14px; }
+.calvras-landing .home-step-cards { gap: 0; margin-top: 36px; border-top: 1px solid #ffffff18; }
+.calvras-landing .home-step-cards article { padding: 22px 24px 18px 0; border: 0; border-radius: 0; background: transparent; }
+.calvras-landing .home-step-cards article + article { border-left: 1px solid #ffffff18; padding-left: 24px; }
+.calvras-landing .home-step-cards article:hover { border-color: #ffffff18; }
+.calvras-landing .home-step-cards article > span { color: #8a8a8a; }
+.calvras-landing .home-step-cards h3 { margin: 18px 0 8px; font-size: 14px; font-weight: 500; }
+.calvras-landing .home-step-cards p { color: #9d9d9d; font-size: 12px; line-height: 1.7; }
+.landing-bottom-cta { display: flex; justify-content: space-between; align-items: center; gap: 24px; max-width: 1015px; margin: 0 auto; padding: 28px 0 76px; border-top: 1px solid #ffffff12; }
+.landing-bottom-cta h2 { margin: 10px 0 6px; font-size: 22px; font-weight: 450; letter-spacing: -.03em; }
+.landing-bottom-cta p { color: #969696; font-size: 12px; }
+.calvras-landing .marketing-footer { border-top-color: #ffffff12; }
+@media (max-width: 760px) {
+  .calvras-landing .landing-hero-grid { grid-template-columns: 1fr; gap: 36px; min-height: 0; padding: 54px 7% 38px; }
+  .landing-product-preview { max-width: 560px; }
+  .preview-workspace { grid-template-columns: 112px 1fr; min-height: 250px; }
+  .preview-sidebar { padding: 15px 9px; }
+  .preview-main { padding: 20px 14px 14px; }
+  .calvras-landing .landing-hero-content { padding: 78px 7% 58px; }
+  .calvras-landing .landing-hero h1 { font-size: clamp(44px, 12vw, 68px); }
+  .calvras-landing .landing-nav { padding: 14px 7%; }
+  .calvras-landing .landing-nav nav { gap: 12px; }
+  .landing-capability-strip { gap: 12px 20px; }
+  .calvras-landing .home-journey { padding: 58px 7% 60px; }
+  .calvras-landing .home-step-cards { grid-template-columns: 1fr; }
+  .calvras-landing .home-step-cards article, .calvras-landing .home-step-cards article + article { padding: 20px 0; border-left: 0; border-bottom: 1px solid #ffffff14; }
+  .calvras-landing .home-step-cards h3 { margin-top: 12px; }
+  .landing-bottom-cta { align-items: flex-start; flex-direction: column; margin: 0 7%; padding-bottom: 54px; }
+}
 .landing-hero-bottom { position: absolute; bottom: 32px; left: 8%; right: 8%; display: flex; align-items: center; justify-content: space-between; font-size: 9px; letter-spacing: .22em; color: #69696d; }
 .landing-scroll-line { width: 1px; height: 40px; background: linear-gradient(transparent, #8c8c8e); animation: calvras-line 3s ease-in-out infinite; }
 .landing-pitch { display: grid; grid-template-columns: 1fr 1fr; gap: 8%; align-items: center; max-width: 1440px; padding: 130px 8% 100px; margin: auto; }
@@ -541,7 +631,7 @@
    lighter surface that carries the rail and the history strip, and the conversation sits on it as
    a darker rounded card with a hairline edge and no shadow. Chrome rgb(24,24,24), card
    rgb(18,18,18), edge rgb(40,40,40), corner ~10px. */
-:root { --app-title-height: 0px; --app-rail-width: 56px; --app-sidebar-width: 236px; --app-shell-gap: 6px; --app-panel-radius: 10px; --app-chrome: oklch(0.212 0 0); --app-hairline: oklch(0.275 0 0); }
+:root { --app-title-height: 0px; --app-sidebar-width: 272px; --app-shell-gap: 6px; --app-panel-radius: 10px; --app-chrome: oklch(0.212 0 0); --app-hairline: oklch(0.275 0 0); }
 /* Chromium's default scroller is a light gutter with arrow buttons at both ends, which reads as a
    foreign widget inside these dark panels. Any area that scrolls inherits the quiet one instead. */
 * { scrollbar-width: thin; scrollbar-color: oklch(1 0 0 / 16%) transparent; }
@@ -551,29 +641,73 @@
 ::-webkit-scrollbar-thumb:hover { background: oklch(1 0 0 / 26%); background-clip: content-box; }
 ::-webkit-scrollbar-button, ::-webkit-scrollbar-button:start:decrement, ::-webkit-scrollbar-button:end:increment { display: none; width: 0; height: 0; }
 ::-webkit-scrollbar-corner { background: transparent; }
-/* The left column is a drawer rather than a fixed wall: nothing of the conversation is given up to
-   it, and the only thing permanently on screen when it is shut is the toggle chip. */
-.app-drawer { position: fixed; z-index: 47; top: var(--app-title-height); bottom: 0; left: 0; display: flex; width: calc(var(--app-rail-width) + var(--app-sidebar-width)); background: var(--app-chrome); border-right: 1px solid var(--app-hairline); box-shadow: 14px 0 32px oklch(0 0 0 / 38%); transform: translateX(-100%); visibility: hidden; transition: transform .26s cubic-bezier(.22, 1, .36, 1), visibility 0s .26s; }
+/* Sidebar toggle — a single SVG icon button in the conversation header's left corner. */
+.sidebar-toggle-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 8px; color: oklch(0.62 0 0); background: transparent; cursor: pointer; transition: color .16s, background .16s; flex-shrink: 0; }
+.sidebar-toggle-btn:hover { background: oklch(1 0 0 / 7%); color: oklch(0.92 0 0); }
+.sidebar-toggle-btn:focus-visible { outline: 2px solid oklch(0.65 0 0); outline-offset: 2px; }
+/* The sidebar is one slide-out column rather than a rail plus a flyout: brand and close at the top,
+   a cream New chat control, a search that is always visible, then projects and recent conversations
+   in a single list. Everything is a hairline apart on the flat chrome surface. */
+.app-drawer { position: fixed; z-index: 47; top: var(--app-title-height); bottom: 0; left: 0; width: var(--app-sidebar-width); background: var(--app-chrome); border-right: 1px solid var(--app-hairline); box-shadow: none; transform: translateX(-100%); visibility: hidden; transition: transform .26s cubic-bezier(.22, 1, .36, 1), visibility 0s .26s; }
 .app-drawer.is-open { transform: translateX(0); visibility: visible; transition: transform .26s cubic-bezier(.22, 1, .36, 1); }
-.app-rail { display: flex; flex-direction: column; align-items: center; gap: 7px; width: var(--app-rail-width); flex-shrink: 0; padding-top: 14px; }
+/* The drawer docks: the page gives up its width so the conversation slides across with it
+   instead of disappearing underneath. Below 900px there is no room to split, so it overlays. */
+.chat-page { transition: margin-left .26s cubic-bezier(.22, 1, .36, 1), width .26s cubic-bezier(.22, 1, .36, 1); }
+html[data-drawer="open"] .chat-page { margin-left: var(--app-sidebar-width); width: calc(100% - var(--app-sidebar-width)); }
+html[data-reduce-motion="true"] .chat-page, html[data-reduce-motion="true"] .app-drawer { transition: none; }
+@media (max-width: 900px) {
+  html[data-drawer="open"] .chat-page { margin-left: 0; width: 100%; }
+  .app-drawer { width: min(var(--app-sidebar-width), 82vw); box-shadow: 24px 0 48px oklch(0 0 0 / 42%); }
+}
+.app-sidebar { display: flex; height: 100%; min-width: 0; flex-direction: column; overflow: hidden; }
+.sidebar-head { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; height: 54px; padding: 0 12px 0 14px; }
+.sidebar-brand { display: flex; align-items: center; gap: 9px; padding: 4px 6px; border-radius: 8px; color: oklch(0.95 0 0); font-size: 13px; font-weight: 600; letter-spacing: -.01em; cursor: pointer; }
+.sidebar-brand:hover { background: oklch(1 0 0 / 6%); }
+.sidebar-brand img { width: 22px; height: 22px; object-fit: contain; }
+.sidebar-close { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 7px; color: oklch(0.62 0 0); cursor: pointer; transition: color .16s, background .16s; }
+.sidebar-close:hover { background: oklch(1 0 0 / 7%); color: oklch(0.95 0 0); }
+.sidebar-actions { display: flex; flex-shrink: 0; flex-direction: column; gap: 8px; padding: 4px 12px 14px; }
+.sidebar-new { display: flex; align-items: center; justify-content: center; gap: 7px; height: 34px; border-radius: 999px; background: #f5f0e8; color: #1a1512; font-size: 12.5px; font-weight: 500; cursor: pointer; transition: background .16s; }
+.sidebar-new:hover { background: #fbf8f2; }
+.sidebar-search { display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 10px; border: 1px solid oklch(1 0 0 / 8%); border-radius: 9px; background: oklch(1 0 0 / 4%); color: oklch(0.6 0 0); transition: border-color .16s, background .16s; }
+.sidebar-search:focus-within { border-color: oklch(1 0 0 / 18%); background: oklch(1 0 0 / 6%); }
+.sidebar-search input { min-width: 0; flex: 1; border: 0; background: transparent; outline: none; color: oklch(0.92 0 0); font-size: 12px; }
+.sidebar-search input::placeholder { color: oklch(0.55 0 0); }
+.sidebar-list { min-height: 0; flex: 1; overflow-y: auto; padding: 0 8px 16px; }
+.sidebar-caption { display: flex; justify-content: space-between; padding: 14px 6px 6px; color: oklch(0.6 0 0); font-size: 10.5px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; }
+.sidebar-row { position: relative; display: flex; align-items: center; gap: 6px; min-height: 32px; padding: 4px 6px; border-radius: 7px; color: oklch(0.84 0 0); font-size: 12.5px; }
+.sidebar-row:hover { background: oklch(1 0 0 / 5%); color: oklch(0.95 0 0); }
+.sidebar-recent { padding-left: 12px; }
+.sidebar-disclosure { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 4px; color: oklch(0.55 0 0); cursor: pointer; }
+.sidebar-disclosure:hover { color: oklch(0.85 0 0); }
+.sidebar-row-icon { flex-shrink: 0; color: oklch(0.58 0 0); }
+.sidebar-row-label { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; cursor: pointer; }
+.sidebar-tasks { margin: 2px 0 4px 22px; padding-left: 8px; border-left: 1px solid oklch(1 0 0 / 8%); }
+.sidebar-task { display: block; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 5px 6px; border-radius: 6px; color: oklch(0.62 0 0); font-size: 11.5px; text-align: left; cursor: pointer; }
+.sidebar-task:hover { background: oklch(1 0 0 / 5%); color: oklch(0.92 0 0); }
+.sidebar-tasks p { padding: 5px 6px; color: oklch(0.45 0 0); font-size: 11px; }
+.sidebar-empty { padding: 18px 10px; color: oklch(0.5 0 0); font-size: 11.5px; line-height: 1.6; }
+.sidebar-menu { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); }
+.sidebar-menu > summary { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 5px; color: oklch(0.62 0 0); list-style: none; cursor: pointer; opacity: 0; transition: opacity .12s, background .12s, color .12s; }
+.sidebar-menu > summary::-webkit-details-marker { display: none; }
+.sidebar-row:hover .sidebar-menu > summary, .sidebar-menu[open] > summary { opacity: 1; }
+.sidebar-menu > summary:hover { background: oklch(1 0 0 / 10%); color: oklch(0.95 0 0); }
+.sidebar-menu > div { position: absolute; z-index: 2; right: 0; top: calc(100% + 4px); min-width: 148px; padding: 4px; border: 1px solid oklch(1 0 0 / 10%); border-radius: 9px; background: #2c2c2c; box-shadow: 0 12px 28px oklch(0 0 0 / 45%); }
+.sidebar-menu button { display: block; width: 100%; padding: 7px 9px; border-radius: 6px; color: oklch(0.84 0 0); font-size: 12px; text-align: left; cursor: pointer; }
+.sidebar-menu button:hover { background: oklch(1 0 0 / 8%); color: oklch(0.98 0 0); }
+.sidebar-foot { flex-shrink: 0; padding: 8px; border-top: 1px solid oklch(1 0 0 / 7%); }
+.sidebar-foot-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px; border-radius: 7px; color: oklch(0.78 0 0); font-size: 12.5px; cursor: pointer; }
+.sidebar-foot-row:hover { background: oklch(1 0 0 / 6%); color: oklch(0.97 0 0); }
+.sidebar-foot-row span { flex: 1; text-align: left; }
+.sidebar-foot-row kbd { padding: 1px 5px; border: 1px solid oklch(1 0 0 / 10%); border-radius: 4px; color: oklch(0.55 0 0); font-family: inherit; font-size: 10px; }
+.sidebar-foot-note { padding: 6px 8px 2px; color: oklch(0.45 0 0); font-size: 10px; }
+
 .shell-icon-button { display: inline-flex; width: 34px; height: 34px; flex-shrink: 0; align-items: center; justify-content: center; border-radius: 9px; color: oklch(0.76 0 0); transition: color .16s, background .16s; cursor: pointer; }
 .shell-icon-button:hover, .shell-icon-button.is-selected { background: oklch(1 0 0 / 7%); color: oklch(0.96 0 0); }
 .shell-icon-button:focus-visible { outline: 2px solid oklch(0.65 0 0); outline-offset: 2px; }
-.rail-brand { margin-bottom: 16px; }
-.app-sidebar { display: flex; flex: 1; min-width: 0; flex-direction: column; overflow: hidden; }
-.sidebar-action, .sidebar-row { display: flex; align-items: center; gap: 9px; width: 100%; padding: 9px 10px; border-radius: 8px; color: oklch(0.86 0 0); font-size: 13px; line-height: 1.45; text-align: left; }
-.sidebar-action:hover, .sidebar-row:hover { background: oklch(1 0 0 / 5%); }
-.sidebar-caption { display: flex; justify-content: space-between; padding: 0 10px 10px; font-size: 11px; color: oklch(0.7 0 0); }
 .chat-page { position: relative; height: calc(100dvh - var(--app-title-height)); min-height: 0; }
-/* The desktop rail only exists inside Electron, so it doubles as the switch between the two
-   layouts: with it, the conversation is an inset card; without it, the page stays full-bleed. */
-html:has(.app-rail) body { background-color: var(--app-chrome); }
-/* The window chrome is flat grey everywhere else, so the menu bar carries the one colour in the
-   shell: a blue wash that starts at the very top edge and is gone before it reaches the content,
-   so the band reads as light falling in rather than a stripe of colour. */
-[data-titlebar] { --titlebar-blue: radial-gradient(56% 84% at 50% 0%, oklch(0.53 0.19 262 / 32%) 0%, oklch(0.53 0.19 262 / 10%) 54%, oklch(0.53 0.19 262 / 0%) 86%); background: var(--titlebar-blue), var(--background); border-bottom: 1px solid oklch(1 0 0 / 6%); }
-html:has(.app-rail) [data-titlebar] { background: var(--titlebar-blue), var(--app-chrome); border-bottom-color: transparent; }
-html:has(.app-rail) .chat-page { position: fixed; z-index: 20; top: calc(var(--app-title-height) + var(--app-shell-gap)); right: var(--app-shell-gap); bottom: var(--app-shell-gap); left: var(--app-shell-gap); width: auto; height: auto; border-style: solid; border-width: 1px 0 0 1px; border-color: var(--app-hairline); border-radius: var(--app-panel-radius); overflow: hidden; }
+/* Keep the blue title-bar wash consistent across the full band. */
+[data-titlebar] { background: #202020; border-bottom: 1px solid oklch(1 0 0 / 6%); }
 .chat-scroll-area { height: 100% !important; }
 .chat-history { padding-top: 6rem; }
 .workspace-header { position: absolute; z-index: 21; top: 0; left: 0; right: 0; height: 58px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 0 24px; background: var(--background); }
@@ -595,7 +729,7 @@ html:has(.app-rail) .chat-page { position: fixed; z-index: 20; top: calc(var(--a
 .terminal-panel-input input { min-width: 0; flex: 1; background: transparent; border: 0; outline: none; color: oklch(0.92 0 0); font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; font-size: 12px; }
 .terminal-panel-input input::placeholder { color: oklch(0.5 0 0); }
 .chat-page[data-terminal="open"] .chat-composer { bottom: calc(var(--terminal-height) + 1rem); }
-.chat-page[data-browser="open"] .terminal-panel { right: var(--browser-dock-width); }
+.chat-page[data-browser="open"] .terminal-panel { right: var(--dock-reserve); }
 .workspace-actions { position: absolute; z-index: 24; top: 12px; right: 18px; display: flex; align-items: center; gap: 8px; }
 .settings-screen { position: fixed; z-index: 60; top: var(--app-title-height); right: 0; bottom: 0; left: 0; display: flex; overflow: hidden; background: var(--background); }
 .settings-rail { position: relative; z-index: 2; flex-shrink: 0; width: 236px; display: flex; flex-direction: column; overflow-y: auto; scrollbar-width: none; border-right: 1px solid oklch(1 0 0 / 7%); background: oklch(0.205 0 0); }
@@ -673,21 +807,19 @@ html:has(.app-rail) .chat-page { position: fixed; z-index: 20; top: calc(var(--a
 .settings-rule-effect.is-group { display: block; padding: 10px 0 4px; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: oklch(0.55 0 0); }
 .settings-tool-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 12px; color: oklch(0.8 0 0); }
 .settings-dialog { max-width: 640px; }
-html[data-palette="midnight"] .chat-page, html[data-palette="midnight"] .workspace-header { --background: oklch(0.13 0 0); }
+html[data-palette="midnight"] .chat-page, html[data-palette="midnight"] .workspace-header { --background: oklch(0.209 0 0); }
 html[data-reduce-motion="true"] *, html[data-reduce-motion="true"] *::before, html[data-reduce-motion="true"] *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 @media(max-width: 760px) { .workspace-run-state { display: none; } .workspace-header { padding-left: 16px; } .workspace-header > div { max-width: 50%; } .workspace-project-switcher { right: 126px; max-width: 38%; } .workspace-project-switcher button { max-width: 100%; padding-inline: 8px; } .workspace-actions { right: 12px; } .settings-content { padding: 26px 20px 70px; } .settings-row { flex-wrap: wrap; gap: 12px; } .settings-rail { width: min(236px, 82vw); } }
-.sidebar-menu { position: relative; margin-left: auto; flex-shrink: 0; }
-.sidebar-menu summary { display: flex; padding: 4px; list-style: none; color: oklch(0.68 0 0); cursor: pointer; }
-.sidebar-menu summary::-webkit-details-marker { display: none; }
-.sidebar-menu > div { position: absolute; z-index: 2; top: 24px; right: 0; width: 155px; border: 1px solid oklch(1 0 0 / 9%); border-radius: 9px; background: oklch(0.26 0 0); padding: 4px; box-shadow: 0 10px 25px oklch(0 0 0 / 20%); }
-.sidebar-menu > div button { width: 100%; border-radius: 5px; padding: 8px; text-align: left; font-size: 11px; }
-.sidebar-menu > div button:hover { background: oklch(1 0 0 / 5%); }
+
 
 /* ── Split browser panel ─────────────────────────────────────────────────────
    The agent browses in a real, visible Electron <webview> docked on the right.
    While a task drives the page, the panel is locked and the chat shifts left. */
 :root { --browser-dock-width: clamp(380px, 46vw, 760px); }
-.browser-dock { position: absolute; z-index: 32; top: 0; right: 0; bottom: 0; width: var(--browser-dock-width); min-width: 340px; max-width: calc(100% - 360px); display: flex; flex-direction: column; overflow: hidden; border-radius: 0; background: var(--background); border-left: 1px solid oklch(1 0 0 / 8%); box-shadow: none; will-change: transform; transition: transform .32s cubic-bezier(.22, 1, .36, 1), opacity .22s ease, visibility 0s; }
+/* The stored dock width is a preference, not a promise: the panel gives way before the
+   conversation drops below a readable column, with or without the sidebar docked. */
+.chat-page { --dock-reserve: min(var(--browser-dock-width), calc(100% - 480px)); }
+.browser-dock { position: absolute; z-index: 32; top: 0; right: 0; bottom: 0; width: var(--dock-reserve); display: flex; flex-direction: column; overflow: hidden; border-radius: 0; background: var(--background); border-left: 1px solid oklch(1 0 0 / 8%); box-shadow: none; will-change: transform; transition: transform .32s cubic-bezier(.22, 1, .36, 1), opacity .22s ease, visibility 0s; }
 .browser-dock[data-open="false"] { transform: translateX(calc(100% + 14px)); opacity: 0; visibility: hidden; pointer-events: none; transition: transform .26s cubic-bezier(.4, 0, 1, 1), opacity .18s ease, visibility 0s linear .26s; }
 .browser-dock[data-open="true"] { transform: translateX(0); opacity: 1; visibility: visible; pointer-events: auto; transition: transform .32s cubic-bezier(.22, 1, .36, 1), opacity .22s ease, visibility 0s; }
 .browser-dock-resize { position: absolute; z-index: 8; top: 0; bottom: 0; left: 0; width: 12px; display: flex; align-items: center; justify-content: center; cursor: col-resize; touch-action: none; }
@@ -794,11 +926,11 @@ html[data-reduce-motion="true"] *, html[data-reduce-motion="true"] *::before, ht
 .browser-dock-lock-pill .is-working { width: 5px; height: 5px; border-radius: 50%; background: var(--dock-milk-ink); animation: browser-dock-pulse 1.2s ease-in-out infinite; }
 .browser-dock-lock p { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); font-size: 10.5px; color: oklch(0.86 0 0); opacity: .82; white-space: nowrap; }
 @keyframes browser-dock-pulse { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
-.chat-page[data-browser="open"] .workspace-header { right: var(--browser-dock-width); }
-.chat-page[data-browser="open"] .workspace-project-switcher { right: calc(var(--browser-dock-width) + 146px); }
-.chat-page[data-browser="open"] .workspace-actions { right: calc(var(--browser-dock-width) + 18px); }
-.chat-page[data-browser="open"] .chat-composer { right: var(--browser-dock-width); }
-.chat-page[data-browser="open"] .chat-scroll-area { padding-right: var(--browser-dock-width); }
+.chat-page[data-browser="open"] .workspace-header { right: var(--dock-reserve); }
+.chat-page[data-browser="open"] .workspace-project-switcher { right: calc(var(--dock-reserve) + 146px); }
+.chat-page[data-browser="open"] .workspace-actions { right: calc(var(--dock-reserve) + 18px); }
+.chat-page[data-browser="open"] .chat-composer { right: var(--dock-reserve); }
+.chat-page[data-browser="open"] .chat-scroll-area { padding-right: var(--dock-reserve); }
 @media (max-width: 980px) { :root { --browser-dock-width: clamp(340px, 52vw, 620px); } }
 
 /* ── Owner console (/admin-calvras) ─────────────────────────────────────────────

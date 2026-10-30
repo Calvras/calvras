@@ -381,22 +381,96 @@ class BrowserBridge {
       const clean = (value) => String(value ?? "").replace(/\\s+/g, " ").trim();
       const text = clean(document.body?.innerText);
       const all = [...document.querySelectorAll("body *")];
-      let visibleElements = 0;
-      let richElements = 0;
+      const seen = [];
+      const CONTROL = ["BUTTON", "INPUT", "SELECT", "TEXTAREA"];
       for (const node of all) {
         const rect = node.getBoundingClientRect();
         if (rect.width <= 0 || rect.height <= 0) continue;
         const style = getComputedStyle(node);
         if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) continue;
-        visibleElements += 1;
         const tag = node.tagName;
-        if (["IMG", "SVG", "CANVAS", "VIDEO", "PICTURE", "IFRAME", "BUTTON", "INPUT", "SELECT", "TEXTAREA"].includes(tag) || (tag === "A" && node.getAttribute("href"))) richElements += 1;
+        // Links are deliberately not controls here: an article's plain text links are unstyled by
+        // design, and counting them would flag a perfectly good page as raw.
+        const control = CONTROL.includes(tag);
+        seen.push({ node, control, leaf: !node.firstElementChild, rich: control || ["IMG", "SVG", "CANVAS", "VIDEO", "PICTURE", "IFRAME"].includes(tag) || (tag === "A" && node.getAttribute("href")), rect });
+      }
+      const visibleElements = seen.length;
+      const richElements = seen.filter((entry) => entry.rich).length;
+      // Three pieces of evidence a page is actually styled, because a stylesheet tag in the
+      // head proves nothing: Tailwind v4 injects its CSS from JS, so a page where no class
+      // ever applied still reports style tags while rendering as raw stacked text.
+      let cssRules = 0;
+      const countRules = (rules) => {
+        for (const rule of rules) {
+          // A style rule carries its own empty cssRules list, so testing for the property alone
+          // recurses into every leaf and counts nothing. Tailwind v4 also hides its real rules
+          // inside @layer blocks the browser counts as one entry each, so descend into those.
+          if (rule.selectorText !== undefined) cssRules += 1;
+          else if (rule.cssRules?.length) countRules(rule.cssRules);
+          else cssRules += 1;
+        }
+      };
+      for (const sheet of document.styleSheets) {
+        try { countRules(sheet.cssRules ?? []); } catch { cssRules += 1; }
+      }
+      const bodyFont = clean(document.body ? getComputedStyle(document.body).fontFamily : "").replace(/["']/g, "").toLowerCase();
+      const defaultFont = ["serif", "times new roman"].includes(bodyFont.split(",")[0].trim());
+      const leaves = seen.filter((entry) => entry.leaf).slice(0, 200).map((entry) => entry.rect);
+      let overlaps = 0;
+      for (let i = 0; i < leaves.length; i += 1) {
+        for (let j = i + 1; j < leaves.length; j += 1) {
+          const a = leaves[i], b = leaves[j];
+          const w = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+          const h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+          if (w > 2 && h > 2 && w * h > 0.65 * Math.min(a.width * a.height, b.width * b.height)) overlaps += 1;
+        }
+      }
+      // The tell that actually catches a half-wired design system: Tailwind's preflight resets
+      // every control to a flat, transparent, zero-padding box, so a page whose utility classes
+      // never applied has CSS in effect and still looks like raw HTML. What separates it from a
+      // designed page is whether anybody ever styled a control.
+      const canvas = clean(document.body ? getComputedStyle(document.body).backgroundColor : "");
+      const controls = seen.filter((entry) => entry.control);
+      let designedControls = 0;
+      for (const entry of controls) {
+        const style = getComputedStyle(entry.node);
+        const padded = parseFloat(style.paddingInline) > 1 || parseFloat(style.paddingBlock) > 1;
+        const shaped = ["borderTopLeftRadius", "borderTopRightRadius", "borderBottomLeftRadius", "borderBottomRightRadius"].some((corner) => parseFloat(style[corner]) > 0);
+        const background = clean(style.backgroundColor);
+        const filled = background !== "" && background !== "transparent" && background !== canvas;
+        if (padded || shaped || filled) designedControls += 1;
       }
       const overlay = document.querySelector("vite-error-overlay, nextjs-portal, [data-nextjs-dialog], #webpack-dev-server-client-overlay");
       let overlayText = "";
       if (overlay) {
         const root = overlay.shadowRoot || overlay;
         overlayText = clean(root.textContent).slice(0, 1200);
+      }
+      // Does the page paint the window it was given, or does it float as a column in bare
+      // background? A generated site whose root carries a dark body colour and a light max-width
+      // container looks finished in a narrow panel and broken the moment anyone opens it wide.
+      const viewportWidth = Math.max(1, window.innerWidth);
+      let paintedLeft = viewportWidth;
+      let paintedRight = 0;
+      for (const entry of seen) {
+        if (entry.rect.width < 2 || entry.rect.height < 2) continue;
+        paintedLeft = Math.min(paintedLeft, entry.rect.left);
+        paintedRight = Math.max(paintedRight, entry.rect.right);
+      }
+      const contentWidth = Math.max(0, paintedRight - paintedLeft);
+      const htmlColor = clean(document.documentElement ? getComputedStyle(document.documentElement).backgroundColor : "");
+      const isPainted = (color) => color !== "" && color !== "transparent" && !/^rgba\(\s*0,\s*0,\s*0,\s*0\s*\)$/.test(color);
+      const backdrop = isPainted(canvas) ? canvas : isPainted(htmlColor) ? htmlColor : "";
+      let surfaceColor = "";
+      let surfaceArea = 0;
+      for (const entry of seen) {
+        if (entry.leaf) continue;
+        const background = clean(getComputedStyle(entry.node).backgroundColor);
+        if (!isPainted(background) || background === backdrop) continue;
+        const area = entry.rect.width * entry.rect.height;
+        if (area <= surfaceArea) continue;
+        surfaceArea = area;
+        surfaceColor = background;
       }
       return {
         url: location.href,
@@ -408,8 +482,17 @@ class BrowserBridge {
         styleTags: document.querySelectorAll("style").length,
         stylesheetLinks: document.querySelectorAll('link[rel="stylesheet"]').length,
         stylesheetCount: document.styleSheets.length,
+        cssRules,
+        defaultFont,
+        overlaps,
+        controls: controls.length,
+        designedControls,
         bodyHeight: Math.round(document.body?.scrollHeight ?? 0),
         viewportHeight: window.innerHeight,
+        viewportWidth,
+        contentWidth: Math.round(contentWidth),
+        backdrop,
+        surfaceColor,
         overlay: overlay ? overlay.tagName.toLowerCase() : "",
         overlayText,
       };

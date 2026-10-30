@@ -19,7 +19,7 @@ const { createSignInReport } = createRequire(import.meta.url)("../../electron/si
     getInfo?: () => { platform: string; version: string };
     wait?: (ms: number) => Promise<void>;
     now?: () => number;
-  }) => { report: (idToken: string) => Promise<Record<string, unknown>>; replay: () => Promise<Record<string, unknown> | null> };
+  }) => { report: (token: string, provider?: "google" | "github") => Promise<Record<string, unknown>>; replay: () => Promise<Record<string, unknown> | null> };
 };
 
 // A stand-in for safeStorage with the same shape: whatever it writes is not readable as text.
@@ -127,6 +127,25 @@ describe("the desktop shell reporting a sign-in to calvras.com", () => {
     const { sent, fetchImpl } = site({ body: { ok: true } });
     const report = createSignInReport({ fs, file, storage, fetchImpl, wait: noWaiting });
     await expect(report.report("")).resolves.toEqual({ ok: false, error: "Google did not hand back an identity token." });
+    expect(sent).toHaveLength(0);
+  });
+
+  it("sends a GitHub access token as githubToken, and replays it as one", async () => {
+    const offline = site({ throws: true });
+    const first = createSignInReport({ fs, file, storage, fetchImpl: offline.fetchImpl, wait: noWaiting });
+    await first.report("gho_fixture", "github");
+    expect(JSON.parse(offline.sent[0]!.body)).toEqual({ githubToken: "gho_fixture", platform: process.platform, version: "" });
+
+    const back = site({ body: { ok: true, email: "ada@github.dev" } });
+    const second = createSignInReport({ fs, file, storage, fetchImpl: back.fetchImpl, wait: noWaiting });
+    await expect(second.replay()).resolves.toMatchObject({ ok: true, email: "ada@github.dev" });
+    expect(JSON.parse(back.sent[0]!.body).githubToken).toBe("gho_fixture");
+  });
+
+  it("says GitHub handed back no token instead of blaming Google", async () => {
+    const { sent, fetchImpl } = site({ body: { ok: true } });
+    const report = createSignInReport({ fs, file, storage, fetchImpl, wait: noWaiting });
+    await expect(report.report("", "github")).resolves.toEqual({ ok: false, error: "GitHub did not hand back an access token." });
     expect(sent).toHaveLength(0);
   });
 });

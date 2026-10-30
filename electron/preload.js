@@ -22,6 +22,9 @@ contextBridge.exposeInMainWorld('__electron', {
   // Google sign-in through the system browser, answering when the account comes back
   googleSignIn: () => ipcRenderer.invoke('google-sign-in'),
 
+  // GitHub sign-in, same loopback return through the system browser
+  githubSignIn: () => ipcRenderer.invoke('github-sign-in'),
+
   // Agent-controlled browser: set a real file on a page's <input type=file>
   browserSetFileInput: (webContentsId, selector, projectRoot, relativePath) => ipcRenderer.invoke('browser-set-file-input', webContentsId, selector, projectRoot, relativePath),
   // Bring a document the user named (outside the workspace) into the project, with their confirmation

@@ -1,4 +1,5 @@
 import { verifyGoogleIdentity } from "./runtime/google-identity";
+import { verifyGitHubIdentity } from "./runtime/github-identity";
 import { accountEvents, accountUsage, deleteAccount, findByEmail, grantPlan, ledgerRevision, listAccounts, note, readMeta, recentEvents, recentPrompts, recordSignIn, recordTask, setBlocked, summarize, touchUsed, usageBoard, writeMeta, type D1Database } from "./runtime/ledger";
 import { issueSession, readSession, signingKey } from "./runtime/session-token";
 
@@ -171,10 +172,13 @@ export async function handleSiteApi(request: Request, env: SiteEnv): Promise<Res
   if (url.pathname === "/api/site/session" && request.method === "POST") {
     const payload = await body(request);
     const idToken = String(payload["idToken"] || "");
-    if (!idToken) return json({ ok: false, error: "A Google sign-in token is required." }, 400);
-    if (!env.GOOGLE_CLIENT_ID) return json({ ok: false, error: "The site cannot check Google sign-ins yet: no client id is configured." }, 503);
+    const githubToken = String(payload["githubToken"] || "");
+    if (!idToken && !githubToken) return json({ ok: false, error: "A sign-in token is required." }, 400);
+    if (idToken && !env.GOOGLE_CLIENT_ID) return json({ ok: false, error: "The site cannot check Google sign-ins yet: no client id is configured." }, 503);
     try {
-      const identity = await verifyGoogleIdentity(idToken, env.GOOGLE_CLIENT_ID);
+      // Google's proof is a signed token checked against its keys; GitHub's is an access token
+      // checked against GitHub's own API. Either way the identity comes from the provider.
+      const identity = githubToken ? await verifyGitHubIdentity(githubToken) : await verifyGoogleIdentity(idToken, env.GOOGLE_CLIENT_ID!);
       const blocked = await findByEmail(db, identity.email);
       if (blocked?.blocked) {
         // Record the attempt, refuse the sign-in, and say why in the console rather than silently.

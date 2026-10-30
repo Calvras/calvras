@@ -141,7 +141,7 @@ export async function runAgent(options: {
   let fidelityGateDisarmed = false;
   let serverGateDisarmed = false;
   const previewBlocking = () => previewBroken() && !previewGateDisarmed;
-  const previewPromptState = () => previewHealth ? (previewHealth.healthy ? " The visible preview passed its last check." : ` The visible preview FAILS verification: ${previewProblems() || "the page did not render"}. Fix it and call check_preview; completion is blocked until it passes.`) : "";
+  const previewPromptState = () => previewHealth ? (previewHealth.healthy ? " The visible preview's DOM check passed, which says nothing about whether it looks designed — judge its screenshot." : ` The visible preview FAILS verification: ${previewProblems() || "the page did not render"}. Fix it and call check_preview; completion is blocked until it passes.`) : "";
   // When the user supplied a screenshot, a rebuilt screen has to be measured against it.
   // The check runs in the visible page and returns real pixel numbers.
   let fidelityEnforced = options.hasReferenceImage === true;
@@ -347,7 +347,7 @@ export async function runAgent(options: {
     const preview = result.preview;
     const evidence = preview
       ? preview.ok
-        ? ` A visible preview was loaded and checked automatically${preview.title ? ` ("${preview.title}")` : ""}: the rendered layout, page text and ${preview.consoleErrors?.length ? `${preview.consoleErrors.length} console error(s)` : "console errors"} are in the tool result${preview.screenshot ? ", with a screenshot" : ""}. ${preview.healthy === false ? `The automatic check FAILED: ${(preview.issues ?? []).slice(0, 5).join("; ") || "the page is blank, unstyled, or erroring"}. Fix the actual rendered page, then call check_preview. Completion is blocked while the preview fails.` : "The automatic check passed: the page has real content, loads its styles, has no error overlay, and reports no meaningful console errors."} Use check_preview after UI changes.`
+        ? ` A visible preview was loaded and measured automatically${preview.title ? ` ("${preview.title}")` : ""}: the rendered layout, page text and ${preview.consoleErrors?.length ? `${preview.consoleErrors.length} console error(s)` : "console errors"} are in the tool result${preview.screenshot ? ", with a screenshot" : ""}. ${preview.healthy === false ? `The automatic check FAILED: ${(preview.issues ?? []).slice(0, 5).join("; ") || "the page is blank, unstyled, or erroring"}. Fix the actual rendered page, then call check_preview. Completion is blocked while the preview fails.` : "The automatic check found no fault, but it only measures the DOM — it cannot see whether the page looks designed. Treat it as unfinished until you have looked at the attached screenshot of this render, described what a person would see, and fixed anything below the design bar. Saying the preview passed because this number passed is a false claim."} Use check_preview after UI changes.`
         : " The visible preview did not load, so the UI is not verified. Fix why the page does not load before completing."
       : "";
     history.push(`[SERVER READY] The server ${result.url ? `at ${result.url} ` : ""}is running and responded to an HTTP check.${evidence}${options.finishOnServerReady ? " If the launch goal is achieved and the preview is sound, return status complete with a short confirmation of what you checked." : " Continue the task and verify the UI before declaring it done."}`);
@@ -452,7 +452,7 @@ export async function runAgent(options: {
             options.signal.throwIfAborted();
             if (!previewBroken()) {
               previewChecks = 0;
-              history.push("[PREVIEW VERIFIED] A fresh reload of the preview now passes the rendered check. Do not claim anything the page does not show; return status complete with a short, accurate confirmation.");
+              history.push("[PREVIEW VERIFIED] A fresh reload of the preview now passes the DOM check. That check cannot see design: before you finish, look at the screenshot attached to this turn and describe what the page actually looks like. Do not claim anything the page does not show, and never report a render as good on the strength of this number.");
               idleRounds = 0;
               continue;
             }
@@ -567,6 +567,9 @@ export async function runAgent(options: {
             continue;
           }
           const rounds = ++idleRounds;
+          // A round that did nothing but ask something in prose is the agent trying to have a
+          // conversation with a chat bubble. The question belongs on the card in their input.
+          const askedInProse = reply.actions.length === 0 && /[?]/.test(reply.message);
           if (rounds >= IDLE_ROUND_LIMIT) {
             // Several explicit continuations in. The agent's own last words are the honest
             // thing to show; what stayed open belongs in the timeline and the journal, never
@@ -576,7 +579,7 @@ export async function runAgent(options: {
               ? { status: "finished", message: reply.message }
               : { status: "blocked", ...(reply.message.trim() ? { message: reply.message } : {}), ...carried() };
           }
-          history.push(`[AGENT UPDATE]\n${reply.message}\n[CONTINUE] No actions were executed. ${unresolvedFailures ? "Previous tools failed — retry, recover, or return status blocked." : previewBroken() ? `The rendered preview still fails verification: ${previewProblems() || "the page did not render"}. Fix the actual page, then call check_preview before completing.` : browserNeedsVerification ? "Opening a browser is not UI verification. Drive the real page: fill_input the control that matters, click_element the button that acts, wait_for_element for the response, then take_screenshot or inspect_element and read what actually came back. If the change you just made affects this page, exercise it again after the change. A feature that was never used is not verified." : pendingWorkers.size ? `Wait for delegated jobs with read_agent or ask_subagent before completing: ${[...pendingWorkers].join(", ")}` : options.requiresWork && !workDone ? "This request asks for a real change, and nothing in the workspace has changed yet. A sentence describing the change is not the change itself. Edit the code that actually renders or defines the thing, or run the command that performs the work — deleting an attachment, screenshot, or unrelated image is not a substitute. Then verify and complete." : needsVerification || serverNeedsVerification ? "Verify the latest change or check_server readiness before completing." : "Take the first useful action now. For a fully answered question, return status complete."}`);
+          history.push(`[AGENT UPDATE]\n${reply.message}\n[CONTINUE] No actions were executed. ${unresolvedFailures ? "Previous tools failed — retry, recover, or return status blocked." : previewBroken() ? `The rendered preview still fails verification: ${previewProblems() || "the page did not render"}. Fix the actual page, then call check_preview before completing.` : browserNeedsVerification ? "Opening a browser is not UI verification. Drive the real page: fill_input the control that matters, click_element the button that acts, wait_for_element for the response, then take_screenshot or inspect_element and read what actually came back. If the change you just made affects this page, exercise it again after the change. A feature that was never used is not verified." : pendingWorkers.size ? `Wait for delegated jobs with read_agent or ask_subagent before completing: ${[...pendingWorkers].join(", ")}` : options.requiresWork && !workDone ? "This request asks for a real change, and nothing in the workspace has changed yet. A sentence describing the change is not the change itself. Edit the code that actually renders or defines the thing, or run the command that performs the work — deleting an attachment, screenshot, or unrelated image is not a substitute. Then verify and complete." : needsVerification || serverNeedsVerification ? "Verify the latest change or check_server readiness before completing." : askedInProse ? "You asked the user something and left it in the message, where nothing can be answered. Call ask_user {question, options:[...]} with that one question — it renders in their input box, which is where their reply actually comes from — and keep the prose to what you already did. One question, not a list of them." : "Take the first useful action now. For a fully answered question, return status complete."}`);
           continue;
         }
         if (reply.message.trim()) options.onPhaseComplete?.(reply.message);
