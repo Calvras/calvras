@@ -6,8 +6,8 @@ commands, drives a browser, and shows you what it did while it does it. It is ma
 product is the app, and calvras.com is the site, the download, and the update feed. There
 is no web version of the app — the site never runs the agent.
 
-Current published build: **10.0.9** (`Calvras-Setup-10.0.9.exe`, or `Calvras-10.0.9-win.zip` unpacked).
-Sign-in is Google only, by decision.
+Current published build: **10.1.0** (`Calvras-Setup-10.1.0.exe`, or `Calvras-10.1.0-win.zip` unpacked).
+Sign-in is Google or GitHub, by decision.
 
 ## How it behaves
 
@@ -138,16 +138,19 @@ Roughly 70 tools are callable in a turn (`src/lib/tool-catalog.ts` and the runti
   It refuses to launch anything it did not write.
 
 **What the site learns about an account**
-- Signing in with Google writes one row on calvras.com: your email, display name, the city and country
-  Cloudflare read off the request, your platform, the app version and a sign-in count. That row is what
-  carries your plan, and it is also what lets the owner switch your account off. Sign in from a second
-  city and the console lists both, newest first, up to the last four places it has seen you.
+- Signing in with Google or GitHub writes one row on calvras.com: your email, display name, the city and
+  country Cloudflare read off the request, your platform, the app version and a sign-in count. That row
+  is what carries your plan, and it is also what lets the owner switch your account off. Sign in from a
+  second city and the console lists both, newest first, up to the last four places it has seen you.
+  Google proves the person with a signed token checked against Google's keys; GitHub proves it with an
+  access token the site checks against GitHub's own API, and only an address GitHub marks verified is
+  accepted. The same email through either provider is one account, not two.
 - The desktop app makes that report itself, from its own process, and keeps the sign-in for one retry on
   the next launch if the site never answered. Settings → Account says in plain words whether calvras.com
   knows about this sign-in, with a **Send again** button when it does not.
 - The app then sends one line per finished turn — the first 300 characters of what you typed, whether
   it finished, how many actions it took and how long it took. Never a file, never a key, never the
-  agent's reply. It goes with a session token the site signed at that same Google verification, so a
+  agent's reply. It goes with a session token the site signed at that same verification, so a
   report cannot be attributed to somebody else.
 - This stops the moment you turn **Telemetry** off in Settings (it is on by default), and it stops on
   its own for a build that predates the session token. Turning it off means the owner's console shows
@@ -180,6 +183,12 @@ Roughly 70 tools are callable in a turn (`src/lib/tool-catalog.ts` and the runti
   Sales panel needs a Payments AI credential on the site, which is not set, so it says "Store not
   connected" rather than showing numbers it does not have.
 - **Old sign-ins hold no session token.** An account that signed in before 10.0.7 cannot be blocked or
-  report usage until it goes through Google once more.
-- **Email sign-in is gone on purpose** — Google only; there is no outbox or SMTP path.
+  report usage until it signs in through Google or GitHub once more.
+- **GitHub sign-in needs an OAuth App registered for this install.** The button is live, but until
+  `github-oauth.json` (client id and secret) is placed beside `google-oauth.json` in
+  `%LOCALAPPDATA%\Calvras`, it answers that GitHub sign-in is not configured on this computer rather
+  than opening a broken browser tab. That app's redirect URL must be exactly
+  `http://127.0.0.1:53682/callback` — GitHub compares the callback literally, port included, so the
+  app cannot take a free port per sign-in.
+- **Email sign-in is gone on purpose** — a provider signs you in; there is no outbox or SMTP path.
 - Screen/pointer control is Windows-only today; that's the only platform the app ships on.
