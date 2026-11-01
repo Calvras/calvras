@@ -38,16 +38,19 @@ describe("public site surface", () => {
     expect(response.headers.get("content-type")).toContain("application/json");
   });
 
-  it("sells plans from a checkout link, never from a credential in the page", async () => {
-    const { checkoutFor, paidPlans } = await import("@/lib/plans");
+  it("sends a buyer to the hosted RevenueCat checkout, never to a credential in the page", async () => {
+    const { checkoutFor, paidPlans, CHECKOUT_ORIGIN } = await import("@/lib/plans");
     expect(paidPlans.map((plan) => plan.name)).toEqual(["Pro", "Ultra"]);
-    // Empty until the plan exists in the store: the page must not send a buyer to a checkout that cannot take money.
-    expect(paidPlans.every((plan) => plan.planId === "")).toBe(true);
-    expect(checkoutFor("Pro")).toBe("");
+    // The link carries the plan, the billing period and the email the webhook matches the account on.
+    expect(checkoutFor("Pro", "month", "hello@calvras.com")).toBe(`${CHECKOUT_ORIGIN}/checkout?plan=pro&billing=month&email=hello%40calvras.com`);
+    expect(checkoutFor("Ultra", "year", "hello@calvras.com")).toBe(`${CHECKOUT_ORIGIN}/checkout?plan=ultra&billing=year&email=hello%40calvras.com`);
+    // A plan the store does not sell has no checkout rather than one that cannot take money.
     expect(checkoutFor("nothing")).toBe("");
+    expect(checkoutFor("Pro", "month", "")).toBe(`${CHECKOUT_ORIGIN}/checkout?plan=pro&billing=month`);
     const pricing = source("src/routes/pricing.tsx");
+    expect(pricing).toContain('checkoutFor(name, billing)');
     expect(pricing).not.toMatch(/\/api\/agent\/payments/);
-    expect(pricing).not.toMatch(/merchantId|apiKey|pai_live/);
+    expect(pricing).not.toMatch(/merchantId|apiKey|pai_live|pdl_live|rcb_live/);
   });
 
   it("takes the app's Upgrade pill to the browser pricing page", () => {

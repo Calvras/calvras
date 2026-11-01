@@ -176,19 +176,26 @@ Roughly 70 tools are callable in a turn (`src/lib/tool-catalog.ts` and the runti
 
 ## Not shipped yet (stated honestly)
 
-- **Upgrade does not complete a purchase.** The pricing plans exist in the app but have no store plan id
-  wired, so the checkout link is empty and the page says "Not on sale yet" instead of faking a payment.
-- **Owner console: sales are not connected.** `/admin-calvras` runs live on calvras.com against the
-  account ledger — plans, blocks, per-account usage, the daily report and the chat over the ledger. Its
-  Sales panel needs a Payments AI credential on the site, which is not set, so it says "Store not
-  connected" rather than showing numbers it does not have.
+- **Checkout is wired to RevenueCat, and waits on the store's own catalog.** The pricing page's
+  Monthly/Yearly toggle sends a buyer to `/checkout` with the package for that period; RevenueCat
+  renders the payment there, and a paid purchase reaches the account through the signed webhook at
+  `/api/site/billing/webhook`. Until `REVENUECAT_PUBLIC_KEY` and `REVENUECAT_WEBHOOK_SECRET` are set
+  on the Worker — and the `calvras` offering carries packages `pro_month`, `pro_year`, `ultra_month`
+  and `ultra_year` — the page says checkout is not switched on rather than taking money it cannot
+  record. Yearly prices are $79 for Pro and $179 for Ultra.
+- **Owner console: sales come from RevenueCat's webhooks.** `/admin-calvras` runs live on calvras.com
+  against the account ledger — plans, blocks, per-account usage, the daily report and the chat over the
+  ledger. Its Sales panel lists the subscription rows RevenueCat delivered, with each plan's list
+  price; it holds no secret key and never calls RevenueCat's API, so a sale that never reached the
+  webhook is a question for the RevenueCat dashboard.
 - **Old sign-ins hold no session token.** An account that signed in before 10.0.7 cannot be blocked or
   report usage until it signs in through Google or GitHub once more.
-- **GitHub sign-in needs an OAuth App registered for this install.** The button is live, but until
-  `github-oauth.json` (client id and secret) is placed beside `google-oauth.json` in
-  `%LOCALAPPDATA%\Calvras`, it answers that GitHub sign-in is not configured on this computer rather
-  than opening a broken browser tab. That app's redirect URL must be exactly
-  `http://127.0.0.1:53682/callback` — GitHub compares the callback literally, port included, so the
-  app cannot take a free port per sign-in.
+- **Sign-in values travel with the installer.** Both OAuth apps' client ids and secrets are staged
+  into `electron/oauth-defaults.json` at build time, so a download signs in on a laptop that has
+  never held a Calvras config folder; a file in `%LOCALAPPDATA%\Calvras` still wins field by field,
+  which is how the same build gets repointed at another OAuth app without a rebuild. That file is
+  gitignored and holds only install media: PKCE proves the browser and the app are the same client,
+  and GitHub's callback is the fixed `http://127.0.0.1:53682/callback` — GitHub compares the
+  redirect URL literally, port included, so the app cannot take a free port per sign-in.
 - **Email sign-in is gone on purpose** — a provider signs you in; there is no outbox or SMTP path.
 - Screen/pointer control is Windows-only today; that's the only platform the app ships on.

@@ -1,12 +1,11 @@
 'use client';
 
+// The reply-text reveal from the reference (motion-primitives TextEffect), integrated as-is.
+// The chat used to paint each paragraph instantly — text "just popped up". This staggers it in
+// word by word. Because each segment keeps a stable key, a reply that is still streaming only
+// animates the words that are new, and the ones already on screen hold their place.
 import { cn } from '@/lib/utils';
-import {
-  AnimatePresence,
-  motion,
-  TargetAndTransition,
-  Variants,
-} from 'framer-motion';
+import { AnimatePresence, motion, TargetAndTransition, Variants } from 'framer-motion';
 import React from 'react';
 
 type PresetType = 'blur' | 'shake' | 'scale' | 'fade' | 'slide';
@@ -54,10 +53,7 @@ const defaultItemVariants: Variants = {
   exit: { opacity: 0 },
 };
 
-const presetVariants: Record<
-  PresetType,
-  { container: Variants; item: Variants }
-> = {
+const presetVariants: Record<PresetType, { container: Variants; item: Variants }> = {
   blur: {
     container: defaultContainerVariants,
     item: {
@@ -112,11 +108,7 @@ const AnimationComponent: React.FC<{
         {segment}
       </motion.span>
     ) : per === 'word' ? (
-      <motion.span
-        aria-hidden='true'
-        variants={variants}
-        className='inline-block whitespace-pre'
-      >
+      <motion.span aria-hidden='true' variants={variants} className='inline-block whitespace-pre'>
         {segment}
       </motion.span>
     ) : (
@@ -175,25 +167,24 @@ export function TextEffect({
   const selectedVariants = preset
     ? presetVariants[preset]
     : { container: defaultContainerVariants, item: defaultItemVariants };
-  const containerVariants = variants?.container || selectedVariants.container;
+  const containerVariants = (variants?.container || selectedVariants.container) as unknown as Record<string, any>;
   const itemVariants = variants?.item || selectedVariants.item;
   const ariaLabel = per === 'line' ? undefined : children;
 
   const stagger = defaultStaggerTimes[per];
+  const containerTransition = containerVariants['visible']?.transition as { staggerChildren?: number } | undefined;
 
   const delayedContainerVariants: Variants = {
-    hidden: containerVariants['hidden'] ?? {},
+    hidden: containerVariants['hidden'],
     visible: {
       ...containerVariants['visible'],
       transition: {
-        ...(containerVariants['visible'] as TargetAndTransition)?.transition,
-        staggerChildren:
-          (containerVariants['visible'] as TargetAndTransition)?.transition
-            ?.staggerChildren || stagger,
+        ...containerTransition,
+        staggerChildren: containerTransition?.staggerChildren || stagger,
         delayChildren: delay,
       },
     },
-    exit: containerVariants['exit'] ?? {},
+    exit: containerVariants['exit'],
   };
 
   return (
@@ -214,7 +205,7 @@ export function TextEffect({
               segment={segment}
               variants={itemVariants}
               per={per}
-              {...(segmentWrapperClassName !== undefined ? { segmentWrapperClassName } : {})}
+              {...(segmentWrapperClassName ? { segmentWrapperClassName } : {})}
             />
           ))}
         </MotionTag>

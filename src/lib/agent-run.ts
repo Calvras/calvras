@@ -84,6 +84,9 @@ export async function runAgent(options: {
   maxSteps?: number;
   requiresTools?: boolean;
   requiresWork?: boolean;
+  /** The task writes files and no project folder is open. A build in this state stalls on a
+   *  question the model keeps asking in prose, where nothing can answer it. */
+  needsProjectFolder?: boolean;
   initialActions?: AgentAction[];
   finishOnServerReady?: boolean;
   onMessageDelta?: (message: string) => void;
@@ -131,6 +134,17 @@ export async function runAgent(options: {
   // fresh check passes.
   let previewHealth: PreviewState | null = null;
   let previewChecks = 0;
+  /** True while the run's own phase plan still holds untouched steps. Judging a half-built page
+   * is what made a build stop eleven minutes in: the server comes up early, the preview reads as
+   * broken because the later steps have not been written yet, and every round after that spends
+   * itself on the preview instead of the work. So the page is judged once, after the last step. */
+  const buildInProgress = () => plan.total > 0 && plan.open.length > 0;
+  /** Whether a rendered page is even part of this job. A CLI or backend run with a phase plan must
+   * not end up chased by a preview check for a page that was never asked for. */
+  const uiBuildRequested = /\b(?:ui|interface|frontend|front-end|website|web ?app|webpage|page|screen|landing|dashboard|design|react|next\.?js|vue|svelte|html|css|tailwind)\b/i.test(options.prompt);
+  /** An edit made while the build was still running means the last look no longer describes the
+   * page. Held instead of acted on, and turned into one blocking check when the plan completes. */
+  let previewStaleMidBuild = false;
   const previewBroken = () => previewHealth !== null && !previewHealth.healthy;
   const previewProblems = () => (previewHealth?.issues ?? []).slice(0, 5).join("; ");
   // A verification gate that has failed its own checks as many times as it is allowed stops
@@ -140,8 +154,10 @@ export async function runAgent(options: {
   let previewGateDisarmed = false;
   let fidelityGateDisarmed = false;
   let serverGateDisarmed = false;
-  const previewBlocking = () => previewBroken() && !previewGateDisarmed;
-  const previewPromptState = () => previewHealth ? (previewHealth.healthy ? " The visible preview's DOM check passed, which says nothing about whether it looks designed — judge its screenshot." : ` The visible preview FAILS verification: ${previewProblems() || "the page did not render"}. Fix it and call check_preview; completion is blocked until it passes.`) : "";
+  const previewBlocking = () => previewBroken() && !previewGateDisarmed && !buildInProgress();
+  const previewPromptState = () => buildInProgress()
+    ? ` The build is still in progress (${plan.open.length} planned step(s) untouched), so the preview is out of bounds for now: do not call check_preview, compare_to_reference or take_screenshot to judge this half-built page, and do not treat a blank or unstyled preview as a failure to fix right now. It is half-built because you have not built the rest. Keep writing the files the next step needs, and judge the rendered page once, after the last step is marked done.`
+    : previewHealth ? (previewHealth.healthy ? " The visible preview's DOM check passed, which says nothing about whether it looks designed — judge its screenshot." : ` The visible preview FAILS verification: ${previewProblems() || "the page did not render"}. Fix it and call check_preview; completion is blocked until it passes.`) : "";
   // When the user supplied a screenshot, a rebuilt screen has to be measured against it.
   // The check runs in the visible page and returns real pixel numbers.
   let fidelityEnforced = options.hasReferenceImage === true;
@@ -156,10 +172,14 @@ export async function runAgent(options: {
   const previewRendered = () => previewHealth !== null || uiIsOpen;
   /** Armed once the run has both the user's screenshot and real work on screen: the
    * completion claim then needs a measured pixel comparison, not an opinion. */
-  const fidelityArmed = () => fidelityEnforced && !fidelityGateDisarmed && workDone && previewRendered();
+  const fidelityArmed = () => fidelityEnforced && !fidelityGateDisarmed && workDone && previewRendered() && !buildInProgress();
+  /** The screenshot is the specification, but only for a page that is actually built. While the
+   * plan still has steps, a pixel diff against a half-written screen measures the work the run has
+   * not done yet, so the obligation waits rather than firing round after round. */
+  const fidelityHeld = () => fidelityEnforced && !fidelityGateDisarmed && buildInProgress();
   const fidelityPromptState = () => fidelity
     ? (fidelity.matched ? ` The render matches the user's screenshot at ${fidelity.similarity}% similar with the colours and layout in line; read the attached panels before you call it done.` : shapeOnly() ? ` The render was measured against the user's screenshot but the preview panel is a different shape (${fidelity.referenceSize.width}x${fidelity.referenceSize.height} versus ${fidelity.renderedSize.width}x${fidelity.renderedSize.height}), so layout could not be aligned; colours and the picture itself were compared. Say in the reply which part of the screen you could not verify that way.` : ` The render does NOT match the user's screenshot (${fidelity.diff}% different${fidelity.hotspots.length ? `: ${fidelity.hotspots.slice(0, 3).map((item) => `${item.region} ${item.diff}%`).join(", ")}` : ""}) — ${fidelity.reasons.join("; ")}. Fix it and call compare_to_reference; completion is blocked until it passes.`)
-    : (fidelityEnforced && !fidelityGateDisarmed ? " The screen has not yet been compared pixel-by-pixel with the screenshot the user sent; call compare_to_reference once the page renders." : "");
+    : (fidelityHeld() ? " The screenshot comparison waits until the build is finished — the page is half-written right now, so measuring it would only measure the parts you have not built. Keep building." : fidelityEnforced && !fidelityGateDisarmed ? " The screen has not yet been compared pixel-by-pixel with the screenshot the user sent; call compare_to_reference once the page renders." : "");
   const toolHistory: { detailed: string; summary: string }[] = [];
   const actionLedger: string[] = [];
   const pendingWorkers = new Set<string>();
@@ -271,9 +291,18 @@ export async function runAgent(options: {
       }
       const taskState = (result.result as { tasks?: { title?: string; status?: string }[] } | null)?.tasks;
       if (result.ok && ["create_task_list", "plan_tasks", "track_progress", "read_task"].includes(result.action.type) && Array.isArray(taskState)) {
+        const hadSteps = plan.open.length > 0;
         plan.total = taskState.length;
         plan.open = taskState.filter((task) => !["done", "blocked"].includes(String(task.status))).map((task) => String(task.title || "")).filter(Boolean);
         if (plan.open.length) planStuck = 0;
+        // The last step just closed. Everything built after the previous look has never been seen
+        // rendered, so the one thing the run now owes the user is a single pass over the finished
+        // page — the check it was told to hold while it worked.
+        if (hadSteps && plan.open.length === 0 && (previewStaleMidBuild || previewHealth !== null || uiIsOpen || uiBuildRequested) && !previewGateDisarmed) {
+          previewStaleMidBuild = false;
+          previewHealth = { healthy: false, issues: ["The build is finished and the page has not been looked at since the last steps were written. Open the preview once now, judge the screenshot as a person would, fix what falls short, then complete."], url: previewHealth?.url ?? "" };
+          previewChecks = 0;
+        }
       }
       const commandKind = /\bbuild\b/.test(result.action.command ?? "") ? "build" : /\btest\b/.test(result.action.command ?? "") ? "tests" : /\blint\b/.test(result.action.command ?? "") ? "lint" : /\b(?:tsc|typecheck)\b/.test(result.action.command ?? "") ? "typecheck" : result.action.command;
       const identity = result.action.type === "run_command" ? commandKind! : result.action.type.replace(/^run_/, "");
@@ -297,7 +326,7 @@ export async function runAgent(options: {
       const uiProof = ["inspect_element", "take_screenshot", "test_responsive_layout", "fill_input", "click_element", "press_page_key", "upload_file_to_page", "click_at", "hover_at", "drag_at", "type_into_page"];
       if (result.ok && ["open_browser", "navigate_browser"].includes(result.action.type)) { uiIsOpen = true; browserNeedsVerification = true; }
       if (result.ok && uiProof.includes(result.action.type)) browserNeedsVerification = false;
-      if (result.ok && TOOL_RISK[result.action.type] === "edit" && uiIsOpen) browserNeedsVerification = true;
+      if (result.ok && TOOL_RISK[result.action.type] === "edit" && uiIsOpen && !buildInProgress()) browserNeedsVerification = true;
       // The pixel check is the strongest UI evidence there is, so it also clears the
       // "go drive the page yourself" obligation.
       if (result.ok && result.action.type === "compare_to_reference") {
@@ -318,7 +347,13 @@ export async function runAgent(options: {
       if (result.ok && TOOL_RISK[result.action.type] === "edit" && previewHealth) {
         // A new edit means the last visual check no longer describes the page.
         previewChecks = 0;
-        if (previewHealth.healthy) previewHealth = { ...previewHealth, healthy: false, issues: ["The page changed after the last visual check, so it needs a fresh check."] };
+        if (buildInProgress()) {
+          // Deferred: the page is still under construction, and a fresh check mid-build is the
+          // detour that leaves the build unfinished. Recorded and judged when the plan closes.
+          previewStaleMidBuild = true;
+        } else if (previewHealth.healthy) {
+          previewHealth = { ...previewHealth, healthy: false, issues: ["The page changed after the last visual check, so it needs a fresh check."] };
+        }
       }
     }
     unresolvedFailures = effective.some((result) => !result.ok) || failedCommands.size > 0;
@@ -344,6 +379,12 @@ export async function runAgent(options: {
     const verified = results.find((result) => result.ok && ["start_server", "start_dev_server", "check_server"].includes(result.action.type) && (result.result as { ready?: boolean })?.ready === true);
     if (!verified) return;
     const result = verified.result as { url?: string; preview?: { ok?: boolean; healthy?: boolean; issues?: string[]; title?: string; consoleErrors?: string[]; screenshot?: boolean } };
+    if (buildInProgress()) {
+      // The dev server starting is a milestone, not a verdict. Reading its half-rendered page here
+      // is how a run mistakes the scaffold for the finish line and stops.
+      history.push(`[SERVER READY] The server ${result.url ? `at ${result.url} ` : ""}is up with ${plan.open.length} planned step(s) still untouched — next is "${plan.open[0]}". Nothing else about the preview matters right now: the page is meant to be incomplete until you have written it. Do not check, screenshot or judge it, and do not fix a blank or unstyled screen that is simply not built yet. Keep writing the remaining steps, and make the one real pass over the rendered page after the plan closes.`);
+      return;
+    }
     const preview = result.preview;
     const evidence = preview
       ? preview.ok
@@ -441,7 +482,7 @@ export async function runAgent(options: {
         }
         const announcesWork = Boolean(reply.plan?.trim()) || /\b(?:I(?:'ll| will)|let me|going to|next I)\b/i.test(reply.message);
         const unprovenServerClaim = reply.status === "complete" && !serverReadyProof && serverProbes < SERVER_PROBE_LIMIT && (serverTaskRequested || claimsLiveServer(reply.message));
-        if (reply.status !== "complete" || unprovenServerClaim || unresolvedFailures || needsVerification || (serverNeedsVerification && !serverGateDisarmed) || browserNeedsVerification || previewBlocking() || fidelityPending() || batchPending() || (planPending() && !announcesWork) || pendingWorkers.size > 0 || (options.requiresWork && !workDone) || (options.requiresTools && (!executedActions || announcesWork))) {
+        if (reply.status !== "complete" || unprovenServerClaim || unresolvedFailures || needsVerification || (serverNeedsVerification && !serverGateDisarmed) || (browserNeedsVerification && !buildInProgress()) || previewBlocking() || fidelityPending() || batchPending() || (planPending() && !announcesWork) || pendingWorkers.size > 0 || (options.requiresWork && !workDone) || (options.requiresTools && (!executedActions || announcesWork))) {
           if (previewBlocking() && reply.status === "complete") {
             // The model is trying to finish on top of a page that failed its
             // rendered check. Reload it ourselves and re-verify before accepting.
@@ -568,8 +609,11 @@ export async function runAgent(options: {
           }
           const rounds = ++idleRounds;
           // A round that did nothing but ask something in prose is the agent trying to have a
-          // conversation with a chat bubble. The question belongs on the card in their input.
+          // conversation with a chat bubble. With no folder open the one question it keeps
+          // asking — "where should this live?" — already has an answer in the tooling: the first
+          // create_file of the build raises the approval card, and the user's click decides.
           const askedInProse = reply.actions.length === 0 && /[?]/.test(reply.message);
+          const folderNote = "No folder is open, so nothing can be written yet, and a location asked about in prose is a question the user has no way to answer here. Propose it with your next action instead: return a create_file for the project's entry file with its real first contents. The app then shows the user a card asking whether to create that project folder and build there, and nothing is written until they answer. Do not ask where to build again in words.";
           if (rounds >= IDLE_ROUND_LIMIT) {
             // Several explicit continuations in. The agent's own last words are the honest
             // thing to show; what stayed open belongs in the timeline and the journal, never
@@ -579,7 +623,7 @@ export async function runAgent(options: {
               ? { status: "finished", message: reply.message }
               : { status: "blocked", ...(reply.message.trim() ? { message: reply.message } : {}), ...carried() };
           }
-          history.push(`[AGENT UPDATE]\n${reply.message}\n[CONTINUE] No actions were executed. ${unresolvedFailures ? "Previous tools failed — retry, recover, or return status blocked." : previewBroken() ? `The rendered preview still fails verification: ${previewProblems() || "the page did not render"}. Fix the actual page, then call check_preview before completing.` : browserNeedsVerification ? "Opening a browser is not UI verification. Drive the real page: fill_input the control that matters, click_element the button that acts, wait_for_element for the response, then take_screenshot or inspect_element and read what actually came back. If the change you just made affects this page, exercise it again after the change. A feature that was never used is not verified." : pendingWorkers.size ? `Wait for delegated jobs with read_agent or ask_subagent before completing: ${[...pendingWorkers].join(", ")}` : options.requiresWork && !workDone ? "This request asks for a real change, and nothing in the workspace has changed yet. A sentence describing the change is not the change itself. Edit the code that actually renders or defines the thing, or run the command that performs the work — deleting an attachment, screenshot, or unrelated image is not a substitute. Then verify and complete." : needsVerification || serverNeedsVerification ? "Verify the latest change or check_server readiness before completing." : askedInProse ? "You asked the user something and left it in the message, where nothing can be answered. Call ask_user {question, options:[...]} with that one question — it renders in their input box, which is where their reply actually comes from — and keep the prose to what you already did. One question, not a list of them." : "Take the first useful action now. For a fully answered question, return status complete."}`);
+          history.push(`[AGENT UPDATE]\n${reply.message}\n[CONTINUE] No actions were executed. ${unresolvedFailures ? "Previous tools failed — retry, recover, or return status blocked." : previewBlocking() ? `The rendered preview still fails verification: ${previewProblems() || "the page did not render"}. Fix the actual page, then call check_preview before completing.` : browserNeedsVerification && !buildInProgress() ? "Opening a browser is not UI verification. Drive the real page: fill_input the control that matters, click_element the button that acts, wait_for_element for the response, then take_screenshot or inspect_element and read what actually came back. If the change you just made affects this page, exercise it again after the change. A feature that was never used is not verified." : buildInProgress() ? `Your plan still has ${plan.open.length} step(s) untouched and the next one is "${plan.open[0]}". Write that step's real files now — a page half-built is a page worth building, not one worth looking at. Judge the render after the last step.` : pendingWorkers.size ? `Wait for delegated jobs with read_agent or ask_subagent before completing: ${[...pendingWorkers].join(", ")}` : options.needsProjectFolder && !executedActions ? folderNote : options.requiresWork && !workDone ? "This request asks for a real change, and nothing in the workspace has changed yet. A sentence describing the change is not the change itself. Edit the code that actually renders or defines the thing, or run the command that performs the work — deleting an attachment, screenshot, or unrelated image is not a substitute. Then verify and complete." : needsVerification || serverNeedsVerification ? "Verify the latest change or check_server readiness before completing." : askedInProse ? "You asked the user something and left it in the message, where nothing can be answered. Call ask_user {question, options:[...]} with that one question — it renders in their input box, which is where their reply actually comes from — and keep the prose to what you already did. One question, not a list of them." : "Take the first useful action now. For a fully answered question, return status complete."}`);
           continue;
         }
         if (reply.message.trim()) options.onPhaseComplete?.(reply.message);

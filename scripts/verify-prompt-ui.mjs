@@ -43,19 +43,19 @@ try {
   report(`bubble link is underlined (${underline})`, underline.includes("underline"));
   await page.screenshot({ path: path.join(out, "bubble-link.png"), animations: "disabled" });
 
-  // 3 — the working header carries a sentence, and the dots box is gone. The live step is a
-  // sibling <p> of the header button. Older turns in the same transcript also have headers, so
-  // only the present-tense one counts and the newest of those wins.
+  // 3 — the round in flight is open and the agent's own sentence sits under it as body text.
+  // Older turns are in the same transcript, so only the newest expanded round counts.
   const deadline = Date.now() + 150_000;
   let sawStep = false, sawWorking = false;
   while (Date.now() < deadline) {
     const state = await page.evaluate(() => {
-      const live = [...document.querySelectorAll("button")].filter((b) => /Working…|Thinking…/.test(b.innerText)).at(-1) ?? null;
-      const step = live ? live.parentElement?.querySelector("p") ?? null : null;
+      const openRounds = [...document.querySelectorAll(".reply-round > button[aria-expanded='true']")];
+      const live = openRounds.at(-1) ?? null;
+      const prose = live ? live.closest(".reply-round")?.nextElementSibling?.querySelector("p") ?? null : null;
       return {
-        working: Boolean(live && /Working…/.test(live.innerText)),
-        step: step ? step.innerText.replace(/\s+/g, " ").trim() : "",
-        stepSize: step ? getComputedStyle(step).fontSize : "",
+        working: Boolean(live),
+        step: prose ? prose.innerText.replace(/\s+/g, " ").trim() : "",
+        stepSize: prose ? getComputedStyle(prose).fontSize : "",
         dots: document.querySelectorAll("span[style*='agent-pixel-on']").length,
       };
     });
@@ -64,9 +64,9 @@ try {
       sawWorking = true;
       const step = state.step.trim();
       if (step) {
-        report(`live step line reads as prose while it works ("${step.slice(0, 70)}" at ${state.stepSize})`, true);
-        report(`live step is sized as body text, not a caption (${state.stepSize})`, parseFloat(state.stepSize) >= 14);
-        report("the dots box never reappears under the Working header", state.dots === 0, `pixel-dot spans: ${state.dots}`);
+        report(`the round in flight is open and its sentence is on screen ("${step.slice(0, 70)}" at ${state.stepSize})`, true);
+        report(`that sentence is sized as body text, not a caption (${state.stepSize})`, parseFloat(state.stepSize) >= 14);
+        report("the dots box never reappears under a working round", state.dots === 0, `pixel-dot spans: ${state.dots}`);
         await page.screenshot({ path: path.join(out, "live-step.png"), animations: "disabled" });
         sawStep = true;
         break;
@@ -74,8 +74,8 @@ try {
     }
     await page.waitForTimeout(1_000);
   }
-  if (!sawWorking) report("agent reached the Working state", false, "no Working header seen in 150s");
-  else if (!sawStep) report("live step line reads as prose while it works", false, "the working header never grew a sentence under it");
+  if (!sawWorking) report("agent reached a round that is open while it works", false, "no expanded round seen in 150s");
+  else if (!sawStep) report("the round in flight carries the agent's own sentence", false, "the open round never grew a sentence under it");
 
   // 4 — let one turn finish so the settled header and its elapsed wording can be read.
   // Turns from earlier runs are still in the transcript, so only headers that appeared after
@@ -84,9 +84,9 @@ try {
   let settled = "";
   while (Date.now() < settleDeadline) {
     settled = await page.evaluate(() => {
-      const header = [...document.querySelectorAll("button")].map((b, i) => [i, b])
-        .filter(([i, b]) => i >= window.__baseline && /^(Worked for|Thought for)/.test(b.innerText.trim()))
-        .map(([, b]) => b).at(-1);
+      const header = [...document.querySelectorAll("button")]
+        .filter((b, i) => i >= window.__baseline && b.matches(".reply-round > button[aria-expanded]"))
+        .at(-1);
       return header ? header.innerText.replace(/\s+/g, " ").trim() : "";
     });
     if (settled) break;
@@ -96,7 +96,8 @@ try {
     const tail = await page.evaluate(() => document.body.innerText.replace(/\s+/g, " ").slice(-260));
     report("turn finished and produced a settled header", false, `no header appeared; end of view was: ${tail}`);
   }
-  report(`settled header reports elapsed time in words (${settled.slice(0, 60) || "none"})`, /^(Worked|Thought) for \d+ (second|seconds|minute|minutes|min|mins)/.test(settled));
+  report(`the settled header says what its rows add up to (${settled.slice(0, 60) || "none"})`,
+    /^(?:ran \d+ commands?|read \d+ files?|edited \d+ files?|searched \d+ times?|fetched \d+ pages?|\d+ failed|Thought it through|Worked)(?: · .*)?$/.test(settled));
   await page.screenshot({ path: path.join(out, "settled.png"), animations: "disabled" });
 } catch (error) {
   report("harness completed without throwing", false, String(error && error.message ? error.message : error).split("\n")[0]);

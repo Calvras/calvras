@@ -1,14 +1,52 @@
 import { type ReactNode, useEffect, useState } from "react";
+import { motion } from "framer-motion";
 import { CheckCheck, ChevronRight, Copy, ThumbsDown, ThumbsUp } from "lucide-react";
 import AgentAvatar from "@/components/ui/agent-avatar";
-import { ThinkingState, formatElapsed, type AgentPhase, type TraceNode } from "@/components/ui/ai-agent-response";
-import { MarkdownContent } from "@/components/ui/markdown-content";
+import { ThinkingState, Markdown, formatElapsed, type AgentPhase, type TraceNode } from "@/components/ui/ai-agent-response";
+import { TextEffect } from "@/components/ui/text-effect";
 import { cn } from "@/lib/utils";
+
+/** A reply paragraph no longer pops up whole. Plain prose reveals word by word with the
+ *  reference TextEffect; anything carrying markdown structure (headings, lists, code) keeps
+ *  that markup and instead fades and rises as a block, because staggering inside parsed HTML
+ *  would break the layout. Both stay keyed to the paragraph so a growing reply only animates
+ *  the words that are new. */
+function ReplyParagraph({ text }: { text: string }) {
+  const isPlainProse = !/^(\s*[-*+#>|]|\s*\d+\.|```|\!\[|\[.*\]\(.*\))/m.test(text) && !/`/.test(text);
+  if (isPlainProse) {
+    return (
+      <TextEffect per="word" preset="fade" className="font-sans text-[14px] leading-[22px] text-foreground/90">
+        {text}
+      </TextEffect>
+    );
+  }
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.28, ease: 'easeOut' }}
+    >
+      <Markdown text={text} />
+    </motion.div>
+  );
+}
 export type ReplyRating = "up" | "down";
+
+/** The smallest stretch of real work that earns its own collapsed "Worked for Ns" header.
+ *  Folding a block after the first tool row gave every retry its own paragraph, so a loop of
+ *  seven failed commands stacked seven headers with one sentence apiece — more vertical space
+ *  than the run before it. Reasoning rows and plan ticks are not work. */
+export const MIN_ROWS_PER_ROUND = 5;
+export function isWorkRow(node: TraceNode): boolean {
+  return node.type !== "reasoning" && node.type !== "step";
+}
+export function roundIsFull(nodes: readonly TraceNode[]): boolean {
+  return nodes.filter((node) => isWorkRow(node)).length >= MIN_ROWS_PER_ROUND;
+}
 /** A subagent as the worker pool reports it. Every field here comes from the server's own
  *  job record, so a row can only exist for work that was really handed to a worker. */
 export type SubagentJob = { id: string; role: string; task: string; status: string; startedAt?: number | undefined; endedAt?: number | undefined; updates?: string[] | undefined; result?: string | undefined; engine?: { profile?: string | undefined; model?: string | undefined } | undefined; worktree?: { branch?: string | undefined; path?: string | undefined; files?: number | undefined; error?: string | undefined } | undefined };
-interface AgentActivityProps { phases: AgentPhase[]; done: boolean; startedAt?: number | undefined; endedAt?: number | undefined; status?: string | undefined; stopReason?: string | undefined; error?: string | undefined; rating?: ReplyRating | undefined; subagents?: SubagentJob[] | undefined; unfinished?: string[] | undefined; onUndo?: ((id: string) => Promise<void>) | undefined; onRate?: ((rating: ReplyRating | null) => void) | undefined; onResume?: (() => void) | undefined; onResolve?: ((id: string, choice: "apply" | "discard") => Promise<void>) | undefined }
+interface AgentActivityProps { phases: AgentPhase[]; done: boolean; status?: string | undefined; stopReason?: string | undefined; error?: string | undefined; rating?: ReplyRating | undefined; subagents?: SubagentJob[] | undefined; unfinished?: string[] | undefined; onUndo?: ((id: string) => Promise<void>) | undefined; onRate?: ((rating: ReplyRating | null) => void) | undefined; onResume?: (() => void) | undefined; onResolve?: ((id: string, choice: "apply" | "discard") => Promise<void>) | undefined }
 function IconAction({ label, pressed, onClick, children }: { label: string; pressed?: boolean; onClick: () => void; children: ReactNode }) {
   return (
     <button
@@ -142,8 +180,17 @@ function SubagentRow({ job, now, live, resolve }: { job: SubagentJob; now: numbe
     </div>
   );
 }
-/** One trace header per turn: Thinking → Thought for, Working → Worked for. */
-export function AgentActivity({ phases, done, startedAt, endedAt, status, stopReason, error, rating, subagents, unfinished, onUndo, onRate, onResume, onResolve }: AgentActivityProps) {
+/** A sentence the model restated inside a longer paragraph gets one copy, and the copy that
+ *  survives is the last one: the closing summary is what the turn is read as, not the draft it
+ *  wrote two rounds earlier. */
+function keepLastCopies(phases: readonly AgentPhase[]): boolean[] {
+  const texts = phases.map((phase) => (phase.message || "").toLowerCase().replace(/\s+/g, " ").trim());
+  return texts.map((text, index) => Boolean(text) && !texts.slice(index + 1).some((later) => later && (later === text || later.includes(text) || text.includes(later))));
+}
+/** A collapsible group per working round: the rail of tool chips under the summary the rows add up
+ *  to, and the agent's own sentence under the round that wrote it. A round folds away once it is
+ *  done, so a finished turn is one line of work per round with the closing summary left standing. */
+export function AgentActivity({ phases, done, status, stopReason, error, rating, subagents, unfinished, onUndo, onRate, onResume, onResolve }: AgentActivityProps) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => { if (done) return; const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, [done]);
 
@@ -154,7 +201,16 @@ export function AgentActivity({ phases, done, startedAt, endedAt, status, stopRe
     if (last && !last.divider) last.phases.push(phase); else groups.push({ phases: [phase] });
   }
 
-  const allMessages = groups.flatMap((group) => group.phases.map((phase) => phase.message?.trim() || "")).filter(Boolean);
+  const rounds = groups.flatMap((group) => group.phases);
+  const kept = keepLastCopies(rounds);
+  const renderGroups: { divider?: NonNullable<AgentPhase["divider"]>; phases: { phase: AgentPhase; keep: boolean }[] }[] = [];
+  let round = 0;
+  for (const group of groups) {
+    if (group.divider) { renderGroups.push({ divider: group.divider, phases: [] }); continue; }
+    renderGroups.push({ phases: group.phases.map((phase) => ({ phase, keep: Boolean(kept[round++]) })) });
+  }
+
+  const allMessages = rounds.map((phase) => phase.message?.trim() || "").filter(Boolean);
   const replyText = allMessages.at(-1) ?? "";
   const failure = error && !allMessages.some((message) => message.includes(error)) ? error : undefined;
   // A run that never reached a tool and recorded no open steps has no task to pick back up: it
@@ -166,30 +222,34 @@ export function AgentActivity({ phases, done, startedAt, endedAt, status, stopRe
   if (done && !groups.length && !failure && !subagents?.length && !stoppedShort) return null;
 
   return <div className="group flex w-full flex-col gap-4">
-    {!done && !groups.length && <ThinkingState nodes={[]} autoPlay={false} running kind="thinking" measuredSeconds={Math.max(1, Math.round((now - (startedAt ?? now)) / 1000))} />}
-    {groups.map((group, groupIndex) => {
+    {!done && !groups[groups.length - 1]?.phases.length && <ThinkingState nodes={[]} autoPlay={false} running workingLabel="Thinking…" />}
+    {renderGroups.map((group, groupIndex) => {
       if (group.divider) return <ContextDivider key={`divider-${groupIndex}`} divider={group.divider} />;
-      const live = !done && groupIndex === groups.length - 1;
-      // Reasoning rows are the Thought block; step rows are filtered because a step is
-      // only credible when it comes from a real tool call, which always produces one.
-      const trace = group.phases.flatMap((phase) => phase.trace.filter((node) => node.type !== "step")).map((node) => withAttachments(node, onUndo));
-      const message = [...group.phases].reverse().find((phase) => phase.message?.trim())?.message?.trim() || "";
-      // While the turn is running, the agent's own sentence IS the live step line, so it is handed
-      // to the header rather than printed a second time under it. Two "I'm …" lines stacked under
-      // one Working header is what read to the user as a double response.
-      const narration = live ? "" : message;
-      const start = group.phases[0]?.startedAt ?? startedAt ?? now;
-      const lastPhase = group.phases[group.phases.length - 1];
-      const end = lastPhase?.endedAt ?? (live ? now : endedAt ?? start);
-      const seconds = Math.max(1, Math.round((end - start) / 1000));
-      // The header reports what this turn has actually done: Thinking only until the first
-      // real tool call, Working from then on — composing the next step mid-task is work too.
-      const isToolRow = (node: TraceNode) => node.type !== "reasoning";
-      const kind: "thinking" | "working" = trace.some(isToolRow) ? "working" : "thinking";
+      const lastGroup = groupIndex === renderGroups.length - 1;
       return (
-        <div key={groupIndex} className="flex flex-col gap-1">
-          <ThinkingState nodes={trace} autoPlay={false} running={live} measuredSeconds={seconds} kind={kind} workingLabel="Working…" liveMessage={live ? message : undefined} />
-          {narration && <MarkdownContent content={narration} className="text-[14.5px] leading-[1.7] text-foreground" />}
+        <div key={groupIndex} className="flex flex-col gap-4">
+          {group.phases.map(({ phase, keep }, phaseIndex) => {
+            const live = !done && lastGroup && phaseIndex === group.phases.length - 1;
+            // Step rows are filtered out because a step is only credible when it comes from a real
+            // tool call, which always produces one.
+            const nodes = phase.trace.filter((node) => node.type !== "step").map((node) => withAttachments(node, onUndo));
+            const message = phase.message?.trim() || "";
+            if (!nodes.length && !live && !message) return null;
+            return (
+              <div key={phaseIndex} className="flex flex-col gap-1.5">
+                {(nodes.length > 0 || live) && (
+                  <ThinkingState
+                    className="reply-round"
+                    nodes={nodes}
+                    autoPlay={false}
+                    running={live}
+                    {...(nodes.length ? {} : { workingLabel: "Thinking…" })}
+                  />
+                )}
+                {keep && message && <ReplyParagraph text={message} />}
+              </div>
+            );
+          })}
         </div>
       );
     })}

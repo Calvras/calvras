@@ -82,7 +82,7 @@ try {
   await fs.writeFile(path.join(OUT, "replies.json"), JSON.stringify(replies, null, 2));
   await page.screenshot({ path: path.join(OUT, "chat.png"), animations: "disabled" });
 
-  const bodies = replies.map((reply) => reply.replace(/^Thought for [^\n]*\n/, "").trim());
+  const bodies = replies.map((reply) => reply.replace(/^(?:Thought it through|Worked|Thinking…|Working…)\n/, "").trim());
   for (const [i, body] of bodies.entries()) {
     record(`greeting ${i + 1} answered`, body.length > 0, body.slice(0, 120));
     record(`greeting ${i + 1} never mentions the workspace`, !/\b(project|folder|workspace|repository)\b/i.test(body), body.slice(0, 160));

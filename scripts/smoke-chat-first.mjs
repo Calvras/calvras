@@ -49,7 +49,7 @@ try {
   results.style = await page.evaluate(() => {
     const bar = document.querySelector("div[style*='app-region']");
     const paragraph = document.querySelector(".markdown-body p");
-    const header = Array.from(document.querySelectorAll("button")).find((el) => /Worked for|Thought for/i.test(el.textContent || ""));
+    const header = document.querySelector(".reply-round > button[aria-expanded]");
     const style = bar ? getComputedStyle(bar) : null;
     return {
       titlebarFlat: style ? { image: style.backgroundImage, color: style.backgroundColor } : null,

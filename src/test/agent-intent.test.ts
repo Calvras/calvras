@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { readFile } from "node:fs/promises";
 import { agentIntent, asksAboutTheAgent, asksForCapabilities, asksToReproduce } from "../lib/agent-intent";
-import { CALVRAS_SYSTEM_PROMPT, CHAT_SYSTEM_PROMPT, workerSystemPrompt } from "../lib/system-prompt";
+import { CALVRAS_SYSTEM_PROMPT, CHAT_SYSTEM_PROMPT, runtimeNote, workerSystemPrompt } from "../lib/system-prompt";
 import { ApprovalNeeded, PermissionScope } from "../lib/runtime/permissions";
+import { TOOL_NAMES } from "../lib/tool-catalog";
 import { DEFAULT_POLICIES } from "../lib/policy-rules";
 
 describe("automatic task continuation", () => {
@@ -87,6 +88,14 @@ describe("automatic task continuation", () => {
   it("carries the side-effect requirement through a follow-up", () => {
     expect(agentIntent("do it", ["please remove that section"], true)).toMatchObject({ requiresWork: true, request: "please remove that section" });
   });
+  it("treats a bare 'duplicate <url>' as a build, not as a chat answer", () => {
+    // The live failure: the run answered "I am ready to begin building the layout" and stopped,
+    // because no verb in that sentence was on the work list, so the loop accepted the first
+    // paragraph as the whole turn. A duplication request writes files, so it must reach tools.
+    const intent = agentIntent("duplicate https://www.cloudflare.com/", [], true);
+    expect(intent).toMatchObject({ requiresTools: true, requiresWork: true, webFirst: true });
+    expect(intent.initialActions[0]).toMatchObject({ type: "open_browser", url: "https://www.cloudflare.com/" });
+  });
   it.each([
     'Use web_search once for "electron release notes"',
     "call delegate_task with role researcher",
@@ -168,6 +177,44 @@ describe("the rules a real build taught it", () => {
   it("breaks out of a failing install instead of looping on it", () => {
     expect(CALVRAS_SYSTEM_PROMPT).toMatch(/two failed attempts on the same package is the limit/i);
     expect(CALVRAS_SYSTEM_PROMPT).toMatch(/never spend a run reinstalling/i);
+  });
+  // Seven commands failed in one live build because every one of them was bash sent to cmd.exe,
+  // and the prompt never named the shell, so the agent read its own syntax error as a broken project.
+  it("names cmd.exe as the shell on Windows and sends the file tools there instead", () => {
+    expect(CALVRAS_SYSTEM_PROMPT).toMatch(/goes through cmd\.exe/);
+    expect(CALVRAS_SYSTEM_PROMPT).toMatch(/the shell rejecting the way you wrote it, not the project failing/i);
+    expect(CALVRAS_SYSTEM_PROMPT).toMatch(/never mkdir for it/i);
+    expect(CALVRAS_SYSTEM_PROMPT).toMatch(/\[RUNTIME\] line at the top of the task/);
+  });
+  it("builds the data path before the page that consumes it", () => {
+    expect(CALVRAS_SYSTEM_PROMPT).toMatch(/Build the invisible part first/);
+    expect(CALVRAS_SYSTEM_PROMPT).toMatch(/write the data path before the components that consume it/i);
+    expect(CALVRAS_SYSTEM_PROMPT).toMatch(/mock with a stylesheet on it/i);
+    expect(CALVRAS_SYSTEM_PROMPT).toMatch(/prove the back end by exercising it/i);
+  });
+  // A pasted repo link used to be answered from its name; the ask is that it be read and used.
+  it("opens a repo link and builds the task against what it read", () => {
+    expect(CALVRAS_SYSTEM_PROMPT).toMatch(/reference repository is a source you open/);
+    expect(CALVRAS_SYSTEM_PROMPT).toMatch(/git_clone \{url,dest\}/);
+    expect(CALVRAS_SYSTEM_PROMPT).toMatch(/never describe a repository you did not open/i);
+  });
+  it("puts the writes in the same round as the reads", () => {
+    expect(CALVRAS_SYSTEM_PROMPT).toMatch(/a round that only looked is a round that produced nothing/i);
+    expect(CALVRAS_SYSTEM_PROMPT).toMatch(/up to eight actions into one file or terminal round/i);
+    expect(CALVRAS_SYSTEM_PROMPT).toMatch(/never use a round just to say you are about to do something/i);
+  });
+  it("says which shell the host machine actually has", () => {
+    expect(runtimeNote("win32", "cmd.exe")).toMatch(/OS Windows; every run_command.*handed to cmd\.exe/);
+    expect(runtimeNote("win32", "cmd.exe")).toMatch(/write cmd syntax/);
+    expect(runtimeNote("darwin", "/bin/sh")).toMatch(/OS darwin/);
+    expect(runtimeNote("darwin", "/bin/sh")).toMatch(/POSIX shell syntax is the right one here/);
+    expect(runtimeNote("", "the operating system's shell")).not.toMatch(/POSIX|cmd syntax/);
+  });
+  it("teaches the agent to generate and wire real project images", () => {
+    expect(CALVRAS_SYSTEM_PROMPT).toMatch(/generate_image \{prompt, path\?, aspectRatio\?\}/);
+    expect(CALVRAS_SYSTEM_PROMPT).toMatch(/NEVER write a placeholder file/i);
+    expect(CALVRAS_SYSTEM_PROMPT).toMatch(/A generated asset nothing imports is an unfinished task/i);
+    expect(TOOL_NAMES).toContain("generate_image");
   });
   it("keeps the narration human and spends thinking where it pays", () => {
     expect(CALVRAS_SYSTEM_PROMPT).toMatch(/banned as an update/i);

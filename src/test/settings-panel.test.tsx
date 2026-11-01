@@ -209,7 +209,7 @@ describe("settings", () => {
       expect(screen.getByText("run_command")).toBeInTheDocument();
       expect(screen.getByText("21 calls · 1 failed")).toBeInTheDocument();
       expect(row("Agent tasks").getByText("5 finished · 1 still open across those folders.")).toBeInTheDocument();
-      expect(row("Store credential").getByText(/ends …88ba/)).toBeInTheDocument();
+      expect(row("Payment method").getByText(/handled by RevenueCat on calvras.com/)).toBeInTheDocument();
 
       const upgrade = screen.getByRole("button", { name: "Upgrade plan" });
       expect(upgrade).toHaveClass("settings-milk");

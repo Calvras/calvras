@@ -109,11 +109,11 @@ try {
     try { return JSON.parse(localStorage.getItem("calvras_chat_messages") || "[]").some((m) => m.done && m.role === "user"); } catch { return false; }
   }, null, { timeout: 180000 });
   await page.waitForSelector(".workspace-run-state", { state: "detached", timeout: 120000 }).catch(() => {});
-  await page.getByRole("button", { name: /Worked for/ }).first().click().catch(() => {});
+  await page.locator(".reply-round > button[aria-expanded]").first().click().catch(() => {});
   await page.getByRole("button", { name: /run command/i }).first().click().catch(() => {});
   evidence.terminalLive = await page.evaluate(() => {
     const text = document.body.innerText;
-    return { exit1: text.includes("exit 1"), moduleNotFound: text.includes("MODULE_NOT_FOUND"), nodeError: text.includes("internal/modules"), worked: /Worked for \d+ second/.test(text), hardcoded: text.includes("Check the project files.") };
+    return { exit1: text.includes("exit 1"), moduleNotFound: text.includes("MODULE_NOT_FOUND"), nodeError: text.includes("internal/modules"), worked: /Thought it through|ran \d+ command|read \d+ file|edited \d+ file/.test(text), hardcoded: text.includes("Check the project files.") };
   });
   await page.screenshot({ path: ".agents/artifacts/runtime/verify-final-expanded.png", animations: "disabled" });
   evidence.final = await page.evaluate(() => {

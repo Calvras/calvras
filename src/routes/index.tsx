@@ -2,7 +2,7 @@ import { marketingHead } from "@/lib/marketing-seo";
 import { LandingPage } from "@/components/LandingPage";
 import { LaunchGate, installedVersion } from "@/components/LaunchScreen";
 import { servesWorkspace, workspaceHostFrom } from "@/lib/workspace-host";
-import { AgentActivity, type SubagentJob } from "@/components/AgentActivity";
+import { AgentActivity, roundIsFull, type SubagentJob } from "@/components/AgentActivity";
 import { runAgent, type AgentAction, type AgentOutcome } from "@/lib/agent-run";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState, useCallback } from "react";
@@ -26,8 +26,9 @@ import {
 } from "@/components/ui/ai-agent-response";
 import { useProjects } from "@/lib/project-context";
 import { memoryKeyFor, readMemoryAt, storedUser, writeMemoryAt, writeStoredUser, type StoredChat } from "@/lib/account";
+import { projectNameFrom } from "@/lib/project-name";
 import { callAI, isProviderTrouble, patientBackoffMs, PROVIDER_PATIENCE_MS, type MediaAttachment } from "@/lib/gemini";
-import { CALVRAS_SYSTEM_PROMPT, CHAT_SYSTEM_PROMPT, policyNotes, recordShapeTemplate } from "@/lib/system-prompt";
+import { CALVRAS_SYSTEM_PROMPT, CHAT_SYSTEM_PROMPT, policyNotes, recordShapeTemplate, runtimeNote } from "@/lib/system-prompt";
 import { playCompletionChimeWhenUnfocused } from "@/lib/completion-sound";
 import { decodeTextDataUrl, extractPdfText, isPdfAttachment, isTextLikeAttachment } from "@/lib/attachment-text";
 import { cn } from "@/lib/utils";
@@ -35,6 +36,7 @@ import { ChapterScrubber, type Chapter } from "@/components/ui/chapter-scrubber"
 import { RightDock, type DockTab } from "@/components/RightDock";
 import { TerminalDock } from "@/components/TerminalDock";
 import { browserBridge, hasInAppBrowser, isInAppBrowserTool } from "@/lib/browser-bridge";
+import { resumeBrief } from "@/lib/resume-brief";
 import { evaluatePreviewHealth } from "@/lib/preview-health";
 import { Copy, CheckCheck, ListTodo, PanelRight, SquareTerminal, PanelLeft } from "lucide-react";
 import { SideChat } from "@/components/SideChat";
@@ -118,6 +120,7 @@ const TOOL_NARRATION: Record<string, string> = {
   list_checkpoints: "Listing restore points",
   generate_tests: "Writing tests",
   generate_documentation: "Writing documentation",
+  generate_image: "Generating an image",
   explain_code: "Reading through the code",
   run_command: "Running a command",
   run_terminal: "Running a command",
@@ -326,40 +329,6 @@ function fallbackSessionSummary(existing: string, turns: Message[]): string {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
- * HELPERS
- * ─────────────────────────────────────────────────────────────────────────────
- */
-
-function projectNameFrom(text: string): string {
-  const cleaned = text
-    .replace(/^(build|create|make|code|write|setup|develop)\s+(me\s+)?(a\s+|an\s+)?/i, "")
-    .replace(/^(simple|new|basic)\s+/i, "")
-    .trim();
-
-  const slug = cleaned
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 24);
-
-  return `calvras-${slug || "workspace"}`;
-}
-
-/** The message sent when the user presses "Pick it back up": continue the stopped run from its
- * own unfinished steps instead of re-sending the original request, which would restart it. */
-function resumeBrief(message: Message, history: Message[]): string {
-  const open = (message.openSteps ?? []).filter((step) => step.trim()).slice(0, 8);
-  // The stopped turn carries the agent's own narration, not the ask, so the request has to come
-  // from the user messages that led to it.
-  const request = [...history].reverse().find((item) => item.role === "user" && item.text.trim())?.text ?? message.text;
-  return [
-    "Pick the task below back up. Do not start it again and do not redo work that is already in the project — check the files and the plan first, then continue from the earliest step that is still open.",
-    open.length ? `Steps the last run never finished:\n${open.map((step) => `- ${step}`).join("\n")}` : "The last run stopped with no steps recorded, so read the current state of the project to work out what is already done before continuing.",
-    request.trim() ? `Original request:\n${request.slice(0, 1500)}` : "",
-  ].filter(Boolean).join("\n\n");
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
  * ATTACHMENT PREVIEW in bubble
  * ─────────────────────────────────────────────────────────────────────────────
  */
@@ -553,8 +522,21 @@ export function Index() {
   const revealBrowserPanel = (lock: boolean) => {
     setBrowserActive(lock);
     setBrowserEverUsed(true);
+    // The page belongs to whatever folder was open when it was shown, so deleting that project
+    // can take the page with it instead of leaving a dead local preview in the dock.
+    browserBridge.bindProject(projectPath);
     openDock("browser");
   };
+  // Deleting the project the panel is holding closes the dock too: the page is gone, and an empty
+  // panel left open over the file tree reads as something breaking rather than something cleared.
+  useEffect(() => {
+    let bound = browserBridge.getSnapshot().project;
+    return browserBridge.subscribe(() => {
+      const next = browserBridge.getSnapshot().project;
+      if (bound && !next) setDockOpen(false);
+      bound = next;
+    });
+  }, []);
   const [runtimeState, setRuntimeState] = useState<any>({ tasks: [], agents: [], logs: [], checkpoints: [], memory: {} });
   const runtimeRef = useRef<RuntimeClient | null>(null);
   // Every subagent job the pool reported while a turn was live, kept so the finished turn shows
@@ -832,7 +814,8 @@ export function Index() {
       value: string,
       attachmentFiles?: { type: string; url: string; name?: string }[],
       effort = "Balanced",
-      directive?: string
+      directive?: string,
+      resumeOf?: number
     ) => {
       const text = value.trim();
       if (!text && (!attachmentFiles || attachmentFiles.length === 0)) return;
@@ -889,7 +872,9 @@ export function Index() {
 
       // Build conversation history: a compressed memory covers older turns, while the
       // most recent turns stay verbatim so references like "do that" still resolve.
-      const priorTurns = messages.filter((m) => m.done);
+      // A resumed turn is left out of its own history — the brief that restarts it already
+      // quotes the original request, and the rounds below it are the state it continues from.
+      const priorTurns = messages.filter((m) => m.done && m.id !== resumeOf);
       const recentTurns = priorTurns.slice(-6);
       const olderTurns = priorTurns.slice(0, Math.max(0, priorTurns.length - 6));
       const conversationHistory = recentTurns
@@ -902,27 +887,42 @@ export function Index() {
         ]);
 
       // Add the initial thinking phase — clean live indicator without fake or hardcoded sentences
-      const msgId = Date.now();
+      // Picking a stopped run back up continues that same turn instead of opening a new one: the
+      // rounds it already finished stay on screen and the new work appends to them, so the user
+      // never reads their own request a second time in a fresh bubble.
+      const resumedTurn = resumeOf === undefined ? undefined : messages.find((m) => m.id === resumeOf && m.done);
+      const msgId = resumedTurn?.id ?? Date.now();
+      const turnStart = Date.now();
       subagentLogRef.current.clear();
 
       const initialThinkingPhase: AgentPhase = {
         trace: [],
-        startedAt: msgId,
+        startedAt: turnStart,
         activity: "thinking",
       };
+      // What the stopped run actually did, carried in as the continuation's starting state. The
+      // empty thinking row the abort left behind is dropped rather than shown as a live round.
+      const carriedPhases: AgentPhase[] = resumedTurn
+        ? resumedTurn.phases
+            .filter((phase) => phase.trace.length > 0 || Boolean(phase.message?.trim()))
+            .map((phase) => ({ ...phase, trace: phase.trace.map((node) => node.status === "running" ? { ...node, status: "failed" as const } : node), endedAt: phase.endedAt ?? turnStart }))
+        : [];
 
-      setMessages((prev) => [
-        ...prev,
-        {
+      setMessages((prev) => resumedTurn
+        ? prev.map((message) => {
+            if (message.id !== resumedTurn.id) return message;
+            const { status: _status, error: _error, endedAt: _ended, openSteps: _steps, stopReason: _reason, ...rest } = message;
+            return { ...rest, phases: [...carriedPhases, initialThinkingPhase], done: false };
+          })
+        : [...prev, {
           id: msgId,
           text,
           attachments: attachedForBubble.length > 0 ? attachedForBubble : undefined,
           phases: [initialThinkingPhase],
           done: false,
           startedAt: msgId,
-          role: "user",
-        },
-      ]);
+          role: "user" as const,
+        }]);
 
       // Project snapshot
       const projectSnapshot = activePath ? `Workspace folder: ${activePath}. Inspect files through tools as needed.` : "";
@@ -1005,7 +1005,11 @@ export function Index() {
         weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
         hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
       });
-      fullPrompt = `[CURRENT TIME]: ${timeStr}\n\n${fullPrompt}`;
+      // The commands the agent writes go to the host machine's shell, and a bash one-liner on
+      // Windows reads to the model like the project is broken rather than like the syntax was.
+      const hostPlatform = String((window as any).__electron?.platform || navigator?.platform || "");
+      const hostShell = /^win/i.test(hostPlatform) ? "cmd.exe" : /linux|darwin|freebsd|openbsd|sunos/i.test(hostPlatform) ? "/bin/sh" : "the operating system's shell";
+      fullPrompt = `${runtimeNote(hostPlatform, hostShell)}\n[CURRENT TIME]: ${timeStr}\n\n${fullPrompt}`;
       // A pasted block of records is a format contract, and describing it to the model did not
       // hold — it re-invented a schema of its own. Extract the skeleton and put it in front.
       const recordShape = recordShapeTemplate(`${conversationHistory.slice(-8).map((entry) => entry.content).join("\n")}\n${text || ""}`);
@@ -1024,11 +1028,15 @@ export function Index() {
       }
 
       // Build phases: one phase per agent turn (tools + message)
-      const phases: AgentPhase[] = [initialThinkingPhase];
+      const phases: AgentPhase[] = [...carriedPhases, initialThinkingPhase];
       let currentPhase: AgentPhase | null = initialThinkingPhase;
       // Once the agent starts running tools, its running commentary belongs in the
       // timeline as the expandable Thought block rather than as reply text.
       let toolRounds = 0;
+      // The agent's own phase plan, as the tool results reported it last. A server coming up while
+      // steps are still open means the page under it is half-built, so the automatic rendered
+      // check waits for the build to finish instead of grading a scaffold.
+      let planOpenSteps = 0;
       let liveThought: { node: TraceNode; startedAt: number } | null = null;
       // A free tier can park the model for half an hour while a long queue is still open. That
       // wait is the run's business, but silence looks like a hang, so it says so once per turn.
@@ -1095,7 +1103,7 @@ export function Index() {
         fullPrompt = `[EARLIER SESSION MEMORY — compressed from earlier turns, still true]\n${sessionMemory.summary}\n\n${fullPrompt}`;
       }
 
-      const intent = agentIntent(text, messages.filter((message) => message.done).map((message) => message.text), Boolean(activePath));
+      const intent = agentIntent(text, messages.filter((message) => message.done && message.id !== resumeOf).map((message) => message.text), Boolean(activePath));
       const hasAttachments = Boolean(attachmentFiles?.length);
       // Conversation is decided by what the message asks for, never by whether a folder happens
       // to be open — that is what made "hey" answer with a workspace listing. Anything wanting
@@ -1232,6 +1240,7 @@ export function Index() {
         prompt: fullPrompt,
         requiresTools: directAttachmentReview && !activePath ? false : intent.requiresTools,
         requiresWork: directAttachmentReview && !activePath ? false : intent.requiresWork,
+        needsProjectFolder: !activePath && intent.requiresWork,
         signal: controller.signal,
         initialActions: directAttachmentReview && !activePath ? [] : initialActions,
         finishOnServerReady: intent.finishOnServerReady,
@@ -1316,7 +1325,21 @@ export function Index() {
           closeThought();
           // An interim update already lives in the timeline; only the closing reply
           // is written out as the message under the header.
-          if (final === false) { publish(); return; }
+          if (final === false) {
+            // A block folds away once it holds a stretch of work — several files written,
+            // commands run, pages loaded — and the round's own sentence becomes the summary
+            // under "Worked for Ns". Folding on the first tool row turned a retry loop into
+            // seven stacked headers of one sentence each, which is more vertical space than
+            // the run before it, not less. A round that only says "let me look at the folder
+            // again" stays inside the block it is already in.
+            if (currentPhase && roundIsFull(currentPhase.trace) && message.trim()) {
+              currentPhase.message = message;
+              currentPhase.endedAt = Date.now();
+              currentPhase = null;
+            }
+            publish();
+            return;
+          }
           // Phase complete: finalize current phase with its message
           if (currentPhase) {
             currentPhase.message = message;
@@ -1347,8 +1370,12 @@ export function Index() {
           // for looking something up.
           const webOnlyTurn = actions.length > 0 && actions.every((action) => action.type === "web_search" || action.type === "search_documentation");
           if (!activePath && !browserOnlyTurn && !webOnlyTurn) {
-            const canCreate = actions.some((action) => action.type === "create_file" || action.type === "write_file") && !actions.some((action) => action.type === "read_file" || action.type === "list_dir");
-            if (!canCreate) {
+            // A build with no folder open has nowhere to read from and nowhere to write, so the
+            // folder is the first thing it needs whatever the model's first action happened to be.
+            // Skipping a read and hoping the next round writes a file left turns that ended on
+            // "Inspecting the workspace…" with nothing inspected and nothing built.
+            const needsProject = intent.requiresWork || actions.some((action) => action.type === "create_file" || action.type === "write_file");
+            if (!needsProject) {
               // No workspace: skip project actions instead of hardcoding a user-facing
               // folder demand. The model sees this note and answers in its own words.
               const notice = hasAttachments
@@ -1382,7 +1409,7 @@ export function Index() {
           return executeInOrder(actions, async (action) => {
             controller.signal.throwIfAborted();
             const isTerminal = TOOL_RISK[action.type] === "execute" || action.type.startsWith("git_");
-            const node: TraceNode = { id: crypto.randomUUID(), type: isTerminal ? "terminal" : "tool", toolName: action.type, mono: true, primary: humanToolLabel(action), secondary: action.command || action.path || action.from || action.url || ".", status: "running", ...(isTerminal ? { command: action.command ?? action.message ?? action.branch ?? action.url ?? action.type } : {}) };
+            const node: TraceNode = { id: crypto.randomUUID(), type: isTerminal ? "terminal" : "tool", toolName: action.type, mono: true, primary: humanToolLabel(action), secondary: action.command || action.path || action.from || action.url || (action.prompt ? String(action.prompt).slice(0, 60) : "."), status: "running", ...(isTerminal ? { command: action.command ?? action.message ?? action.branch ?? action.url ?? action.type } : {}) };
             if (currentPhase) currentPhase.trace.push(node);
             publish();
             const started = Date.now();
@@ -1467,6 +1494,9 @@ export function Index() {
                 data = await client.execute(action, controller.signal, (output) => { node.output = ((node.output || "") + output).slice(-32000); publish(); });
               }
               const ok = data.ok === true;
+              if (ok && Array.isArray(data.tasks)) {
+                planOpenSteps = data.tasks.filter((task: { status?: string }) => !["done", "blocked"].includes(String(task?.status))).length;
+              }
               node.status = action.type === "check_preview" ? (data.healthy === true ? "completed" : "failed")
                 : action.type === "compare_to_reference" ? (data.matched === true ? "completed" : "failed")
                 : ok ? "completed" : "failed";
@@ -1487,7 +1517,11 @@ export function Index() {
                 // becomes ready, so closing the preview does not fight the user.
                 if (firstReady || action.type !== "check_server") {
                   revealBrowserPanel(false);
-                  data.preview = await inspectPreview(data.url);
+                  // A page with steps still open on the plan is a page under construction: grading
+                  // its render now reports a blank or unstyled screen the agent has not written
+                  // yet, and that report is what a build mistakes for the finish line. The panel
+                  // still shows the user their site coming up; the check happens when the plan closes.
+                  if (planOpenSteps === 0) data.preview = await inspectPreview(data.url);
                 }
               }
               if (ok && Array.isArray(data.diffRows)) {
@@ -1573,7 +1607,7 @@ export function Index() {
       setIsLoading(false);
       abortControllerRef.current = null;
       recordUsage("task", `${outcome.status}: ${(text || "(attachment)").slice(0, 60)}${activePath ? ` in ${activePath.split(/[\\/]/).pop()}` : ""}`);
-      if (readPolicies().telemetry) void reportTurn({ prompt: text || "(attachment)", status: outcome.status, seconds: Math.round((Date.now() - msgId) / 1000), phases });
+      if (readPolicies().telemetry) void reportTurn({ prompt: text || "(attachment)", status: outcome.status, seconds: Math.round((Date.now() - turnStart) / 1000), phases });
       if (outcome.status === "finished" || outcome.status === "blocked") playCompletionChimeWhenUnfocused();
       if (firstEncounter && activePath && outcome.status === "finished") {
         try {
@@ -1956,7 +1990,7 @@ export function Index() {
               </div>
 
               {/* Agent Trace & Response */}
-              <AgentActivity phases={message.phases} done={message.done} startedAt={message.startedAt} endedAt={message.endedAt} status={message.status} stopReason={message.stopReason} error={message.error} rating={message.rating} subagents={message.subagents ?? (message.done ? undefined : [...subagentLogRef.current.values()].filter((job) => (job.startedAt ?? 0) >= (message.startedAt ?? 0)))} onRate={(value) => setMessages((previous) => previous.map((item) => item.id === message.id ? { ...item, rating: value ?? undefined } : item))} onResume={index === messages.length - 1 ? () => void handleSubmit(resumeBrief(message, messages.slice(0, index))) : undefined} unfinished={message.openSteps} onUndo={async (checkpointId) => { const result = await workspaceExecute({ type: "undo_edit", checkpointId }, { userInitiated: true }); if (!result.ok) throw new Error(result.error); }} onResolve={async (id, choice) => { const result = await workspaceExecute({ type: "resolve_worker", id, action: choice }, { userInitiated: true }); if (!result.ok) throw new Error(result.error || "That subagent's checkout could not be resolved."); }} />
+              <AgentActivity phases={message.phases} done={message.done} status={message.status} stopReason={message.stopReason} error={message.error} rating={message.rating} subagents={message.subagents ?? (message.done ? undefined : [...subagentLogRef.current.values()].filter((job) => (job.startedAt ?? 0) >= (message.startedAt ?? 0)))} onRate={(value) => setMessages((previous) => previous.map((item) => item.id === message.id ? { ...item, rating: value ?? undefined } : item))} onResume={index === messages.length - 1 && !isLoading ? () => void handleSubmit(resumeBrief(message, messages.slice(0, index)), undefined, undefined, undefined, message.id) : undefined} unfinished={message.openSteps} onUndo={async (checkpointId) => { const result = await workspaceExecute({ type: "undo_edit", checkpointId }, { userInitiated: true }); if (!result.ok) throw new Error(result.error); }} onResolve={async (id, choice) => { const result = await workspaceExecute({ type: "resolve_worker", id, action: choice }, { userInitiated: true }); if (!result.ok) throw new Error(result.error || "That subagent's checkout could not be resolved."); }} />
 
             </div>
           ))}

@@ -107,7 +107,7 @@ try {
     return after.slice(before.length);
   };
 
-  const HEADER = /(?:Worked for\s+\d+\s*seconds?|Thought for\s+\d+s)/gi;
+  const HEADER = /(?:ran \d+ commands?|read \d+ files?|edited \d+ files?|searched \d+ times?|fetched \d+ pages?|Thought it through|Worked)/gi;
   const headerCount = (text) => (text.match(HEADER) || []).length;
   const answer = (turn) => {
     const matches = [...turn.matchAll(HEADER)];
@@ -120,7 +120,7 @@ try {
   results.greeting = greeting;
   const greetingAnswer = answer(greeting);
   assert.equal(headerCount(greeting), 1, "A chat turn must show exactly one merged trace header");
-  assert.match(greeting, /Thought for\s+\d+s/i, "Chat without tools must finish as Thought for");
+  assert.match(greeting, /Thought it through|Thought process/i, "Chat without tools must finish as a thought, not as work");
   assert.doesNotMatch(greeting, /Working…|Thinking…/, "No live label may remain after completion");
   assert.doesNotMatch(greetingAnswer, /project|folder|workspace|file access|select a folder/i, "Casual chat must not pivot to project mode");
   assert.doesNotMatch(greetingAnswer, /what (?:would you like to )?work|what work|tasks?|anything you(?:'d| would) like/i, "A greeting must not solicit a task");
@@ -141,7 +141,7 @@ try {
   const reviewAnswer = answer(review);
   await page.screenshot({ path: path.join(artifactDir, "nofolder-cv-review.png"), animations: "disabled", fullPage: true });
   assert.equal(headerCount(review), 1, "The CV turn must show exactly one merged trace header");
-  assert.match(review, /Thought for|Worked for/i, "The completed turn must carry a measured header");
+  assert.match(review, /Thought it through|Thought process|ran \d|read \d|edited \d/i, "The completed turn must carry a header derived from its rows");
   assert.doesNotMatch(reviewAnswer, /Select a project folder|project folder first|Upload a folder to|requires? a (?:project )?(?:folder|workspace)|no project folder is selected/i, "Attachments must never demand a project folder");
   assert.doesNotMatch(reviewAnswer, /cannot (?:see|read)|could not be read|paste the text|formatted correctly/i, "The PDF must actually be readable in the app");
   assert.ok(reviewAnswer.length > 250, "The CV must get a substantive review");

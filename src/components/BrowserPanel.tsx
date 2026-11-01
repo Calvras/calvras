@@ -2,7 +2,7 @@ import { createElement, useEffect, useRef, useState, useSyncExternalStore, type 
 import { ArrowLeft, ArrowRight, Globe2, LockKeyhole, RotateCw } from "lucide-react";
 import { browserBridge, type BrowserSnapshot } from "@/lib/browser-bridge";
 
-const EMPTY: BrowserSnapshot = { attached: false, ready: false, url: "", title: "", loading: false };
+const EMPTY: BrowserSnapshot = { attached: false, ready: false, url: "", title: "", loading: false, project: "" };
 
 function displayUrl(url: string) {
   return url === "about:blank" ? "" : url;

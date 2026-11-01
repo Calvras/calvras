@@ -19,6 +19,7 @@ import { executeCommandTool, COMMAND_TOOLS } from "./command-tools";
 import { workerSystemPrompt } from "../system-prompt";
 import { applyWorktree, createWorktree, removeWorktree, worktreeChanges, type Worktree } from "./worktrees";
 import { providerKeys, providerKeySource } from "./providers";
+import { assetNameFrom, generateImage, saveGeneratedImage } from "./image-generation";
 import { fetchPageText, searchWeb } from "../web-search";
 
 export type Inference = (prompt: string, onDelta?: (text: string) => void, system?: string, route?: InferenceRoute) => Promise<string>;
@@ -214,6 +215,13 @@ export class AgentSession {
         state.memory[String(action.key).slice(0, 100)] = String(action.value).slice(0, 4000); saveState(this.root); return { ok: true, memory: state.memory };
       }
       case "read_memory": return { ok: true, memory: state.memory, rules: projectRules(this.root) };
+      case "generate_image": {
+        const prompt = String(action.prompt || action.task || "").trim();
+        const generated = await generateImage({ prompt, ...(action["aspectRatio"] ? { aspectRatio: String(action["aspectRatio"]) } : {}), signal });
+        await createProjectCheckpoint(this.root, "Before generate_image");
+        const saved = await saveGeneratedImage(this.root, generated, String(action.path || ""), assetNameFrom(prompt));
+        return { ok: true, path: saved.relativePath, bytes: saved.bytes, mimeType: generated.mimeType, model: generated.model, provider: generated.provider, note: `The picture is saved at ${saved.relativePath}. Import or reference it from the component that needs it, then read that file back so the build actually uses it — a generated asset nothing points at is the same as an unwired component.` };
+      }
       case "read_task": case "track_progress": {
         if (action.id && ["pending", "running", "done", "blocked"].includes(action["status"])) {
           const task = state.tasks.find((item) => item.id === action.id); if (!task) throw new Error("Unknown task id."); task.status = action["status"]; saveState(this.root);

@@ -1,7 +1,8 @@
 import { verifyGoogleIdentity } from "./runtime/google-identity";
 import { verifyGitHubIdentity } from "./runtime/github-identity";
-import { accountEvents, accountUsage, deleteAccount, findByEmail, grantPlan, ledgerRevision, listAccounts, note, readMeta, recentEvents, recentPrompts, recordSignIn, recordTask, setBlocked, summarize, touchUsed, usageBoard, writeMeta, type D1Database } from "./runtime/ledger";
+import { accountEvents, accountUsage, deleteAccount, findByEmail, grantPlan, ledgerRevision, listAccounts, listSubscriptions, note, readMeta, recentEvents, recentPrompts, recordSignIn, recordTask, saveSubscription, setBlocked, summarize, syncPlanFromSubscriptions, touchUsed, usageBoard, writeMeta, type D1Database } from "./runtime/ledger";
 import { issueSession, readSession, signingKey } from "./runtime/session-token";
+import { BILLING_OFFERING, buyerEmail, isPlanKey, listPrice, packageCatalog, PLAN_LABELS, planForEntitlements, planForProduct, verifyRevenueCatSignature } from "./billing";
 
 /**
  * The public site's own API: who has signed in, what plan they hold, and what the owner can do about
@@ -13,8 +14,12 @@ export type SiteEnv = {
   CALVRAS_DB?: D1Database;
   CALVRAS_ADMIN_TOKEN?: string;
   GOOGLE_CLIENT_ID?: string;
-  CALVRAS_PAYMENTS_KEY?: string;
-  CALVRAS_PAYMENTS_MERCHANT?: string;
+  /** RevenueCat Web Billing: the public SDK key opens a checkout in the buyer's browser, the webhook
+   *  secret (or the plain Authorization value set in the dashboard) is what makes a delivery
+   *  trustworthy. Neither can read the project or move money. */
+  REVENUECAT_PUBLIC_KEY?: string;
+  REVENUECAT_WEBHOOK_SECRET?: string;
+  REVENUECAT_WEBHOOK_AUTH?: string;
   /** The console's own analyst. Left unset, the daily report is still written from the ledger's
    * numbers and only the chat panel says it needs a key — nothing else depends on it. */
   CALVRAS_AI_KEY?: string;
@@ -32,8 +37,6 @@ export function platformBindings(request: Request, env: unknown): SiteEnv {
   if (given && Object.keys(given).length) return given;
   return (request as Request & { runtime?: { cloudflare?: { env?: SiteEnv } } }).runtime?.cloudflare?.env ?? {};
 }
-
-const PAYMENTS_BASE = "https://mor.payments.ai/api";
 
 /** The desktop app calls this from a different origin, and nothing here is cookie-based, so a bare
  *  wildcard is what lets it read its own plan back. Admin calls still carry the owner token. */
@@ -74,30 +77,94 @@ function signInLocation(request: Request): { city: string; country: string } {
 }
 
 /**
- * Sales are read from Payments AI, never copied into this database. Their transaction payload is
- * theirs, so each field is taken from whichever name the response actually uses and left blank when
- * it does not — a missing figure reads as missing, not as zero.
+ * Sales are read from the ledger, not from RevenueCat's API. Every purchase, renewal and cancellation
+ * arrives here as a webhook and is kept in the subscriptions table, so the console shows what was
+ * actually recorded for this site — and the amount shown is the plan's list price, not a receipt.
  */
-async function fetchSales(env: SiteEnv): Promise<Record<string, unknown>> {
-  const key = String(env.CALVRAS_PAYMENTS_KEY || "").trim();
-  const merchant = String(env.CALVRAS_PAYMENTS_MERCHANT || "").trim();
-  if (!key || !merchant) return { configured: false, sales: [], note: "The site has no Payments AI credential, so nothing can be read from the store." };
-  const response = await fetch(`${PAYMENTS_BASE}/v1/public-api/merchants/${encodeURIComponent(merchant)}/transactions?page=1&perPage=100`, { headers: { authorization: `Bearer ${key}`, accept: "application/json" } }).catch((error) => null);
-  if (!response) return { configured: true, sales: [], error: "Payments AI could not be reached from the site." };
-  if (!response.ok) return { configured: true, sales: [], error: `Payments AI answered ${response.status}.` };
-  const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
-  const rows = Array.isArray(payload) ? payload : Array.isArray(payload?.["data"]) ? payload["data"] : Array.isArray(payload?.["items"]) ? payload["items"] : Array.isArray(payload?.["transactions"]) ? payload["transactions"] : [];
-  const pick = (row: Record<string, unknown>, keys: string[]) => { for (const key of keys) { const value = row[key]; if (value !== undefined && value !== null && value !== "") return value; } return ""; };
-  const sales = (rows as Record<string, unknown>[]).slice(0, 100).map((row) => ({
-    reference: String(pick(row, ["id", "transactionId", "transaction_id"]) || ""),
-    email: String(pick(row, ["customerEmail", "customer_email", "email", "customer", "payer"]) || "").toLowerCase(),
-    amount: pick(row, ["amount", "value", "total"]) as string | number,
-    currency: String(pick(row, ["currency", "currencyCode", "currency_code"]) || ""),
-    status: String(pick(row, ["status", "state", "paymentStatus"]) || ""),
-    plan: String(pick(row, ["plan", "planId", "plan_id", "product", "productName", "description"]) || ""),
-    at: String(pick(row, ["createdAt", "created_at", "date", "timestamp", "paidAt"]) || ""),
-  }));
-  return { configured: true, sales, total: payload?.["total"] ?? sales.length, unrecognized: sales.filter((entry) => !entry.email && !entry.amount).length };
+async function fetchSales(db: D1Database): Promise<Record<string, unknown>> {
+  const rows = await listSubscriptions(db, 100);
+  if (!rows.length) {
+    return {
+      configured: true,
+      source: "webhooks",
+      sales: [],
+      note: "No RevenueCat purchase has reached this site yet. Each purchase, renewal and cancellation is recorded here as its webhook arrives.",
+    };
+  }
+  const sales = rows.map((row) => {
+    const match = planForProduct(row.product_id);
+    return {
+      reference: row.id,
+      email: row.email,
+      amount: match ? listPrice(match.plan, match.billing) : "",
+      currency: row.currency || "USD",
+      status: row.status,
+      plan: isPlanKey(row.plan) ? PLAN_LABELS[row.plan] : "",
+      billing: match?.billing ?? "",
+      at: row.updated_at ? new Date(row.updated_at).toISOString() : "",
+      expires: row.expires_at ? new Date(row.expires_at).toISOString() : "",
+    };
+  });
+  return { configured: true, source: "webhooks", sales, total: sales.length };
+}
+
+/** RevenueCat's statuses, in the words the ledger and the console already use. A cancellation keeps
+ *  its access until expiration, which is why "canceled" still counts as entitled in the ledger. */
+function subscriptionStatus(kind: string): string {
+  if (kind === "EXPIRATION") return "expired";
+  if (kind === "CANCELLATION") return "canceled";
+  if (kind === "BILLING_ISSUE") return "past_due";
+  if (kind === "SUBSCRIPTION_PAUSED") return "paused";
+  return "active";
+}
+
+/**
+ * One RevenueCat delivery, applied to the ledger. RevenueCat says what happened; this site decides
+ * what it means, and only a product id from its own catalog or a known entitlement can hand out a
+ * plan. Every branch is idempotent, because RevenueCat retries a delivery it did not see answered.
+ */
+async function applyRevenueCatEvent(db: D1Database, event: Record<string, unknown>, at: number): Promise<void> {
+  const kind = String(event["type"] || "").toUpperCase();
+  if (kind === "TEST") return;
+  const email = buyerEmail(event);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return;
+
+  if (kind === "TRANSFER") {
+    // Purchases moved to a different app user id. The ledger keys on the signed-in email, so the rows
+    // follow the transfer rather than leaving the new owner unentitled until their next renewal.
+    const from = Array.isArray(event["transferred_from"]) ? (event["transferred_from"] as unknown[]).map((id) => String(id).trim().toLowerCase()) : [];
+    for (const old of from) {
+      if (!old || old === email) continue;
+      await db.prepare("UPDATE subscriptions SET email = ?, updated_at = ? WHERE email = ?").bind(email, at, old).run();
+      await syncPlanFromSubscriptions(db, old, at);
+    }
+    await syncPlanFromSubscriptions(db, email, at);
+    return;
+  }
+
+  const productId = String(event["product_id"] || "").trim();
+  const matched = planForProduct(productId);
+  const plan = planForEntitlements(event["entitlement_ids"]) ?? matched?.plan ?? null;
+  const id = String(event["original_transaction_id"] || event["transaction_id"] || "").trim();
+  // No id or no plan means this delivery cannot be tied to something Calvras sells; leave it alone
+  // rather than inventing a subscription the dashboard never had.
+  if (!id || !plan) return;
+  const status = subscriptionStatus(kind);
+  const expired = kind === "EXPIRATION";
+
+  await saveSubscription(db, {
+    id,
+    email,
+    plan,
+    productId,
+    status,
+    customerId: String(event["app_user_id"] || ""),
+    currency: String(event["currency"] || "").toUpperCase(),
+    expiresAt: expired ? 0 : Number(event["expiration_at_ms"]) || 0,
+    at,
+  });
+  await syncPlanFromSubscriptions(db, email, at);
+  await note(db, email, "billing", `${PLAN_LABELS[plan]} ${status} (${productId || kind})`, at);
 }
 
 const AI_BASE = "https://openrouter.ai/api/v1/chat/completions";
@@ -169,6 +236,32 @@ export async function handleSiteApi(request: Request, env: SiteEnv): Promise<Res
   const db = env.CALVRAS_DB;
   if (!db) return json({ ok: false, error: "The account ledger is not attached to this deployment." }, 503);
 
+  // RevenueCat posts here on every purchase, renewal and cancellation. The signature (or the plain
+  // Authorization value configured in the dashboard) is the only proof of origin, so the raw body is
+  // verified before it is parsed, and a delivery with no secret set is refused rather than trusted.
+  if (url.pathname === "/api/site/billing/webhook" && request.method === "POST") {
+    const secret = String(env.REVENUECAT_WEBHOOK_SECRET || "").trim();
+    const auth = String(env.REVENUECAT_WEBHOOK_AUTH || "").trim();
+    if (!secret && !auth) return json({ ok: false, error: "No RevenueCat webhook secret is set on the site." }, 503);
+    const raw = await request.text();
+    const at = Date.now();
+    const header = String(request.headers.get("authorization") || "").trim();
+    const delivered = (Boolean(secret) && await verifyRevenueCatSignature(request.headers.get("x-revenuecat-webhook-signature"), raw, secret, at))
+      || (Boolean(auth) && (sameToken(header, auth) || sameToken(header.replace(/^Bearer\s+/i, "").trim(), auth)));
+    if (!delivered) return json({ ok: false, error: "That delivery did not come from RevenueCat." }, 401);
+    let payload: Record<string, unknown>;
+    try { payload = JSON.parse(raw) as Record<string, unknown>; } catch { return json({ ok: false, error: "The delivery was not JSON." }, 400); }
+    const event = (payload["event"] || {}) as Record<string, unknown>;
+    await applyRevenueCatEvent(db, event, at);
+    return json({ ok: true });
+  }
+
+  // The checkout page needs the public SDK key and the package ids, both of which are public by
+  // design. The webhook secret is not here and never reaches a browser.
+  if (url.pathname === "/api/site/billing/config" || url.pathname === "/api/site/plans") {
+    return json({ ok: true, apiKey: String(env.REVENUECAT_PUBLIC_KEY || "").trim(), offering: BILLING_OFFERING, packages: packageCatalog() });
+  }
+
   if (url.pathname === "/api/site/session" && request.method === "POST") {
     const payload = await body(request);
     const idToken = String(payload["idToken"] || "");
@@ -186,11 +279,13 @@ export async function handleSiteApi(request: Request, env: SiteEnv): Promise<Res
         return json({ ok: false, blocked: true, error: "This account has been blocked by the owner." }, 403);
       }
       const at = Date.now();
-      const account = await recordSignIn(db, {
+      const signed = await recordSignIn(db, {
         email: identity.email, subject: identity.subject, name: identity.name, picture: identity.picture,
         platform: String(payload["platform"] || "").slice(0, 40), version: String(payload["version"] || "").slice(0, 40),
         ...signInLocation(request), at,
       });
+      // A subscription paid for before this person ever signed in becomes their plan right here.
+      const account = await syncPlanFromSubscriptions(db, signed.email, at) ?? signed;
       // The app keeps this and comes back with it on boot and after every turn. Without it the site
       // would have no way to reach a person who signed in yesterday — and no way to switch them off.
       return json({ ok: true, email: account.email, plan: account.plan, firstSeen: account.first_seen, lastSeen: account.last_seen, signins: account.signins, session: await issueSession(await signingKey(db), account.email, at) });
@@ -209,17 +304,18 @@ export async function handleSiteApi(request: Request, env: SiteEnv): Promise<Res
     if (!account) return json({ ok: false, stale: true, error: "No ledger record matches this sign-in." }, 403);
     if (account.blocked) return json({ ok: false, blocked: true, error: "This account has been blocked by the owner." }, 403);
     const at = Date.now();
+    // A renewal, a cancellation or a grant made while the app was closed lands here, on the boot pulse.
+    const current = await syncPlanFromSubscriptions(db, account.email, at) ?? account;
     if (url.pathname === "/api/site/pulse") {
-      await touchUsed(db, account.email, at);
-      // A grant or a block made in the console reaches the app here, on the next time it opens.
-      return json({ ok: true, email: account.email, plan: account.plan, firstSeen: account.first_seen, lastSeen: account.last_seen, at });
+      await touchUsed(db, current.email, at);
+      return json({ ok: true, email: current.email, plan: current.plan, firstSeen: current.first_seen, lastSeen: current.last_seen, at });
     }
     await recordTask(db, {
-      email: account.email, status: String(payload["status"] || ""), prompt: String(payload["prompt"] || ""),
+      email: current.email, status: String(payload["status"] || ""), prompt: String(payload["prompt"] || ""),
       tools: Number(payload["tools"]) || 0, seconds: Number(payload["seconds"]) || 0,
-      plan: account.plan, platform: String(payload["platform"] || "").slice(0, 40), version: String(payload["version"] || "").slice(0, 40), at,
+      plan: current.plan, platform: String(payload["platform"] || "").slice(0, 40), version: String(payload["version"] || "").slice(0, 40), at,
     });
-    return json({ ok: true, plan: account.plan, at });
+    return json({ ok: true, plan: current.plan, at });
   }
 
   if (!url.pathname.startsWith("/api/site/admin/")) return json({ ok: false, error: "Not found" }, 404);
@@ -231,7 +327,7 @@ export async function handleSiteApi(request: Request, env: SiteEnv): Promise<Res
   try {
     if (url.pathname === "/api/site/admin/summary") {
       const at = Date.now();
-      const [accounts, events, sales, summary, board] = await Promise.all([listAccounts(db, url.searchParams.get("q") || ""), recentEvents(db), fetchSales(env), summarize(db, at), usageBoard(db, at)]);
+      const [accounts, events, sales, summary, board] = await Promise.all([listAccounts(db, url.searchParams.get("q") || ""), recentEvents(db), fetchSales(db), summarize(db, at), usageBoard(db, at)]);
       return json({ ok: true, at, summary, board, accounts, events, sales });
     }
     // Cheap enough to ask every few seconds: the console only re-reads the whole ledger when this moves.

@@ -1,42 +1,120 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { AgentActivity } from "../components/AgentActivity";
-import { pickPhaseMessages } from "../components/ui/ai-agent-response";
+import { AgentActivity, MIN_ROWS_PER_ROUND, roundIsFull } from "../components/AgentActivity";
 
-describe("phase messages on screen", () => {
-  it("shows one copy when the agent restates its own ask", () => {
-    // The reply the user saw: a clarification question landed once as a fragment and again inside
-    // a longer paragraph, so the same ask appeared twice under one Working header.
+/** A reply paragraph reveals word by word, so its sentence lives in one span per word and the
+ *  default text matcher can no longer see it as a whole. The animated paragraph carries the full
+ *  sentence as its accessible label, and that is what these queries look for. */
+const byReplyLabel = (text: string) => (_content: string, element: Element | null) => element?.getAttribute?.("aria-label") === text;
+const replyParagraph = (text: string) => screen.getByText(byReplyLabel(text));
+const queryReplyParagraph = (text: string) => screen.queryByText(byReplyLabel(text));
+const replyParagraphs = (text: string) => screen.queryAllByText(byReplyLabel(text));
+
+/** The reply style is a collapsible group whose header says what its rows add up to, a rail of one
+ *  chip per tool call, and the agent's own sentence under the round that wrote it. A collapsed fold
+ *  keeps its rows in the document (the fold is a grid-row animation), so these tests read the
+ *  disclosure state rather than the presence of text. */
+describe("group header derived from the rows", () => {
+  const readRow = { id: "read", type: "tool", toolName: "read_file", primary: "Read file", args: { path: "src/app.tsx" }, status: "completed" as const };
+  it("prints the summary the rows add up to", () => {
+    render(<AgentActivity done phases={[{ trace: [readRow, { ...readRow, id: "read2", args: { path: "src/main.tsx" } }] }]} />);
+    expect(screen.getByRole("button", { name: "read 2 files" })).toHaveAttribute("aria-expanded", "false");
+  });
+  it("counts a command that failed in the same line", () => {
+    render(<AgentActivity done phases={[{ trace: [{ id: "cmd", type: "terminal", primary: "Run build", command: "npm run build", status: "failed", exitCode: 1, output: "Missing build script" }] }]} />);
+    expect(screen.getByRole("button", { name: "ran 1 command · 1 failed" })).toBeInTheDocument();
+  });
+  it("says what the round is doing while it is still in flight", () => {
+    // A row the registry knows nothing about adds no count to the summary, so the header names the
+    // state instead of going blank mid-action.
+    render(<AgentActivity done={false} phases={[{ trace: [{ id: "fill", type: "tool", primary: "Typing into the page", secondary: "#time", status: "running" as const }] }]} />);
+    expect(screen.getByRole("button", { name: "Working…" })).toHaveAttribute("aria-expanded", "true");
+  });
+  it("shows thinking before the model has produced a row", () => {
+    render(<AgentActivity done={false} phases={[]} />);
+    expect(screen.getByText("Thinking…")).toBeInTheDocument();
+  });
+  it("says thinking once when the round that is thinking has no rows yet", () => {
+    // The app opens a turn by creating the phase before the model has written anything, and that
+    // empty live round is itself the header: the placeholder used to stand next to it.
+    render(<AgentActivity done={false} phases={[{ trace: [] }]} />);
+    expect(screen.getAllByText("Thinking…")).toHaveLength(1);
+  });
+  it("folds a settled round and opens it on demand", () => {
+    render(<AgentActivity done phases={[{ trace: [readRow], message: "The grid fills the window now." }]} />);
+    const header = screen.getByRole("button", { name: "read 1 file" });
+    expect(header).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(header);
+    expect(header).toHaveAttribute("aria-expanded", "true");
+  });
+  it("keeps the round open while it works and folds it when the turn ends", () => {
+    const phases = [{ trace: [readRow], startedAt: 1000 }];
+    const { rerender } = render(<AgentActivity done={false} phases={phases} />);
+    expect(screen.getByRole("button", { name: "read 1 file" })).toHaveAttribute("aria-expanded", "true");
+    rerender(<AgentActivity done phases={[{ ...phases[0]!, message: "Read it.", endedAt: 5000 }]} />);
+    expect(screen.getByRole("button", { name: "read 1 file" })).toHaveAttribute("aria-expanded", "false");
+  });
+  it("folds a thought to its own duration and reveals the sentences on click", () => {
+    render(<AgentActivity done phases={[{ trace: [{ id: "t", type: "reasoning", sentences: ["Reading the setup first"], durationSeconds: 3.2, status: "completed" as const }], message: "Done." }]} />);
+    const thought = screen.getByRole("button", { name: /Thought process 3.2s/ });
+    expect(thought).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(thought);
+    expect(thought).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("Reading the setup first")).toBeInTheDocument();
+  });
+});
+
+describe("the agent's own words", () => {
+  it("renders the round's sentence as markdown under that round", () => {
+    render(<AgentActivity done phases={[{ trace: [], message: "Start with:\n- Python\n- Go" }]} />);
+    expect(screen.getByText("Start with:")).toBeInTheDocument();
+    expect(screen.getByText("Python")).toBeInTheDocument();
+    expect(screen.getByText("Go")).toBeInTheDocument();
+  });
+  it("keeps one copy when the agent restates its own ask", () => {
+    // The reply the user saw: a clarification landed once as a fragment and again inside a longer
+    // paragraph, so the same ask appeared twice.
     const fragment = "For example: do you want to schedule multiple subjects, or integrate with a calendar?";
     const fuller = `I see you have a basic scheduler already. Could you tell me what you need? ${fragment}`;
-    expect(pickPhaseMessages([{ message: fragment }, { message: fuller }])).toEqual([false, true]);
+    render(<AgentActivity done phases={[{ trace: [], message: fragment }, { trace: [], message: fuller }]} />);
+    expect(replyParagraph(fuller)).toBeInTheDocument();
+    expect(queryReplyParagraph(fragment)).not.toBeInTheDocument();
   });
-  it("keeps the first copy when the text repeats exactly", () => {
-    expect(pickPhaseMessages([{ message: "Which folder should this live in?" }, { message: "Which folder should this live in?" }])).toEqual([true, false]);
+  it("keeps the newest copy when a round repeats the closing summary", () => {
+    render(<AgentActivity done phases={[{ trace: [], message: "Both steps are in." }, { trace: [], message: "Both steps are in." }]} />);
+    expect(replyParagraphs("Both steps are in.")).toHaveLength(1);
   });
-  it("shows every message when they are genuinely different", () => {
-    expect(pickPhaseMessages([{ message: "Reading the project setup." }, { message: "The scheduler page is built and verified." }])).toEqual([true, true]);
+  it("shows a greeting as prose with no work header at all", () => {
+    const { container } = render(<AgentActivity done phases={[{ trace: [], message: "Hello there." }]} />);
+    const paragraph = replyParagraph("Hello there.");
+    expect(paragraph).toBeInTheDocument();
+    expect(container.querySelectorAll("[aria-expanded]").length).toBe(0);
+    // The sentence is not painted in one go: each word is its own animated segment, and the
+    // whole line stays readable through the paragraph's accessible label.
+    expect(paragraph.querySelectorAll("span[aria-hidden='true']")).toHaveLength(3);
   });
-  it("ignores phases that carried no message", () => {
-    expect(pickPhaseMessages([{ trace: [] }, { message: "Done." }])).toEqual([false, true]);
+  it("filters a step that no tool call produced out of the rail", () => {
+    render(<AgentActivity done phases={[{ trace: [{ type: "step", primary: "Invented step" }], message: "Done." }]} />);
+    expect(screen.queryByText("Invented step")).not.toBeInTheDocument();
   });
 });
 
 describe("agent activity", () => {
+  const toolPhase = { trace: [{ id: "read", type: "tool", toolName: "read_file", primary: "Read file", args: { path: "a.ts" }, status: "completed" as const }] };
   it("offers resume beside an interrupted response", () => {
-    const resume=vi.fn();render(<AgentActivity done phases={[{ trace: [{ id: "read", type: "tool", toolName: "read_file", primary: "Read file", status: "completed" as const }], startedAt: 1000 }]} status="stopped" onResume={resume} />);
-    fireEvent.click(screen.getByRole("button",{name:"Pick it back up"}));expect(resume).toHaveBeenCalledOnce();
+    const resume = vi.fn();
+    render(<AgentActivity done phases={[{ ...toolPhase, startedAt: 1000 }]} status="stopped" onResume={resume} />);
+    fireEvent.click(screen.getByRole("button", { name: "Pick it back up" }));
+    expect(resume).toHaveBeenCalledOnce();
   });
   it("says why the turn stopped instead of one sentence for every case", () => {
-    // Only a turn that got as far as a tool has work to pick back up, so every case here carries one.
-    const phases = [{ trace: [{ id: "read", type: "tool", toolName: "read_file", primary: "Read file", status: "completed" as const }], startedAt: 1000, endedAt: 2000 }];
-    render(<AgentActivity done phases={phases} status="stopped" stopReason="replaced" />);
+    render(<AgentActivity done phases={[{ ...toolPhase, startedAt: 1000, endedAt: 2000 }]} status="stopped" stopReason="replaced" />);
     expect(screen.getByText(/You sent another message/)).toBeInTheDocument();
-    render(<AgentActivity done phases={phases} status="stopped" stopReason="user" />);
+    render(<AgentActivity done phases={[{ ...toolPhase, startedAt: 1000, endedAt: 2000 }]} status="stopped" stopReason="user" />);
     expect(screen.getByText(/You stopped this one/)).toBeInTheDocument();
     // No reason means nothing in the app asked for the stop, and that is a bug worth naming
     // rather than dressing up as a choice the user made.
-    render(<AgentActivity done phases={phases} status="stopped" />);
+    render(<AgentActivity done phases={[{ ...toolPhase, startedAt: 1000, endedAt: 2000 }]} status="stopped" />);
     expect(screen.getByText(/ended on its own with the work unfinished/)).toBeInTheDocument();
     expect(screen.queryByText(/Stopped right here/)).not.toBeInTheDocument();
   });
@@ -47,12 +125,11 @@ describe("agent activity", () => {
     render(<AgentActivity done phases={[{ trace: [{ id: "think", type: "reasoning", sentences: ["Choosing the languages."], status: "completed" as const }], message: "1. Python\n2. Go", startedAt: 1000, endedAt: 2000 }]} status="stopped" onResume={resume} />);
     expect(screen.queryByRole("button", { name: "Pick it back up" })).not.toBeInTheDocument();
     expect(screen.queryByText(/work unfinished/)).not.toBeInTheDocument();
-    // The answer itself still renders — as the list markdown turns it into, not one text node.
     expect(screen.getByText("Python")).toBeInTheDocument();
   });
   it("names the steps a short run never reached instead of a stock limit notice", () => {
     const resume = vi.fn();
-    render(<AgentActivity done phases={[{ trace: [{ id: "read", type: "tool", toolName: "read_file", primary: "Read file", status: "completed" as const }], message: "Read the whole folder, then it stopped.", startedAt: 1000, endedAt: 2000 }]} status="blocked" unfinished={["Wire the settings route", "Run the build"]} onResume={resume} />);
+    render(<AgentActivity done phases={[{ ...toolPhase, message: "Read the whole folder, then it stopped.", startedAt: 1000, endedAt: 2000 }]} status="blocked" unfinished={["Wire the settings route", "Run the build"]} onResume={resume} />);
     expect(screen.getByText("Wire the settings route")).toBeInTheDocument();
     expect(screen.getByText("Run the build")).toBeInTheDocument();
     expect(screen.queryByText(/Action limit reached|task is not complete/)).not.toBeInTheDocument();
@@ -60,7 +137,7 @@ describe("agent activity", () => {
     expect(resume).toHaveBeenCalledOnce();
   });
   it("shows the carry-on pill for a run that hit its action ceiling", () => {
-    render(<AgentActivity done phases={[{ trace: [{ id: "cmd", type: "terminal", toolName: "run_command", primary: "Run tests", command: "npm test", status: "running" as const }], message: "Still going.", startedAt: 1000, endedAt: 2000 }]} status="limit" />);
+    render(<AgentActivity done phases={[{ trace: [{ id: "cmd", type: "terminal", primary: "Run tests", command: "npm test", status: "running" as const }], message: "Still going.", startedAt: 1000, endedAt: 2000 }]} status="limit" />);
     expect(screen.getByText(/hit its action ceiling/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Pick it back up" })).not.toBeInTheDocument();
   });
@@ -68,162 +145,34 @@ describe("agent activity", () => {
     render(<AgentActivity done phases={[{ trace: [], message: "Done.", startedAt: 1000, endedAt: 2000 }]} status="finished" />);
     expect(screen.queryByRole("button", { name: "Pick it back up" })).not.toBeInTheDocument();
   });
-  it("does not count time while the app was closed as work", () => {
-    render(<AgentActivity done startedAt={1000} phases={[{trace:[],message:"Saved reply",startedAt:1000,endedAt:4000}]} />);
-    expect(screen.getByText("Thought for")).toHaveTextContent("Thought for 3 seconds");
-  });
   it("does not render an empty assistant response below a steering message", () => {
-    const {container}=render(<AgentActivity done phases={[]} status="finished" />);
+    const { container } = render(<AgentActivity done phases={[]} status="finished" />);
     expect(container).toBeEmptyDOMElement();
   });
-  it("merges a multi-phase turn into one measured thinking header", () => {
-    render(<AgentActivity done startedAt={1000} endedAt={9000} error="Provider timed out" phases={[{trace:[],message:"Checking the project.",startedAt:1000,endedAt:3000},{trace:[],message:"Provider timed out",startedAt:3000,endedAt:9000}]} />);
-    expect(screen.getAllByText("Thought for")).toHaveLength(1);
-    expect(screen.getByText("Thought for")).toHaveTextContent("Thought for 8 seconds");
-    expect(screen.getAllByText("Provider timed out")).toHaveLength(1);
+  it("keeps one header per round while the next round works", () => {
+    const closed = { trace: [{ id: "w", type: "write", toolName: "write_file", primary: "Write file", args: { path: "src/App.tsx" }, status: "completed" as const }], message: "Step 1 done — the week grid renders from real dates.", startedAt: 1000, endedAt: 9000 };
+    const running = { trace: [{ id: "f", type: "write", toolName: "write_file", primary: "Write file", args: { path: "src/Form.tsx" }, status: "running" as const }], startedAt: 9000 };
+    const finished = { trace: [{ ...running.trace[0]!, status: "completed" as const }], startedAt: 9000, endedAt: 12_000 };
+    const { rerender } = render(<AgentActivity done={false} phases={[closed, running]} />);
+    expect(replyParagraph("Step 1 done — the week grid renders from real dates.")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "edited 1 file" })).toHaveLength(2);
+    rerender(<AgentActivity done phases={[closed, finished, { trace: [], message: "Both steps are in: the grid is built from real dates and the form persists across a reload.", startedAt: 9000, endedAt: 20_000 }]} />);
+    expect(replyParagraph("Both steps are in: the grid is built from real dates and the form persists across a reload.")).toBeInTheDocument();
+    expect(replyParagraph("Step 1 done — the week grid renders from real dates.")).toBeInTheDocument();
   });
-  it("keeps a running command collapsed to its label and a spinner", () => {
-    const trace = [{ id: "command", type: "terminal", primary: "Run tests", command: "npm test", status: "running" as const, output: "first test passed" }];
-    const { rerender } = render(<AgentActivity done={false} phases={[{ trace }]} />);
-    const header = screen.getByRole("button", { name: /Working/ });
-    fireEvent.click(header);
-    const row = screen.getByRole("button", { name: "Run tests" });
+  it("reveals the command and its real output only when the row is opened", () => {
+    render(<AgentActivity done phases={[{ trace: [{ id: "command", type: "terminal", primary: "Run tests", command: "npm test", status: "completed" as const, exitCode: 0, output: "first test passed" }] }, ]} />);
+    fireEvent.click(screen.getByRole("button", { name: "ran 1 command" }));
+    const row = screen.getByRole("button", { name: /Run tests/ });
     expect(row).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByText("npm test")).not.toBeInTheDocument();
-    rerender(<AgentActivity done={false} phases={[{ trace: [{ ...trace[0]!, output: "first test passed\nsecond test passed" }] }]} />);
-    expect(screen.getByRole("button", { name: "Run tests" })).toHaveAttribute("aria-expanded", "false");
-  });
-  it("reveals the command and its real output only when the row is clicked", () => {
-    render(<AgentActivity done={false} phases={[{ trace: [{ id: "command", type: "terminal", primary: "Run tests", command: "npm test", status: "completed", exitCode: 0, output: "first test passed" }], activity: "working" }]} />);
-    fireEvent.click(screen.getByRole("button", { name: /Working/ }));
-    const row = screen.getByRole("button", { name: "Run tests" });
     fireEvent.click(row);
     expect(row).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getAllByText("npm test").length).toBeGreaterThan(0);
     expect(screen.getByText("first test passed")).toBeInTheDocument();
-  });
-  it("keeps the command timeline collapsed while working and expands on demand", () => {
-    render(<AgentActivity done={false} phases={[{ trace: [{ id: "run", type: "terminal", primary: "Run tests", command: "npm test", status: "running" }], message: "Running tests." }]} />);
-    const header = screen.getByRole("button", { name: /Working/ });
-    expect(header).toHaveAttribute("aria-expanded", "false");
-    fireEvent.click(header);
-    expect(header).toHaveAttribute("aria-expanded", "true");
-  });
-  it("keeps saying Working while the model composes the next step of a task it is running", () => {
-    const trace = [{ id: "fill", type: "tool", primary: "Typing into the page", secondary: "#time", status: "completed" as const }];
-    render(<AgentActivity done={false} phases={[{ trace, activity: "thinking" }]} />);
-    expect(screen.getByText("Working…")).toBeInTheDocument();
-    expect(screen.queryByText("Thinking…")).not.toBeInTheDocument();
-    // The step finished, so repeating it bare as the current line made an open page claim it was
-    // still opening. It now reads as work already done.
-    expect(screen.getByText("Typing into the page")).toBeInTheDocument();
-    expect(screen.queryByText(/^Done: /)).not.toBeInTheDocument();
-  });
-  it("puts the agent's own words on the live line while the next action is being composed", () => {
-    render(<AgentActivity done={false} phases={[{ trace: [
-      { id: "open", type: "tool", primary: "Opening the page", status: "completed" as const },
-      { id: "thought", type: "reasoning", status: "running" as const, sentences: ["Scanning the roles list for the one that matches."] },
-    ] }]} />);
-    expect(screen.getByText("Scanning the roles list for the one that matches.")).toBeInTheDocument();
-    expect(screen.queryByText("Opening the page")).not.toBeInTheDocument();
-  });
-  it("names the step in progress while the timeline stays collapsed", () => {
-    render(<AgentActivity done={false} phases={[{ trace: [{ id: "open", type: "tool", primary: "Opening the page", secondary: "http://localhost:5173", status: "running" as const }], activity: "working" }]} />);
-    expect(screen.getByText("Opening the page")).toBeInTheDocument();
-    // The path or address a step touched stays on the timeline row. Printed beside the live
-    // sentence it turned "what I am doing" into a file listing nobody asked to watch.
-    expect(screen.queryByText("http://localhost:5173")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Working/ })).toHaveAttribute("aria-expanded", "false");
-  });
-  it("keeps a file name off the live line while it is being read", () => {
-    render(<AgentActivity done={false} phases={[{ trace: [{ id: "read", type: "tool", toolName: "read_file", primary: "I'm reading what is already there", secondary: "package.json", status: "completed" as const }], activity: "working" }]} />);
-    expect(screen.getByText("I'm reading what is already there")).toBeInTheDocument();
-    expect(screen.queryByText("package.json")).not.toBeInTheDocument();
-  });
-  it("says the current step once while the turn is still running", () => {
-    // The double response the user photographed: the canned label and the agent's own sentence
-    // both printed under one Working header, so the same "I'm …" idea appeared twice.
-    render(<AgentActivity done={false} phases={[{ trace: [{ id: "read", type: "tool", toolName: "read_file", primary: "I'm reading what is already there", status: "completed" as const }], message: "I'm reading the main component file so I can fix the grid." }]} />);
-    expect(screen.getByText("I'm reading the main component file so I can fix the grid.")).toBeInTheDocument();
-    expect(screen.queryByText("I'm reading what is already there")).not.toBeInTheDocument();
-    expect(screen.getAllByText(/^I'm /)).toHaveLength(1);
-  });
-  it("prints the agent's closing message under the finished header", () => {
-    render(<AgentActivity done startedAt={1000} endedAt={9000} phases={[{ trace: [{ id: "read", type: "tool", toolName: "read_file", primary: "I'm reading what is already there", status: "completed" as const }], message: "The grid fills the window now, and the check passed.", startedAt: 1000, endedAt: 9000 }]} />);
-    expect(screen.getByText("The grid fills the window now, and the check passed.")).toBeInTheDocument();
-  });
-  it("shows thinking before inference produces a phase", () => {
-    render(<AgentActivity done={false} phases={[]} />);
-    expect(screen.getByText("Thinking…")).toBeInTheDocument();
-  });
-  it("shows live tools and public updates before the run finishes", () => {
-    const { rerender } = render(<AgentActivity done={false} phases={[{ trace: [{ id: "read", type: "tool", primary: "Read file", secondary: "app.ts", status: "running" }], message: "Checking the entry point." }]} />);
-    // The live line is a sentence about the work, never the path it touched; the path waits on
-    // the timeline row for anyone who wants to open it.
-    expect(screen.queryByText("app.ts")).not.toBeInTheDocument();
-    expect(screen.getByText("Checking the entry point.")).toBeInTheDocument();
-    rerender(<AgentActivity done={false} phases={[
-      { trace: [{ id: "read", type: "tool", primary: "Read file", secondary: "app.ts", status: "completed" }], message: "Read the entry point.", startedAt: 1000, endedAt: 3000 },
-      { trace: [{ id: "test", type: "terminal", primary: "Run tests", command: "npm test", status: "running" }] },
-    ]} />);
-    expect(screen.getByText("Read the entry point.")).toBeInTheDocument();
-    // The collapsed timeline keeps its rows out of the DOM until it is opened, so the live
-    // step line is what the user sees while work runs; expand to reach the row itself.
-    fireEvent.click(screen.getByRole("button", { name: /Working/ }));
-    expect(screen.getByRole("button", { name: "Run tests" })).toBeInTheDocument();
-    expect(screen.getByText("app.ts")).toBeInTheDocument();
-    expect(screen.getByText("Working…")).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: /Working/ })).toHaveLength(1);
-  });
-  it("uses the supplied elapsed header and expandable terminal output", () => {
-    render(<AgentActivity done startedAt={1000} endedAt={16000} phases={[{ trace: [{ type: "terminal", primary: "Run command", command: "npm run build", status: "failed", exitCode: 1, output: "Missing build script" }], message: "The build needs a script." }]} />);
-    const header = screen.getByRole("button", { name: /Worked for 15 seconds/ });
-    expect(header).toHaveAttribute("aria-expanded", "false");
-    fireEvent.click(header);
-    fireEvent.click(screen.getByRole("button", { name: /Run command/ }));
-    expect(screen.getByText("exit 1")).toBeInTheDocument();
-    expect(screen.getByText("Missing build script")).toBeInTheDocument();
-    expect(screen.getByText("The build needs a script.")).toBeInTheDocument();
-  });
-  it("shows greeting replies as thinking rather than work", () => {
-    render(<AgentActivity done startedAt={1000} endedAt={16000} phases={[{ trace: [], message: "Hello there." }]} />);
-    expect(screen.getByText("Hello there.")).toBeInTheDocument();
-    expect(screen.getByText("Thought for")).toHaveTextContent("Thought for 15 seconds");
-    expect(screen.queryByRole("button", { name: /Thought for/ })).not.toBeInTheDocument();
-  });
-  it("alternates Thinking and Working while live, then reports Worked for", () => {
-    const trace = [{ id: "read", type: "tool", primary: "Read file", secondary: "app.ts", status: "completed" as const }];
-    const { rerender } = render(<AgentActivity done={false} phases={[{ trace: [], activity: "thinking", startedAt: 1000 }]} />);
-    expect(screen.getByText("Thinking…")).toBeInTheDocument();
-    rerender(<AgentActivity done={false} phases={[{ trace, activity: "working", startedAt: 1000 }]} />);
-    expect(screen.getByText("Working…")).toBeInTheDocument();
-    rerender(<AgentActivity done phases={[{ trace, activity: "thinking", message: "Read it.", startedAt: 1000, endedAt: 5000 }]} />);
-    expect(screen.getByRole("button", { name: /Worked for 4 seconds/ })).toBeInTheDocument();
   });
   it("renders compression dividers", () => {
     render(<AgentActivity done={false} phases={[{ trace: [], divider: { state: "compressing" }, startedAt: 1000 }]} />);
     expect(screen.getByText("Compressing…")).toBeInTheDocument();
     expect(screen.getByRole("separator", { name: "Compressing context" })).toBeInTheDocument();
-  });
-  it("does not expose internal reasoning or invent execution steps", () => {
-    render(<AgentActivity done phases={[{ trace: [{ type: "reasoning", sentences: ["Internal deliberation"] }, { type: "step", primary: "Invented step" }], message: "Done." }]} />);
-    expect(screen.queryByText("Internal deliberation")).not.toBeInTheDocument();
-    expect(screen.queryByText("Invented step")).not.toBeInTheDocument();
-  });
-  it("reveals the thought sentences only when its row is opened", () => {
-    render(<AgentActivity done startedAt={1000} phases={[{ trace: [{ type: "reasoning", sentences: ["Reading the setup first"], durationSeconds: 3.2, status: "completed" }], message: "Done." }]} />);
-    fireEvent.click(screen.getByRole("button", { name: /Thought for 1 second/ }));
-    const thought = screen.getByRole("button", { name: /Thought for 3.2s/ });
-    expect(thought).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByText("Reading the setup first")).not.toBeInTheDocument();
-    fireEvent.click(thought);
-    expect(thought).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText("Reading the setup first")).toBeInTheDocument();
-  });
-  it("leaves a thought with nothing recorded as plain prose", () => {
-    render(<AgentActivity done startedAt={1000} phases={[{ trace: [{ type: "reasoning", sentences: ["   "], durationSeconds: 3.2, status: "completed" }], message: "Done." }]} />);
-    expect(screen.getByText("Thought for")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Thought for/ })).not.toBeInTheDocument();
   });
   it("surfaces inference failures", () => {
     render(<AgentActivity done phases={[]} status="blocked" error="HTTP 503" />);
@@ -255,10 +204,21 @@ describe("agent activity", () => {
     expect(actions).toHaveClass("opacity-100");
     expect(screen.getByRole("button", { name: "Good reply" })).toHaveAttribute("aria-pressed", "true");
   });
+  it("never names the models behind a reply", () => {
+    // The user asked for the provenance line gone: a finished reply shows its actions, not a model list.
+    const phases = [{ trace: [], message: "Done.", startedAt: 1000, endedAt: 2000 }];
+    const { rerender } = render(<AgentActivity done phases={phases} />);
+    expect(screen.queryByText(/Answered by/)).not.toBeInTheDocument();
+    rerender(<AgentActivity done={false} phases={phases} />);
+    expect(screen.queryByText(/Answered by/)).not.toBeInTheDocument();
+  });
+});
+
+describe("subagent rows", () => {
   it("reports a finished subagent from the job's own stamps", () => {
     render(<AgentActivity done phases={[]} subagents={[{ id: "w1", role: "builder", task: "Wire the settings route", status: "finished", startedAt: 1_000, endedAt: 41_000, updates: ["edited src/routes/settings.tsx"], result: "Route added and type-checked." }]} />);
     const row = screen.getByRole("button", { name: "Subagent builder: Wire the settings route" });
-    expect(row).toHaveTextContent("Subagent finished in 40 seconds");
+    expect(row).toHaveTextContent("Subagent finished in 40s");
     // The row's identity is the generated avatar seeded from the role, not an icon font.
     expect(row.querySelector("canvas")).not.toBeNull();
     // Nothing is revealed until the row is opened, and what opens is the job's own log line.
@@ -270,24 +230,22 @@ describe("agent activity", () => {
   });
   it("names the engine the session routed this worker onto", () => {
     render(<AgentActivity done phases={[]} subagents={[{ id: "w1", role: "builder", task: "Reword the header", status: "finished", startedAt: 1_000, endedAt: 21_000, engine: { profile: "thorough", model: "gemini-3.8-flash" } }]} />);
-    const row = screen.getByRole("button", { name: "Subagent builder on thorough · gemini-3.8-flash: Reword the header" });
-    expect(row).toHaveTextContent("thorough · gemini-3.8-flash");
+    expect(screen.getByRole("button", { name: "Subagent builder on thorough · gemini-3.8-flash: Reword the header" })).toHaveTextContent("thorough · gemini-3.8-flash");
   });
   it("shows no engine for a worker whose session reported none", () => {
     render(<AgentActivity done phases={[]} subagents={[{ id: "w1", role: "builder", task: "Reword the footer", status: "finished", startedAt: 1_000, endedAt: 21_000 }]} />);
-    const row = screen.getByRole("button", { name: "Subagent builder: Reword the footer" });
-    expect(row).not.toHaveTextContent(/quick|balanced|thorough/);
+    expect(screen.getByRole("button", { name: "Subagent builder: Reword the footer" })).not.toHaveTextContent(/quick|balanced|thorough/);
   });
   it("says a worker hit its step limit rather than calling it blocked", () => {
     render(<AgentActivity done phases={[]} subagents={[{ id: "w1", role: "builder", task: "Migrate the routes", status: "limit", startedAt: 1_000, endedAt: 61_000 }]} />);
     const row = screen.getByRole("button", { name: "Subagent builder: Migrate the routes" });
-    expect(row).toHaveTextContent("Subagent stopped at its step limit after 1 minute");
+    expect(row).toHaveTextContent("Subagent stopped at its step limit after 1m 0s");
     expect(row).not.toHaveTextContent(/blocked/);
   });
   it("ticks a running subagent and never claims it finished", () => {
     render(<AgentActivity done={false} phases={[{ trace: [], startedAt: Date.now() }]} subagents={[{ id: "w1", role: "researcher", task: "Audit the tool list", status: "running", startedAt: Date.now() - 15_000 }]} />);
     const row = screen.getByRole("button", { name: "Subagent researcher: Audit the tool list" });
-    expect(row).toHaveTextContent(/Subagent running for 1[45] seconds/);
+    expect(row).toHaveTextContent(/Subagent running for 1[45]s/);
     expect(row).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByText(/Subagent finished/)).not.toBeInTheDocument();
   });
@@ -326,12 +284,25 @@ describe("agent activity", () => {
     expect(container.textContent).toContain("Done.");
     expect(screen.queryByRole("button", { name: /^Subagent / })).not.toBeInTheDocument();
   });
-  it("never names the models behind a reply", () => {
-    // The user asked for the provenance line gone: a finished reply shows its actions, not a model list.
-    const phases = [{ trace: [], message: "Done.", startedAt: 1000, endedAt: 2000 }];
-    const { rerender } = render(<AgentActivity done phases={phases} />);
-    expect(screen.queryByText(/Answered by/)).not.toBeInTheDocument();
-    rerender(<AgentActivity done={false} phases={phases} />);
-    expect(screen.queryByText(/Answered by/)).not.toBeInTheDocument();
+});
+
+/** The route folds a working block when the round hands back its sentence; the fold rule itself is
+ *  this count, so a retry loop cannot re-open the test's premise by accident. */
+describe("when a round of work is worth its own header", () => {
+  const tool = (id: string) => ({ id, type: "tool", primary: "Write file", status: "completed" as const });
+  it("folds after a stretch of files and commands", () => {
+    expect(roundIsFull(["a", "b", "c", "d", "e"].map(tool))).toBe(true);
+  });
+  it("keeps working under the same header for a few commands", () => {
+    expect(roundIsFull([tool("a"), tool("b"), tool("c"), tool("d")])).toBe(false);
+    // A failed command is still a row of work; the fold is about how much the block holds.
+    expect(roundIsFull([tool("a"), tool("b"), tool("c"), tool("d"), { ...tool("e"), status: "failed" as const }])).toBe(true);
+  });
+  it("does not count thinking or a plan tick as work", () => {
+    expect(roundIsFull([{ id: "t", type: "reasoning", status: "completed" as const, sentences: ["Thinking"] }, { id: "s", type: "step", primary: "Plan step", status: "completed" as const }])).toBe(false);
+  });
+  it("pins the threshold the timeline is judged against", () => {
+    expect(MIN_ROWS_PER_ROUND).toBe(5);
+    expect(roundIsFull(Array.from({ length: MIN_ROWS_PER_ROUND - 1 }, (_, i) => tool(String(i))))).toBe(false);
   });
 });

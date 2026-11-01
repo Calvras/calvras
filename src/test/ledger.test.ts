@@ -6,7 +6,8 @@ import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { LEDGER_SCHEMA, accountEmail, deleteAccount, findByEmail, grantPlan, listAccounts, normalizePlan, recentEvents, recordSignIn, summarize, type D1Database } from "../lib/runtime/ledger";
+import { LEDGER_SCHEMA, accountEmail, deleteAccount, findByEmail, grantPlan, listAccounts, normalizePlan, recentEvents, recordSignIn, saveSubscription, summarize, type D1Database } from "../lib/runtime/ledger";
+import { PRODUCT_IDS } from "../lib/billing";
 import { handleSiteApi, platformBindings } from "../lib/site-api";
 import { d1Shim } from "./sqlite-d1";
 
@@ -23,11 +24,11 @@ describe("ledger schema", () => {
   it("is the SQL the deployed migrations apply", () => {
     const read = (name: string) => readFileSync(resolve(process.cwd(), "migrations", name), "utf8");
     const deployed = new DatabaseSync(":memory:");
-    for (const file of ["0001_ledger.sql", "0002_account_location.sql", "0003_block_and_usage.sql", "0004_account_places.sql"]) deployed.exec(read(file));
+    for (const file of ["0001_ledger.sql", "0002_account_location.sql", "0003_block_and_usage.sql", "0004_account_places.sql", "0005_subscriptions.sql", "0006_subscription_expiry.sql"]) deployed.exec(read(file));
     const shape = (handle: DatabaseSync) =>
       [
-        ...["accounts", "events", "usage", "meta"].flatMap((table) => (handle.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((column) => `${table}.${column["name"]}`)),
-        ...["events", "usage"].flatMap((table) => (handle.prepare(`PRAGMA index_list(${table})`).all() as { name: string }[]).map((index) => `${table}.index.${index["name"]}`)),
+        ...["accounts", "events", "usage", "meta", "subscriptions"].flatMap((table) => (handle.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((column) => `${table}.${column["name"]}`)),
+        ...["events", "usage", "subscriptions"].flatMap((table) => (handle.prepare(`PRAGMA index_list(${table})`).all() as { name: string }[]).map((index) => `${table}.index.${index["name"]}`)),
       ].sort();
     expect(shape(deployed)).toEqual(shape(sqlite));
     deployed.close();
@@ -167,7 +168,9 @@ describe("the site API in front of the ledger", () => {
     const summary = await (await handleSiteApi(request("/api/site/admin/summary", { headers }), env))?.json();
     expect(summary.ok).toBe(true);
     expect(summary.accounts.map((row: { email: string }) => row.email)).toEqual(["ada@calvras.com"]);
-    expect(summary.sales.configured).toBe(false);
+    expect(summary.sales.configured).toBe(true);
+    expect(summary.sales.sales).toEqual([]);
+    expect(summary.sales.note).toMatch(/RevenueCat/);
 
     const granted = await (await handleSiteApi(request("/api/site/admin/grant", jsonInit({ email: "ada@calvras.com", plan: "ultra" }, headers)), env))?.json();
     expect(granted.account.plan).toBe("ultra");
@@ -189,18 +192,15 @@ describe("the site API in front of the ledger", () => {
     expect((await response?.json())?.error).toMatch(/not a Google ID token/i);
   });
 
-  it("reads sales from Payments AI without ever holding the key in the answer", async () => {
-    const original = globalThis.fetch;
-    globalThis.fetch = (async (input: any, init: any) => new Response(JSON.stringify({ data: [{ id: "tx_1", customerEmail: "Ada@Calvras.com", amount: "9.00", currency: "USD", status: "succeeded", plan: "Pro", createdAt: "2026-10-01T10:00:00Z" }] }), { headers: { "content-type": "application/json" } })) as typeof fetch;
-    try {
-      const response = await handleSiteApi(request("/api/site/admin/summary", { headers: { authorization: "Bearer k" } }), { CALVRAS_DB: db, CALVRAS_ADMIN_TOKEN: "k", CALVRAS_PAYMENTS_KEY: "pai_live_secret", CALVRAS_PAYMENTS_MERCHANT: "merchant-1" });
-      const text = await response?.text() || "";
-      expect(text).toContain("tx_1");
-      expect(text).toContain("ada@calvras.com");
-      expect(text).not.toContain("pai_live_secret");
-    } finally {
-      globalThis.fetch = original;
-    }
+  it("reads sales from the subscriptions RevenueCat recorded, without a store key", async () => {
+    await recordSignIn(db, { email: "ada@calvras.com", at: 1 });
+    await saveSubscription(db, { id: "txn_1", email: "Ada@Calvras.com", plan: "pro", productId: PRODUCT_IDS.pro.month, status: "active", currency: "USD", expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000, at: 2 });
+    const response = await handleSiteApi(request("/api/site/admin/summary", { headers: { authorization: "Bearer k" } }), { CALVRAS_DB: db, CALVRAS_ADMIN_TOKEN: "k" });
+    const text = await response?.text() || "";
+    expect(text).toContain("txn_1");
+    expect(text).toContain("ada@calvras.com");
+    expect(text).toContain("Pro");
+    expect(text).toContain("9.00");
   });
 });
 

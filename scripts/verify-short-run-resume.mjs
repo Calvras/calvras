@@ -72,22 +72,28 @@ try {
 
   await page.screenshot({ path: path.join(out, "stopped-short.png"), animations: "disabled" });
 
+  const beforeIds = await page.evaluate(() => [...document.querySelectorAll('[id^="msg-"]')].map((node) => node.id));
   await pill.click();
-  await page.waitForFunction(() => [...document.querySelectorAll('[id^="msg-"]')].some((node) => node.innerText.startsWith("Pick the task below back up")), null, { timeout: 20_000 }).catch(() => {});
-  // Read the bubbles by id so the assertion is about the message the press actually sent,
-  // not about whichever node happens to contain the phrase once the new run starts narrating.
+  await turn.getByRole("button", { name: "Pick it back up" }).waitFor({ state: "detached", timeout: 20_000 }).catch(() => {});
+  await page.waitForTimeout(1_000);
+  // Reading the bubbles by id is the whole point of this half: a press that starts a NEW user
+  // message is exactly what the user said must not happen — the run carries on where it stopped.
   const bubbles = await page.evaluate(() => [...document.querySelectorAll('[id^="msg-"]')].map((node) => ({ id: node.id, text: node.innerText })));
-  await fs.writeFile(path.join(out, "sent-bubbles.json"), JSON.stringify(bubbles, null, 2));
-  const sent = bubbles.find((bubble) => bubble.text.startsWith("Pick the task below back up"))?.text ?? "";
-  const flat = sent.replace(/\s+/g, " ");
-  report(`the press sends a resume brief, not the old request (${flat.slice(0, 300)})`,
-    sent.length > 0 && !/^build the settings page end to end$/.test(sent.trim()));
-  report(`the brief carries the open steps and the original ask (${flat.slice(200)})`,
-    sent.includes(STEPS[0]) && sent.includes(STEPS[1]) && /Original request:\s*build the settings page end to end/.test(flat));
+  await fs.writeFile(path.join(out, "after-resume.json"), JSON.stringify(bubbles, null, 2));
+  const afterIds = bubbles.map((bubble) => bubble.id);
+  report(`no new message appeared when it was picked back up (${beforeIds.length} before, ${afterIds.length} after)`,
+    beforeIds.length === afterIds.length && beforeIds.every((id, position) => afterIds[position] === id));
+  report("the resume brief never reaches the screen as a bubble",
+    !bubbles.some((bubble) => /Continue the task below inside this same run/.test(bubble.text)));
+  const resumed = bubbles.find((bubble) => bubble.id === `msg-${STOPPED_ID}`)?.text ?? "";
+  report(`the stopped turn is working again and kept its earlier round (${resumed.slice(0, 120).replace(/\s+/g, " ")})`,
+    resumed.includes(REPLY) && /Thinking|working|ran |read |Read/i.test(resumed) && !/Pick it back up/.test(resumed));
 
   const stop = page.getByRole("button", { name: "Stop task" });
+  report("the restarted run is stoppable like any turn", (await stop.count()) === 1);
   if (await stop.count()) await stop.click().catch(() => {});
   await page.waitForTimeout(1_500);
+  await page.screenshot({ path: path.join(out, "resumed-in-place.png"), animations: "disabled" }).catch(() => {});
 } catch (error) {
   report(`harness stopped: ${String(error.message).split("\n")[0].slice(0, 160)}`, false);
   if (page) await page.screenshot({ path: path.join(out, "failure.png"), animations: "disabled" }).catch(() => {});

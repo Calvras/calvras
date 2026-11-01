@@ -43,6 +43,21 @@ describe("real agent loop", () => {
     expect(String(config.infer.mock.calls[2]?.[0])).toContain("renders in their input box");
     expect(config.execute.mock.calls[1]?.[0]).toEqual([{ type: "ask_user", question: "Is this for your own subjects, or for clients booking you?" }]);
   });
+  it("turns a build with no folder open into a write the user can approve", async () => {
+    // The live stall: five rounds of "where should I create it?" in prose, which nothing can
+    // answer, when the first create_file is itself what raises the folder card.
+    const config = {
+      ...options([
+        reply("I need a folder to build this in. Where should I create it?", [], "continue"),
+        reply("Scaffolding it.", [{ type: "create_file", path: "index.html", content: "<!doctype html>" }], "continue"),
+      ]),
+      requiresWork: true, needsProjectFolder: true,
+    };
+    config.maxSteps = 8;
+    await runAgent(config);
+    expect(String(config.infer.mock.calls[1]?.[0])).toContain("create_file for the project's entry file");
+    expect(String(config.infer.mock.calls[1]?.[0])).not.toContain("renders in their input box");
+  });
   it("keeps a submitted target closed when the receipt it quoted was never read", async () => {
     const config = options([
       reply("Read the listing, queued it.", [{ type: "read_page" }, { type: "queue_batch", title: "jobs", targets: [{ url: "http://127.0.0.1/post/4", label: "Data Engineer" }] }], "continue"),
@@ -458,6 +473,47 @@ describe("rendered preview gate", () => {
     expect(outcome.status).toBe("finished");
     expect(outcome.error).toBeUndefined();
     expect(config.execute).toHaveBeenCalledTimes(5);
+  });
+
+  it("judges a half-built page once, after the plan closes", async () => {
+    // A build with steps still on the board is a construction site. Grading its render mid-build
+    // is what produced the complaint: rounds spent on a blank page the agent had not written yet,
+    // and a run that stopped because the scaffold "looked broken".
+    const plan = { type: "plan_tasks", task: "build the site" };
+    const write = { type: "write_file", path: "src/App.tsx", content: "export default () => null" };
+    const closeFirst = { type: "track_progress", id: "1", status: "done" };
+    const closeSecond = { type: "track_progress", id: "2", status: "done" };
+    const twoSteps = [{ id: "1", title: "Scaffold", status: "todo" }, { id: "2", title: "Wire the form", status: "todo" }];
+    const oneLeft = [{ id: "1", title: "Scaffold", status: "done" }, { id: "2", title: "Wire the form", status: "todo" }];
+    const bothDone = [{ id: "1", title: "Scaffold", status: "done" }, { id: "2", title: "Wire the form", status: "done" }];
+    const config = {
+      ...options([
+        reply("Planning it.", [plan], "continue"),
+        reply("The server answers; the page is only a shell, so there is nothing to judge yet.", [start], "continue"),
+        reply("Writing the layout.", [write], "continue"),
+        reply("Step 1 done — the week grid renders from real dates.", [closeFirst], "continue"),
+        reply("Step 2 done — the appointment form saves and comes back.", [closeSecond], "continue"),
+        reply("That is every step. Done."),
+        reply("The grid renders and the form saves; the screenshot shows both."),
+        reply("Built and looked at."),
+      ]),
+      prompt: "Build me a scheduling website with a week view",
+    };
+    config.execute = vi.fn()
+      .mockResolvedValueOnce([{ action: plan, ok: true, result: { ok: true, tasks: twoSteps } }])
+      .mockResolvedValueOnce([{ action: start, ok: true, result: { ready: true, url: "http://localhost:5173", ...clean } }])
+      .mockResolvedValueOnce([{ action: write, ok: true, result: { ok: true } }])
+      .mockResolvedValueOnce([{ action: closeFirst, ok: true, result: { ok: true, tasks: oneLeft } }])
+      .mockResolvedValueOnce([{ action: closeSecond, ok: true, result: { ok: true, tasks: bothDone } }])
+      .mockResolvedValueOnce([{ action: { type: "check_preview" }, ok: true, result: { healthy: true, ...clean } }])
+      .mockResolvedValueOnce([{ action: { type: "run_typecheck" }, ok: true, result: { ok: true } }]);
+    const outcome = await runAgent({ ...config, maxSteps: 14 });
+    // While steps were open, the preview was declared out of bounds rather than graded.
+    expect(config.infer.mock.calls[2]?.[0]).toContain("out of bounds for now");
+    expect(config.infer.mock.calls[2]?.[0]).toContain("planned step(s) untouched");
+    // Nothing looked at the page until the last step closed; that is what earns the one check.
+    expect(config.execute).toHaveBeenNthCalledWith(6, [{ type: "check_preview" }]);
+    expect(outcome.status).toBe("finished");
   });
 
   it("marks a passing preview stale after an edit and rechecks before accepting completion", async () => {

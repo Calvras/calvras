@@ -375,27 +375,13 @@ ipcMain.handle('pick-folder', async () => {
 });
 
 // ─── IPC: Google sign-in ──────────────────────────────────────────────────────
-// Both values live beside the provider keys rather than in the bundle, so the same install
-// can be repointed at another Google project without a rebuild. Google issues a secret for
-// desktop clients and its token endpoint insists on it; PKCE remains the real proof that the
-// browser and this process are the same app.
-const localConfigDir = () => path.join(process.env['LOCALAPPDATA'] || path.join(os.homedir(), '.local', 'share'), 'Calvras');
-
-const googleOAuthConfig = () => {
-  try {
-    const stored = JSON.parse(fs.readFileSync(path.join(localConfigDir(), 'google-oauth.json'), 'utf8'));
-    return { clientId: stored.clientId || null, clientSecret: stored.clientSecret || undefined };
-  } catch { return { clientId: null }; }
-};
-
-// GitHub's OAuth App values live beside Google's, in the same per-install folder rather than in
-// the bundle, so the app can be repointed at another OAuth App without a rebuild.
-const githubOAuthConfig = () => {
-  try {
-    const stored = JSON.parse(fs.readFileSync(path.join(localConfigDir(), 'github-oauth.json'), 'utf8'));
-    return { clientId: stored.clientId || null, clientSecret: stored.clientSecret || null };
-  } catch { return { clientId: null, clientSecret: null }; }
-};
+// The install carries its own OAuth values (electron/oauth-defaults.json, staged at build time
+// and never committed), so a fresh laptop signs in without any setup; a file in the per-user
+// config folder still wins. See electron/oauth-config.cjs. Google issues a secret for desktop
+// clients and its token endpoint insists on it; PKCE remains the real proof that the browser and
+// this process are the same app.
+const { createOAuthConfigReader } = require('./oauth-config.cjs');
+const { googleOAuthConfig, githubOAuthConfig } = createOAuthConfigReader();
 
 /** Chrome holds the foreground after the redirect, so a plain focus() can be ignored by
  *  Windows. Bouncing always-on-top is what actually drags the window back over the browser. */

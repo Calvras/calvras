@@ -32,7 +32,6 @@ try {
   await page.reload();
   await page.getByRole("textbox", { name: "Prompt" }).waitFor({ timeout: 30_000 });
 
-  const marker = "echo";
   const prompt = page.getByRole("textbox", { name: "Prompt" });
   await prompt.click({ force: true });
   await prompt.fill("In the project terminal, run a shell command that prints the number 4173, then save a file named proof.txt containing that number. Keep your updates short and don't mention file names in them.");
@@ -45,19 +44,22 @@ try {
   await rows.first().waitFor({ timeout: 120_000 });
   await page.waitForTimeout(4_000);
 
-  const collapsed = await page.locator("body").evaluate((body, text) => {
-    const all = [...body.querySelectorAll("button[aria-expanded]")];
-    const open = all.filter((b) => b.getAttribute("aria-expanded") === "true");
-    return { open: open.length, hits: body.innerText.match(new RegExp(`\\b${text}\\b[^\\n]*`, "gi"))?.slice(0, 3) ?? [],
-      labels: all.map((b) => b.innerText.replace(/\s+/g, " ").trim()).filter((l) => l && !/Full access|Conversation|Settings/i.test(l)).slice(0, 8) };
-  }, marker);
-  check(`tool rows start collapsed (expanded=${collapsed.open}, rows=[${collapsed.labels.join(" | ")}])`, collapsed.open === 0);
-  check(`a collapsed row hides its command (${collapsed.hits.join(" / ") || "no command text on screen"})`, collapsed.hits.length === 0);
+  const live = await page.locator("body").evaluate((body) => {
+    const headers = [...body.querySelectorAll(".reply-round > button[aria-expanded]")];
+    const chips = [...body.querySelectorAll(".reply-round button[aria-expanded]")].filter((b) => !headers.includes(b));
+    return {
+      headers: headers.map((b) => `${b.innerText.replace(/\s+/g, " ").trim()}=${b.getAttribute("aria-expanded")}`),
+      openChips: chips.filter((b) => b.getAttribute("aria-expanded") === "true").length,
+      chipLabels: chips.map((b) => b.innerText.replace(/\s+/g, " ").trim()).filter(Boolean).slice(0, 8),
+    };
+  });
+  check(`the round in flight is open (${JSON.stringify(live.headers)})`, live.headers.some((line) => line.endsWith("=true")));
+  check(`every tool row inside it is still folded (open chips=${live.openChips})`, live.openChips === 0);
   const narr = await page.locator("body").evaluate((b) => b.innerText);
   check(`narration names no files (${narr.match(/checking \S+\.(mjs|ts|tsx|json|md)|reading \S+\.(mjs|ts|tsx|json|md)/gi)?.join(",") || "clean"})`,
     !/checking\s+\S*\.(mjs|ts|tsx|json|md)|reading\s+\S*\.(mjs|ts|tsx|json|md)/i.test(narr));
-  check(`trace labels read as human work (${collapsed.labels.join(", ")})`,
-    collapsed.labels.length > 0 && collapsed.labels.every((l) => !/^[a-z]+_[a-z_]+$/i.test(l) && !/\.(mjs|ts|tsx|json|md|txt)\b/i.test(l)));
+  check(`trace labels read as human work (${live.chipLabels.join(", ")})`,
+    live.chipLabels.length > 0 && live.chipLabels.every((label) => !/^[a-z]+_[a-z_]+$/i.test(label)));
   await snap("live-collapsed");
 
   // Interrupt: a message sent while the agent works takes over — the live turn stops and
@@ -95,33 +97,32 @@ try {
   check("the last task finished", !/Running…|Working…|Thinking…/.test(finished));
   await snap("finished");
 
-  // The header collapses to a measured label and the row reveals code on click.
-  const header = await page.getByRole("button", { name: /(Thought for|Worked for)/ }).first().innerText();
-  check(`turn reports a measured header (${header.replace(/\s+/g, " ").trim().slice(0, 60)})`, /(Thought for|Worked for)/.test(header));
-  // Opening the turn reveals the timeline; opening a row reveals its command.
-  await page.getByRole("button", { name: /(Thought for|Worked for)/ }).first().click();
-  await page.waitForTimeout(500);
-  const commandRow = page.getByRole("button", { name: /Running a command|Saving a file|Writing a file/ }).last();
-  await commandRow.scrollIntoViewIfNeeded();
-  await commandRow.waitFor({ state: "visible", timeout: 10_000 });
-  const beforeRow = (await page.getByLabel("Conversation").innerText()).length;
-  await commandRow.click({ timeout: 10_000 });
+  // A finished turn leaves one folded header per round; each fold opens on click.
+  const folded = await page.locator("body").evaluate((body) => [...body.querySelectorAll(".reply-round > button[aria-expanded]")]
+    .map((b) => `${b.innerText.replace(/\s+/g, " ").trim()}=${b.getAttribute("aria-expanded")}`));
+  check(`every round of the finished turn folded away (${JSON.stringify(folded)})`, folded.length > 0 && folded.every((line) => line.endsWith("=false")));
+  const firstHeader = page.locator(".reply-round > button[aria-expanded]").first();
+  await firstHeader.click();
   await page.waitForTimeout(400);
-  const afterRow = (await page.getByLabel("Conversation").innerText()).length;
-  check(`clicking a row reveals its command (+${afterRow - beforeRow} chars)`, afterRow > beforeRow);
+  check("opening a round brings its rail back", (await firstHeader.getAttribute("aria-expanded")) === "true");
+
+  const commandRow = page.locator('.reply-round > div button[aria-expanded]').filter({ hasNotText: /Thought process/ }).first();
+  await commandRow.waitFor({ timeout: 10_000 });
+  check(`a rail row is folded until clicked (${(await commandRow.innerText()).replace(/\s+/g, " ").trim()})`, (await commandRow.getAttribute("aria-expanded")) === "false");
+  await commandRow.click();
+  await page.waitForTimeout(400);
+  check("clicking a rail row opens its body", (await commandRow.getAttribute("aria-expanded")) === "true");
   await snap("expanded-row");
 
-  // The Thought row is the model's own commentary, mounted only when opened.
-  const thoughtRow = page.getByRole("button", { name: /Thought for \d/ }).first();
+  // The Thought row is the model's own commentary, opened on click like any other row.
+  const thoughtRow = page.locator(".reply-round > div button[aria-expanded]").filter({ hasText: /Thought process/ }).first();
   if (await thoughtRow.count()) {
-    const before = (await page.getByLabel("Conversation").innerText()).length;
     await thoughtRow.click();
-    await page.waitForTimeout(500);
-    const after = (await page.getByLabel("Conversation").innerText()).length;
-    check(`opening the Thought row reveals its sentences (+${after - before} chars)`, after > before);
+    await page.waitForTimeout(400);
+    check(`opening the Thought row shows its sentences (${(await thoughtRow.innerText()).replace(/\s+/g, " ").trim()})`, (await thoughtRow.getAttribute("aria-expanded")) === "true");
     await snap("expanded-thought");
   } else {
-    check("opening the Thought row reveals its sentences", false);
+    check("opening the Thought row shows its sentences", false);
   }
 
   const alert = await page.locator('[role="alert"]').innerText().catch(() => "");

@@ -28,6 +28,9 @@ export type BrowserSnapshot = {
   url: string;
   title: string;
   loading: boolean;
+  /** The folder this page belongs to, or "" when it was opened for no project. The dock needs it
+   *  because deleting that project has to take the page with it. */
+  project: string;
 };
 
 const IN_APP_BROWSER_TOOLS = new Set([
@@ -171,7 +174,7 @@ class BrowserBridge {
   private errors: string[] = [];
   private errorCursor = 0;
   private listeners = new Set<() => void>();
-  private snapshot: BrowserSnapshot = { attached: false, ready: false, url: "", title: "", loading: false };
+  private snapshot: BrowserSnapshot = { attached: false, ready: false, url: "", title: "", loading: false, project: "" };
 
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -241,6 +244,29 @@ class BrowserBridge {
     if (element && element !== this.element) return;
     this.detachAll();
     this.update({ attached: false, ready: false, url: "", title: "", loading: false });
+  }
+
+  /** Remembers which project the page in the dock belongs to, so removing that project can take
+   *  the page with it. An empty path means the page was opened for no folder at all. */
+  bindProject(project: string | null | undefined) {
+    this.update({ project: project || "" });
+  }
+
+  /**
+   * Blanks the panel when the project it was opened for is deleted. A preview of a folder that no
+   * longer exists would otherwise sit in the dock answering nothing, and the page tools would keep
+   * driving a dead local port. Returns false when the open page belongs to a different project (or
+   * to none), which is why callers pass the path they actually removed instead of clearing blindly.
+   */
+  clearForProject(project: string): boolean {
+    if (!this.snapshot.project || this.snapshot.project !== project) return false;
+    const element = this.element;
+    if (element) {
+      try { void element.loadURL("about:blank").catch(() => {}); } catch { /* the webview may still be booting */ }
+    }
+    this.clearConsoleErrors();
+    this.update({ project: "", url: "", title: "", ready: Boolean(element), loading: false });
+    return true;
   }
 
   private detachAll() {

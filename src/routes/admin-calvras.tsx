@@ -5,8 +5,9 @@ import { siteApiBase } from "@/lib/site-session";
 
 /**
  * The owner's console. It reads only what the site's own ledger holds — who has signed in, which plan
- * each address carries, what each of them asked the agent to do, and what Payments AI reports as sold —
- * and it speaks to /api/site/admin with a bearer token that never leaves this browser.
+ * each address carries, what each of them asked the agent to do, and what RevenueCat's webhooks
+ * recorded as sold — and it speaks to /api/site/admin with a bearer token that never leaves this
+ * browser.
  *
  * It is also meant to be left open. A revision call every few seconds is cheap enough to ask often, and
  * the whole ledger is only re-read when that number moves, so a sign-in or a sale that lands while the
@@ -335,7 +336,7 @@ export function AdminConsole() {
         <span><b>{summary ? summary.activeToday : "—"}</b><span>Used the app today</span></span>
         <span><b>{board ? board.tasksToday : "—"}</b><span>Tasks in 24 hours</span></span>
         <span><b>{board ? `${board.failures}/${board.tasks}` : "—"}</b><span>Turns that did not finish</span></span>
-        <span><b>{data?.sales?.configured ? `${sales.length ? "$" : "—"}${sales.length ? revenue.toFixed(2) : live}` : "—"}</b><span>Reported by Payments AI</span></span>
+        <span><b>{data?.sales?.configured ? `${sales.length ? "$" : "—"}${sales.length ? revenue.toFixed(2) : live}` : "—"}</b><span>List price recorded</span></span>
       </section>
 
       <section className="admin-panel" aria-label="Daily report">
@@ -359,13 +360,13 @@ export function AdminConsole() {
       </section>
 
       <section className="admin-panel" aria-label="Sales">
-        <div className="admin-panel-heading"><h2>Sales</h2><span>{data?.sales?.configured ? `${sales.length} transaction${sales.length === 1 ? "" : "s"} read live from Payments AI` : "Store not connected"}</span></div>
+        <div className="admin-panel-heading"><h2>Sales</h2><span>{data?.sales?.configured ? `${sales.length} subscription${sales.length === 1 ? "" : "s"} recorded from RevenueCat` : "Store not connected"}</span></div>
         {!data?.sales?.configured ? (
-          <p className="admin-empty">{data?.sales?.note || "The site has no Payments AI credential, so sales cannot be read yet. Grants below are made by hand."}</p>
+          <p className="admin-empty">{data?.sales?.note || "RevenueCat webhooks have not recorded a sale here yet. Grants below are made by hand."}</p>
         ) : data?.sales?.error ? (
           <p className="admin-empty">{data.sales.error}</p>
         ) : !sales.length ? (
-          <p className="admin-empty">Payments AI returned no transactions for this merchant yet.</p>
+          <p className="admin-empty">{data?.sales?.note || "RevenueCat has not sent a purchase to this site yet."}</p>
         ) : (
           <div className="admin-scroll">
             <table>
@@ -375,7 +376,7 @@ export function AdminConsole() {
                   <td data-label="Reference">{sale.reference || "—"}</td>
                   <td data-label="Buyer">{sale.email || "—"}</td>
                   <td data-label="Plan">{sale.plan || "—"}</td>
-                  <td data-label="Amount">{sale.amount === "" ? "—" : `${sale.currency || "$"}${sale.amount}`}</td>
+                  <td data-label="Amount">{sale.amount === "" ? "—" : sale.currency === "USD" ? `$${sale.amount}` : `${sale.amount} ${sale.currency || ""}`.trim()}</td>
                   <td data-label="Status"><em className={`admin-status ${String(sale.status).toLowerCase()}`}>{sale.status || "—"}</em></td>
                   <td data-label="When">{sale.at ? when(Date.parse(sale.at)) : "—"}</td>
                   <td data-label="Action">

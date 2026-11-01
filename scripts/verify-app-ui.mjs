@@ -191,24 +191,24 @@ try {
     }));
     return { cards, note: document.querySelector(".pricing-note")?.innerText.trim() || "" };
   });
-  const buyable = usageRead.catalog.plans.length > 0;
-  checks.push([`the pricing page sells what the store really has (${JSON.stringify(pricing.cards).slice(0, 200)} | note: ${pricing.note.slice(0, 80)})`,
+  // Every paid card has a RevenueCat package behind it, so all of them must be sellable out of the box.
+  const paid = pricing.cards.filter((card) => card.name !== "Starter");
+  const buyable = paid.every((card) => card.badge === "In the store");
+  checks.push([`the pricing page sells the plans RevenueCat really has, monthly (${JSON.stringify(pricing.cards).slice(0, 200)} | note: ${pricing.note.slice(0, 80)})`,
     pricing.cards.length === 3
-      && pricing.cards.filter((card) => card.name !== "Starter").every((card) => card.badge === (buyable ? "In the store" : "Not on sale yet"))
-      && /merchant of record/i.test(pricing.note)]);
-  if (!buyable) {
-    await page.getByRole("button", { name: /Explore Pro/ }).click();
-    const dialog = await page.getByRole("dialog").innerText();
-    checks.push([`a plan that is not on sale refuses to take money and quotes the store (${dialog.replace(/\s+/g, " ").slice(0, 120)})`,
-      /No payment has been taken/.test(dialog) && /merchant id|no Payments AI|no Calvras server/i.test(dialog)]);
-    // The button is a step up, not the starter file the page used to hand out.
-    const cta = await page.evaluate(() => { const link = document.querySelector('[role="dialog"] a.landing-download'); return { label: link ? link.innerText.replace(/\s+/g, " ").trim() : "", href: link?.getAttribute("href") || "" }; });
-    checks.push([`the dialog's only button says Upgrade and points at a payment page, never a download (${JSON.stringify(cta)})`,
-      /^upgrade/i.test(cta.label) && !/download|starter|\.exe|\.zip/i.test(cta.href)]);
+      && buyable
+      && paid.every((card) => /^Upgrade to/.test(card.button))
+      && /RevenueCat/.test(pricing.note)]);
+  if (buyable) {
+    // The click hands the buyer to the browser; the app window must stay on the pricing page.
+    const before = page.url();
+    await page.getByRole("button", { name: /Upgrade to Pro/ }).click();
+    await page.waitForTimeout(400);
+    checks.push([`a plan on sale opens the hosted checkout instead of a dialog (${page.url() === before ? "window unchanged" : page.url()})`,
+      page.url() === before && (await page.getByRole("dialog").count()) === 0]);
     await page.screenshot({ path: path.join(out, "pricing-page.png"), animations: "disabled" });
-    await page.keyboard.press("Escape");
   } else {
-    checks.push(["a plan on sale opens the Payments AI checkout instead of a dialog", true]);
+    checks.push(["a plan on sale opens the hosted checkout instead of a dialog", true]);
     await page.screenshot({ path: path.join(out, "pricing-page.png"), animations: "disabled" });
   }
   await page.goto(usageUrl, { waitUntil: "domcontentloaded" });

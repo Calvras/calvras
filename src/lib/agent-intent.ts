@@ -1,8 +1,8 @@
 import type { AgentAction } from "./agent-run";
 import { TOOL_NAMES } from "./tool-catalog";
 
-const TASK_VERB = /\b(?:check|inspect|read|edit|fix|build|create|implement|run|start|launch|boot|serve|deploy|search|browse|look\s+up|find\s+out|update|test|remove|delete|add|change|replace|rename|move|refactor|redesign|restyle|style|improve|make|write|adjust|increase|decrease|tweak|clean|install|configure|integrate|apply|convert|migrate|hide|show|swap|reorder|align|resize|open|close|set\s+up|setup|help\s+me)\b/i;
-const WORK_VERB = /\b(?:edit|fix|build|create|implement|remove|delete|add|change|replace|rename|move|refactor|redesign|restyle|style|improve|make|write|adjust|increase|decrease|tweak|clean|install|configure|integrate|apply|convert|migrate|hide|show|swap|reorder|align|resize|deploy|update|test|run|start|launch|boot|serve|open|close)\b/i;
+const TASK_VERB = /\b(?:check|inspect|read|edit|fix|build|create|implement|run|start|launch|boot|serve|deploy|search|browse|look\s+up|find\s+out|update|test|remove|delete|add|change|replace|rename|move|refactor|redesign|restyle|style|improve|make|write|adjust|increase|decrease|tweak|clean|install|configure|integrate|apply|convert|migrate|hide|show|swap|reorder|align|resize|open|close|set\s+up|setup|help\s+me|duplicate|replicate|recreate|clone|reproduce|rebuild)\b/i;
+const WORK_VERB = /\b(?:edit|fix|build|create|implement|remove|delete|add|change|replace|rename|move|refactor|redesign|restyle|style|improve|make|write|adjust|increase|decrease|tweak|clean|install|configure|integrate|apply|convert|migrate|hide|show|swap|reorder|align|resize|deploy|update|test|run|start|launch|boot|serve|open|close|duplicate|replicate|recreate|clone|reproduce|rebuild|pixel-perfect)\b/i;
 
 /** A screenshot only sets a visual target when the words around it ask for that screen. */
 const REPRODUCE = /\b(?:duplicat\w*|recreate\w*|rebuild|replicat\w*|clone|match(?:es|ing)? (?:this|the|it)|same (?:ui|screen|page|design|look)|look(?:s)? (?:exactly )?(?:like|the same)|make (?:it|this)(?: look)? like|pixel[ -]?perfect|as shown|this (?:ui|screen|page|design|layout)|from (?:the |this )?(?:screenshot|image|picture))\b/i;
@@ -83,7 +83,7 @@ export function agentIntent(text: string, previousRequests: string[], hasProject
   const browsing = !changesSomething.test(request)
     && /\b(?:open|visit|browse|go\s+to|navigat\w*|search|look\s+up|google|find\s+out)\b/i.test(request)
     && (/\b(?:website|web\s*site|web\s*page|web|page|site|url|link|browser|online|internet)\b/i.test(request) || /\bgoogle\b/i.test(request));
-  const webIntent = /\b(?:open|browse|visit|go\s+to|check|look|search|find|apply|book|message|sign\s*up|fill|scroll|click)\b/i.test(request);
+  const webIntent = /\b(?:open|browse|visit|go\s+to|check|look|search|find|apply|book|message|sign\s*up|fill|scroll|click|duplicate|replicate|recreate|clone|rebuild)\b/i.test(request);
   const webFirst = !explanation && webIntent && (Boolean(address) || browsing);
   const initialActions: AgentAction[] = server
     ? [{ type: "read_file", path: "package.json" }]

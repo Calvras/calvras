@@ -1,16 +1,19 @@
 // Verifies how a finished turn presents itself on the real app: hovering the reply reveals
-// copy / thumbs-up / thumbs-down and the mark survives a reload, a thought with nothing behind
-// it is plain prose instead of a dead dropdown, and a turn with a real timeline still expands.
+// copy / thumbs-up / thumbs-down and the mark survives a reload, a turn with no rows is plain
+// prose with nothing to fold, and a turn with a real round still expands to its rail.
 // The transcript is seeded so none of this depends on a provider answering.
 import { _electron as electron } from "playwright";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
 const out = ".agents/artifacts/reply-actions";
 await fs.mkdir(out, { recursive: true });
 const env = { ...process.env };
 delete env.ELECTRON_RUN_AS_NODE;
-const app = await electron.launch({ executablePath: path.resolve("node_modules/electron/dist/electron.exe"), args: ["."], env, timeout: 60_000 });
+// A throwaway profile: the seeded turns and the sign-in stub stay out of the owner's real account.
+const profile = await fs.mkdtemp(path.join(os.tmpdir(), "calvras-reply-actions-"));
+const app = await electron.launch({ executablePath: path.resolve("node_modules/electron/dist/electron.exe"), args: [".", `--user-data-dir=${profile}`], env, timeout: 60_000 });
 const checks = [];
 const report = (label, ok, detail = "") => { checks.push([label, ok]); console.log(`${ok ? "PASS" : "FAIL"} — ${label}${detail ? ` :: ${detail}` : ""}`); };
 const REPLY = "I moved the sidebar to the left and kept the header intact.";
@@ -22,10 +25,14 @@ let savedClipboard = null;
 try {
   page = await app.firstWindow();
   await page.waitForLoadState("domcontentloaded");
+  await page.evaluate(() => {
+    localStorage.setItem("calvras_user", JSON.stringify({ provider: "google", email: "harness@calvras.com", name: "Reply proof", joinedAt: Date.now() }));
+    localStorage.setItem("calvras_access_mode", "full");
+  });
   await page.getByRole("textbox", { name: "Prompt" }).waitFor({ timeout: 30_000 });
 
-  // This app shares the user's real profile, so their transcript and clipboard go back
-  // exactly as found once the seeded turns have been tested.
+  // The throwaway profile starts empty, so the clipboard and transcript round-trips below are the
+  // seeded turns' own.
   savedChat = await page.evaluate(() => localStorage.getItem("calvras_chat_messages"));
   savedClipboard = await app.evaluate(({ clipboard }) => clipboard.readText()).catch(() => null);
 
@@ -74,7 +81,31 @@ try {
   await page.waitForTimeout(200);
   report("thumbs up is pressed after one click", (await up.getAttribute("aria-pressed")) === "true");
   report("thumbs down stays unpressed", (await down.getAttribute("aria-pressed")) === "false");
-  const stored = await page.evaluate((id) => JSON.parse(localStorage.getItem("calvras_chat_messages") || "[]").find((m) => m.id === id)?.rating ?? "none", REPLY_ID);
+  // The transcript the app writes lives under the account's own `…/chats` key, and the seeded flat
+  // `calvras_chat_messages` array is carried into it on load — so both shapes are checked, and the
+  // debounced write is waited for rather than raced.
+  const ratingOf = async (id) => {
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const found = await page.evaluate((messageId) => {
+        const find = (messages) => (Array.isArray(messages) ? messages : []).find((message) => message.id === messageId);
+        for (const key of Object.keys(localStorage)) {
+          if (!/(^|\/)(chats|calvras_chat_messages)$/.test(key)) continue;
+          const stored = JSON.parse(localStorage.getItem(key) || "null");
+          const direct = find(stored);
+          if (direct) return direct.rating ?? "none";
+          for (const chat of Object.values(stored && typeof stored === "object" ? stored : {})) {
+            const found = find(chat?.messages);
+            if (found) return found.rating ?? "none";
+          }
+        }
+        return null;
+      }, id);
+      if (found !== null) return found;
+      await page.waitForTimeout(250);
+    }
+    return "no transcript on disk";
+  };
+  const stored = await ratingOf(REPLY_ID);
   report(`the mark is written to chat storage (${String(stored)})`, stored === "up");
 
   const unhoverOpacity = await (async () => { await page.mouse.move(5, 5); await page.waitForTimeout(300); return bar.evaluate((node) => getComputedStyle(node).opacity); })();
@@ -90,25 +121,21 @@ try {
   report("switching to thumbs down moves the mark", (await turn.getByRole("button", { name: "Bad reply" }).getAttribute("aria-pressed")) === "true" && (await turn.getByRole("button", { name: "Good reply" }).getAttribute("aria-pressed")) === "false");
   await turn.getByRole("button", { name: "Bad reply" }).click();
   await page.waitForTimeout(200);
-  const cleared = await page.evaluate((id) => JSON.parse(localStorage.getItem("calvras_chat_messages") || "[]").find((m) => m.id === id)?.rating ?? "none", REPLY_ID);
+  const cleared = await ratingOf(REPLY_ID);
   report(`a second click on the same thumb clears the mark (${String(cleared)})`, cleared === "none");
 
-  // A thought that recorded nothing has no chevron to chase and nothing to expand into.
-  const thoughtHeader = turn.getByText("Thought for");
-  report(`a thought-only turn still says how long it thought (${JSON.stringify(await thoughtHeader.first().textContent().catch(() => null))})`, Boolean(await thoughtHeader.first().textContent().catch(() => null)));
-  report("that header is not a dropdown", (await turn.getByRole("button", { name: /Thought for/ }).count()) === 0);
-  const headerHasChevron = await thoughtHeader.evaluate((node) => Boolean(node.closest("p")?.querySelector("svg")));
-  report("no chevron is drawn beside it", headerHasChevron === false);
+  // A turn whose round recorded no rows has nothing to fold: its sentence is the reply.
+  report("a rowless turn shows no round header", (await turn.locator(".reply-round").count()) === 0);
 
-  // The turn that did run a tool keeps its expandable timeline.
-  const workHeader = workTurn.getByRole("button", { name: /Worked for/ });
-  report("a turn with real work keeps its dropdown", (await workHeader.count()) === 1 && (await workHeader.getAttribute("aria-expanded")) === "false");
+  // The turn that did run a tool keeps its expandable round, folded once the turn is over.
+  const workHeader = workTurn.locator(".reply-round > button[aria-expanded]");
+  report(`a turn with real work keeps its dropdown (${(await workHeader.first().innerText().catch(() => "")).replace(/\s+/g, " ").trim()})`, (await workHeader.count()) === 1 && (await workHeader.getAttribute("aria-expanded")) === "false");
   await workHeader.click();
   await page.waitForTimeout(250);
   report("opening it reveals the step it took", (await workTurn.getByRole("button", { name: /Run build/ }).count()) === 1);
   await workTurn.getByRole("button", { name: /Run build/ }).click();
   await page.waitForTimeout(250);
-  report("and the step carries its real command output", (await workTurn.getByText("npm run build").count()) > 0);
+  report("and the step carries its real command output", (await workTurn.getByText("bundle written").count()) > 0);
   await page.screenshot({ path: path.join(out, "headers.png"), animations: "disabled" });
 } finally {
   await page?.evaluate((value) => {
@@ -117,6 +144,7 @@ try {
   }, savedChat).catch(() => {});
   if (typeof savedClipboard === "string") await app.evaluate(({ clipboard }) => clipboard.writeText(savedClipboard)).catch(() => {});
   await app.close().catch(() => {});
+  await fs.rm(profile, { recursive: true, force: true });
 }
 
 const failed = checks.filter(([, ok]) => !ok).length;

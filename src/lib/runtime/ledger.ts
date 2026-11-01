@@ -72,6 +72,19 @@ CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS subscriptions (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL,
+  plan TEXT NOT NULL DEFAULT '',
+  price_id TEXT NOT NULL DEFAULT '',
+  product_id TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT '',
+  customer_id TEXT NOT NULL DEFAULT '',
+  currency TEXT NOT NULL DEFAULT '',
+  expires_at INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS subscriptions_email_idx ON subscriptions (email, updated_at DESC);
 `;
 
 const PLAN_NAMES = ["free", "pro", "ultra"];
@@ -153,6 +166,61 @@ export async function setBlocked(db: D1Database, email: string, blocked: boolean
 
 export async function findByEmail(db: D1Database, email: string): Promise<AccountRow | null> {
   return await db.prepare("SELECT * FROM accounts WHERE email = ?").bind(accountEmail(email)).first<AccountRow>() ?? null;
+}
+
+export type SubscriptionRow = { id: string; email: string; plan: string; price_id: string; product_id: string; status: string; customer_id: string; currency: string; expires_at: number; updated_at: number };
+
+/** RevenueCat's own record of a subscription, kept here so a later cancellation or failed renewal can
+ *  be matched to the account even though the store never learned our account's email. */
+export async function saveSubscription(db: D1Database, input: { id: string; email: string; plan: string; productId?: string; status?: string; customerId?: string; currency?: string; expiresAt?: number; at: number }): Promise<void> {
+  const id = text(input.id, 120);
+  if (!id) return;
+  await db.prepare(`INSERT INTO subscriptions (id, email, plan, product_id, status, customer_id, currency, expires_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET email = excluded.email, plan = excluded.plan, product_id = excluded.product_id,
+      status = excluded.status, customer_id = excluded.customer_id, currency = excluded.currency,
+      expires_at = excluded.expires_at, updated_at = excluded.updated_at`)
+    .bind(id, accountEmail(input.email), text(input.plan, 20).toLowerCase(), text(input.productId, 100), text(input.status, 20).toLowerCase(), text(input.customerId, 120), text(input.currency, 8).toUpperCase(), Math.max(0, Math.round(Number(input.expiresAt) || 0)), input.at).run();
+}
+
+export async function subscriptionById(db: D1Database, id: string): Promise<SubscriptionRow | null> {
+  return await db.prepare("SELECT * FROM subscriptions WHERE id = ?").bind(text(id, 120)).first<SubscriptionRow>() ?? null;
+}
+
+export async function listSubscriptions(db: D1Database, limit = 100): Promise<SubscriptionRow[]> {
+  const { results } = await db.prepare("SELECT * FROM subscriptions ORDER BY updated_at DESC LIMIT ?").bind(Math.min(500, Math.max(1, limit))).all<SubscriptionRow>();
+  return results ?? [];
+}
+
+// A canceled or paused subscription keeps its access until expires_at, so it counts as entitled while
+// the clock has not passed. RevenueCat only moves it to EXPIRED when the time is up.
+const ENTITLED = ["active", "past_due", "canceled", "paused"];
+const PLAN_RANK: Record<string, number> = { free: 0, pro: 1, ultra: 2 };
+
+/**
+ * The plan an account holds is whatever its subscriptions say, unless the owner set it by hand —
+ * an owner's grant outranks a checkout. Called after every sign-in and every RevenueCat event, so a
+ * purchase made before the person ever signed in lands the moment they do, and an expired plan
+ * falls back to free without anybody pressing anything.
+ */
+export async function syncPlanFromSubscriptions(db: D1Database, email: string, at: number): Promise<AccountRow | null> {
+  const account = await findByEmail(db, email);
+  if (!account) return null;
+  if (account.plan_set_by === "owner") return account;
+  // The highest live plan wins: somebody who bought Pro and later Ultra holds Ultra, and a leftover
+  // Pro row from an older checkout cannot drag them back down.
+  const rows = await db.prepare("SELECT plan FROM subscriptions WHERE email = ? AND status IN (?, ?, ?, ?) AND (expires_at = 0 OR expires_at > ?)")
+    .bind(account.email, ...ENTITLED, at).all<{ plan: string }>();
+  let target = "free";
+  for (const row of rows.results ?? []) {
+    const plan = normalizePlan(row.plan);
+    if (plan && (PLAN_RANK[plan] ?? 0) > (PLAN_RANK[target] ?? 0)) target = plan;
+  }
+  if (account.plan === target) return account;
+  // A plan this ledger never set from a subscription (the free default, or a legacy grant) is not
+  // ours to take away just because no live subscription exists.
+  if (target === "free" && account.plan_set_by !== "revenuecat") return account;
+  return grantPlan(db, account.email, target, "revenuecat", at);
 }
 
 /** One finished turn, as the app describes it. The prompt is whatever the person typed, truncated to

@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
 import { clearScoped, readChats, readScoped, writeChats, writeScoped, type StoredChat } from "./account";
+import { browserBridge } from "./browser-bridge";
 
 export interface Project {
   name: string;
@@ -194,6 +195,9 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const deleteProject = (path: string) => {
     setProjects((prev) => prev.filter((p) => p.path !== path));
     setActiveProject((prev) => (prev?.path === path ? null : prev));
+    // The browser panel belongs to the project it was opened for. Leaving a dead localhost preview
+    // of a folder the user just removed is worse than closing the panel they can see.
+    browserBridge.clearForProject(path);
   };
 
   const renameRecent = (idOrLabel: string, newLabel: string) => {

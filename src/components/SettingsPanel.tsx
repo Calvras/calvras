@@ -23,7 +23,6 @@ type Page = "general" | "application" | "appearance" | "projects" | "not-in-proj
 type Route = { page: Page; project?: string };
 /** Mirrors the JSON the local server answers; typed here so the window never imports the node module. */
 type UsageSnapshot = { available: boolean; projects: number; toolCalls: number; failures: number; byTool: { tool: string; calls: number; failures: number }[]; tasksDone: number; tasksOpen: number; firstAt: number; lastAt: number; capped: boolean };
-type StoreStatus = { hasKey: boolean; live: boolean; keyHint: string; merchantId: string };
 
 /** Only the desktop shell can block sleep, own the menu bar, or rebind the server. */
 type Desktop = {
@@ -228,7 +227,6 @@ export function SettingsPanel({ open, onOpenChange }: { open: boolean; onOpenCha
   const [taskEvents, setTaskEvents] = useState(0);
   const [replyEvents, setReplyEvents] = useState(0);
   const [stats, setStats] = useState<UsageSnapshot | null>(null);
-  const [store, setStore] = useState<StoreStatus>({ hasKey: false, live: false, keyHint: "", merchantId: "" });
   const [recording, setRecording] = useState(false);
 
   const refresh = useCallback(() => {
@@ -275,22 +273,20 @@ export function SettingsPanel({ open, onOpenChange }: { open: boolean; onOpenCha
     }
   };
 
-  // Usage and the store credential come from the local server, so a window that cannot reach it
-  // shows nothing rather than a number invented on the client.
+  // Usage comes from the local server, so a window that cannot reach it shows nothing rather than a
+  // number invented on the client.
   useEffect(() => {
     if (!open) return;
     let alive = true;
     const read = async (path: string) => { try { const response = await fetch(path); return response.ok ? await response.json() : null; } catch { return null; } };
-    void Promise.all([read("/api/agent/usage"), read("/api/agent/payments")]).then(([usageBody, statusBody]) => {
-      if (!alive) return;
-      if (usageBody && typeof usageBody.toolCalls === "number") setStats(usageBody as UsageSnapshot);
-      if (statusBody && typeof statusBody.hasKey === "boolean") setStore(statusBody as StoreStatus);
+    void read("/api/agent/usage").then((usageBody) => {
+      if (alive && usageBody && typeof usageBody.toolCalls === "number") setStats(usageBody as UsageSnapshot);
     });
     return () => { alive = false; };
   }, [open]);
 
   // Payment belongs to the website, not to this window: the pill hands the buyer to the pricing page
-  // in their browser, where Upgrade opens the Payments AI checkout.
+  // in their browser, where Upgrade opens the RevenueCat checkout.
   const openPricing = () => { const bridge = desktop(); onOpenChange(false); if (bridge?.openExternal) void bridge.openExternal("https://calvras.com/pricing"); else window.location.href = "https://calvras.com/pricing"; };
   const openCheckout = (url: string) => { const bridge = desktop(); if (bridge?.openExternal) void bridge.openExternal(url); else window.location.href = url; };
 
@@ -588,11 +584,11 @@ export function SettingsPanel({ open, onOpenChange }: { open: boolean; onOpenCha
           {route.page === "usage" && <>
             <Group label="Plan">
               <Card>
-                <Row title={`Your plan: ${profile.plan ? planLabel(profile.plan) : "Calvras Local"}`} description={profile.plan ? `Set on calvras.com for ${profile.email || "this account"}. Signing in again refreshes it.` : "This install runs on this computer. Paid tiers are sold by Payments AI, which acts as the merchant of record for the card."}>
+                <Row title={`Your plan: ${profile.plan ? planLabel(profile.plan) : "Calvras Local"}`} description={profile.plan ? `Set on calvras.com for ${profile.email || "this account"} by your subscription. Signing in again refreshes it.` : "This install runs on this computer. Paid tiers are billed through RevenueCat on calvras.com."}>
                   <button type="button" className="settings-milk" onClick={openPricing}>Upgrade plan</button>
                 </Row>
-                {paidPlans.map((plan) => { const checkout = checkoutFor(plan.name); return (
-                  <Row key={plan.name} title={plan.name} description={checkout ? "Sold by Payments AI. Opening checkout does not charge you." : "Not in the Payments AI store yet."}>
+                {paidPlans.map((plan) => { const checkout = checkoutFor(plan.name, "month", profile.email || ""); return (
+                  <Row key={plan.name} title={plan.name} description={checkout ? "Billed through RevenueCat. Opening checkout does not charge you." : "Not on sale in the store yet."}>
                     {checkout ? <button type="button" className="settings-control" onClick={() => openCheckout(checkout)}>Open checkout</button> : null}
                   </Row>
                 ); })}
@@ -623,9 +619,9 @@ export function SettingsPanel({ open, onOpenChange }: { open: boolean; onOpenCha
               </Card>
             </Group>
 
-            <Group label="Payments store">
+            <Group label="Billing">
               <Card>
-                <Row title="Store credential" description={store.hasKey ? `Saved on this computer ${store.live ? "for live payments" : "in sandbox"} · ends ${store.keyHint}. It stays in the app's own folder and is never sent to this window.` : "No Payments AI credential is saved on this computer."} />
+                <Row title="Payment method" description="Cards, renewals and receipts are handled by RevenueCat on calvras.com. No payment credential is saved on this computer." />
               </Card>
             </Group>
           </>}

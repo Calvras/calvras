@@ -39,7 +39,7 @@ try {
  assert.equal(server.ready,true); assert.notEqual(new URL(server.url).port,new URL(origin).port,"Project must not inherit the app port");
  const preview=await context.newPage();await preview.goto(server.url);await preview.getByText("Service healthy",{exact:true}).waitFor();
  await preview.screenshot({path:".agents/artifacts/runtime/fullstack-preview.png",animations:"disabled"});await preview.close();
- assert.equal(await page.getByRole("button",{name:/Worked for/}).count(),1);
+ assert.equal(await page.locator(".reply-round > button[aria-expanded]").count(),1,"one round header for the turn");
  console.log(JSON.stringify({ok:true,checks:["live code generation","backend route","frontend fetch","generated tests","actual test run","single reply header"],errors}));
 } finally {
  for(const id of sessions){try{await fetch(origin+"/api/agent/tools",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({sessionId:id,action:{type:"stop_dev_server"}})});}catch{}await fetch(origin+"/api/agent/session?id="+id,{method:"DELETE"});}
