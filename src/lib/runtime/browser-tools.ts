@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { safeProjectPath } from './file-tools';
-import { CLEAR_MARKS_SOURCE, COLLECT_TARGETS_SOURCE, FIRST_SCREEN_SOURCE, PAGE_MEDIA_SOURCE, formatTargets, targetSummary, type PageView } from './page-localizer';
+import { CLEAR_MARKS_SOURCE, COLLECT_TARGETS_SOURCE, FIRST_SCREEN_SOURCE, PAGE_MEDIA_SOURCE, SURVEY_SOURCE, formatTargets, targetSummary, type PageView } from './page-localizer';
 
 // Loaded only when a browser tool actually runs, and kept out of the bundle: the hosted build has no
 // browser to launch, and dragging playwright (plus the electron it references) into the server output
@@ -144,6 +144,12 @@ async function executeAction(type: string, args: Record<string, unknown>, projec
   if (page.url() === 'about:blank') throw new Error('Open a website with open_browser before using this tool.');
   if (type === 'take_screenshot') return { ok: true, ...await captureView(page, args['fullPage'] === true) };
   if (type === 'read_page') {
+    if (args['full'] === true) {
+      const survey = await page.evaluate(SURVEY_SOURCE).catch(() => null) as { sections?: unknown[] } | null;
+      if (!survey) throw new Error('The page would not give up its full layout. Scroll it by hand with scroll_page and screenshot each view instead.');
+      const links = await page.evaluate(() => [...document.querySelectorAll('a[href]')].slice(0, 80).map((anchor) => ({ text: (anchor.textContent ?? '').trim().slice(0, 120), href: (anchor as HTMLAnchorElement).href })));
+      return { ok: true, ...survey, links };
+    }
     const pageData = await page.evaluate(() => ({
       title: document.title, url: location.href,
       text: (document.body?.innerText ?? '').slice(0, 30000),

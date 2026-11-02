@@ -138,8 +138,110 @@ export const PAGE_MEDIA_SOURCE = `(() => {
   return { imageCount: images.length, videoCount: videos.length, images, videos, audios, iframes };
 })()`;
 
-export type PageTarget = { i: number; x: number; y: number; width: number; height: number; left: number; top: number; role: string; label: string };
-export type PageView = { viewport: { width: number; height: number }; scroll: { x: number; y: number }; targets: PageTarget[] };
+/**
+ * The whole document, measured. A duplication built from the first screenful guesses at everything
+ * below it — the section order, the gaps, the colours — which is exactly what a user sees as "the
+ * spacing, colour, size". This walks the page to its real end first (so lazy sections mount), then
+ * reports every band with the numbers a stylesheet has to reproduce: its offset and height in
+ * pixels, its background and text colours, each heading's size and weight, the padding around the
+ * content, and the images and buttons inside it with their sources and rounded corners.
+ */
+export const SURVEY_SOURCE = `(async () => {
+  const clean = (value) => String(value == null ? '' : value).replace(/\\s+/g, ' ').trim();
+  const px = (value) => Math.round(parseFloat(value) || 0);
+  const box = (style) => [px(style.paddingTop), px(style.paddingRight), px(style.paddingBottom), px(style.paddingLeft)].join(' ');
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const jump = (top) => { window.scrollTo({ top, left: 0, behavior: 'instant' }); if (document.scrollingElement) document.scrollingElement.scrollTop = top; };
+  const height = () => Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0);
+  const step = Math.max(300, Math.round(window.innerHeight * 0.7));
+  let y = 0;
+  for (let guard = 0; guard < 60; guard += 1) {
+    jump(y);
+    await wait(130);
+    const next = Math.min(y + step, height());
+    if (next === y) break;
+    y = next;
+  }
+  jump(height());
+  await wait(400);
+  const documentHeight = height();
+  jump(0);
+  await wait(200);
+  // A band is a thing a person would call a section: a semantic block, or a div that behaves like
+  // one. The wrappers that merely hold other bands are dropped so the list reads top to bottom.
+  const shown = (node) => {
+    if (node.id === '__calvras_marks') return false;
+    const rect = node.getBoundingClientRect();
+    const style = getComputedStyle(node);
+    return rect.height > 90 && rect.width > 200 && style.display !== 'none' && style.visibility !== 'hidden';
+  };
+  const bandish = (node) => {
+    if (!shown(node)) return false;
+    if (['SECTION', 'HEADER', 'FOOTER', 'ASIDE', 'NAV', 'ARTICLE', 'MAIN'].includes(node.tagName)) return true;
+    if (node.tagName !== 'DIV') return false;
+    if (node.querySelector('h1,h2,h3')) return true;
+    return [...node.children].filter((kid) => ['block', 'flex', 'grid'].includes(getComputedStyle(kid).display)).length >= 3;
+  };
+  const candidates = [...document.querySelectorAll('body *')].slice(0, 6000).filter(bandish);
+  const leaves = candidates.filter((node) => !candidates.some((other) => other !== node && node.contains(other)));
+  const bands = (leaves.length ? leaves : [...document.body.children].filter(shown))
+    .sort((a, b) => (a.getBoundingClientRect().top + window.scrollY) - (b.getBoundingClientRect().top + window.scrollY));
+  const colors = new Map();
+  const note = (value) => { if (value && value !== 'rgba(0, 0, 0, 0)' && value !== 'transparent') colors.set(value, (colors.get(value) || 0) + 1); };
+  const sections = bands.slice(0, 40).map((node, index) => {
+    const rect = node.getBoundingClientRect();
+    const style = getComputedStyle(node);
+    note(style.backgroundColor);
+    const headings = [...node.querySelectorAll('h1,h2,h3,h4')].slice(0, 5).map((head) => {
+      const headStyle = getComputedStyle(head);
+      note(headStyle.color);
+      return { tag: head.tagName.toLowerCase(), text: clean(head.textContent).slice(0, 110), sizePx: px(headStyle.fontSize), weight: headStyle.fontWeight, color: headStyle.color, lineHeightPx: px(headStyle.lineHeight) };
+    });
+    const controls = [...node.querySelectorAll('a[href],button')].slice(0, 6).map((control) => {
+      const controlStyle = getComputedStyle(control);
+      note(controlStyle.backgroundColor); note(controlStyle.color);
+      return { text: clean(control.textContent).slice(0, 50), background: controlStyle.backgroundColor, color: controlStyle.color, radiusPx: px(controlStyle.borderRadius), paddingPx: box(controlStyle), fontSizePx: px(controlStyle.fontSize) };
+    });
+    const media = [...node.querySelectorAll('img,svg,video')].filter((item) => { const r = item.getBoundingClientRect(); return r.width > 24 && r.height > 24; }).slice(0, 5).map((item) => ({
+      tag: item.tagName.toLowerCase(),
+      alt: clean(item.getAttribute('alt')).slice(0, 70),
+      src: (item.currentSrc || item.src || item.getAttribute('src') || '').toString().slice(0, 180),
+      size: Math.round(item.getBoundingClientRect().width) + 'x' + Math.round(item.getBoundingClientRect().height),
+    }));
+    return {
+      index,
+      tag: node.tagName.toLowerCase(),
+      id: node.id || '',
+      classes: (typeof node.className === 'string' ? node.className : '').slice(0, 90),
+      topPx: Math.round(rect.top + window.scrollY),
+      heightPx: Math.round(rect.height),
+      background: style.backgroundColor,
+      color: style.color,
+      font: style.fontFamily.slice(0, 70),
+      baseFontSizePx: px(style.fontSize),
+      paddingPx: box(style),
+      maxWidthPx: px(style.maxWidth),
+      textAlign: style.textAlign,
+      headings,
+      controls,
+      media,
+      text: clean(node.innerText || node.textContent).slice(0, 240),
+    };
+  }).filter((band) => band.text || band.headings.length || band.controls.length || band.media.length);
+  return {
+    coverage: 'full document',
+    url: location.href,
+    title: document.title,
+    documentHeightPx: documentHeight,
+    viewportHeightPx: window.innerHeight,
+    viewportWidthPx: window.innerWidth,
+    sectionCount: bands.length,
+    palette: [...colors.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12).map(([color, used]) => color + ' x' + used),
+    sections,
+  };
+})()`;
+
+export type PageTarget = { i: number; x: number; y: number; width: number; height: number; left: number; top: number; role: string; label: string };export type PageView = { viewport: { width: number; height: number }; scroll: { x: number; y: number }; targets: PageTarget[] };
 
 /**
  * Coordinates the model may click live in the current view only, so the list travels with the

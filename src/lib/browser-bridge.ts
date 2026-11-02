@@ -1,5 +1,5 @@
 import { pixelDiffScript, summarizeFidelity } from "./image-fidelity";
-import { CLEAR_MARKS_SOURCE, COLLECT_TARGETS_SOURCE, FIRST_SCREEN_SOURCE, PAGE_MEDIA_SOURCE, formatTargets, targetSummary, type PageView } from "./runtime/page-localizer";
+import { CLEAR_MARKS_SOURCE, COLLECT_TARGETS_SOURCE, FIRST_SCREEN_SOURCE, PAGE_MEDIA_SOURCE, SURVEY_SOURCE, formatTargets, targetSummary, type PageView } from "./runtime/page-localizer";
 
 /**
  * Drives the visible <webview> browser panel from the same tool calls the agent
@@ -388,8 +388,14 @@ class BrowserBridge {
     return { ok: true, url: element.getURL(), title };
   }
 
-  async readPage(): Promise<any> {
+  async readPage(full = false): Promise<any> {
     const element = await this.requirePage();
+    if (full) {
+      const survey = await evalInPage(element, SURVEY_SOURCE).catch(() => null);
+      if (!survey) throw new Error('The page would not give up its full layout. Scroll it by hand with scroll_page and screenshot each view instead.');
+      const links = await element.executeJavaScript(`(() => [...document.querySelectorAll("a[href]")].slice(0, 80).map((anchor) => ({ text: (anchor.textContent ?? "").trim().slice(0, 120), href: anchor.href })))()`).catch(() => []);
+      return { ok: true, ...survey, links };
+    }
     const page = await element.executeJavaScript(`(() => ({
       title: document.title,
       url: location.href,
@@ -820,7 +826,7 @@ class BrowserBridge {
     switch (type) {
       case "open_browser":
       case "navigate_browser": data = await this.navigate(args["url"]); break;
-      case "read_page": data = await this.readPage(); break;
+      case "read_page": data = await this.readPage(args["full"] === true); break;
       case "click_element": data = await this.click(String(args["selector"] ?? "")); break;
       case "fill_input": data = await this.fill(String(args["selector"] ?? ""), String(args["value"] ?? args["text"] ?? "")); break;
       case "inspect_element": data = await this.inspect(String(args["selector"] ?? "")); break;

@@ -178,6 +178,7 @@ export async function runAgent(options: {
   // When the user supplied a screenshot, a rebuilt screen has to be measured against it.
   // The check runs in the visible page and returns real pixel numbers.
   let fidelityEnforced = options.hasReferenceImage === true;
+
   let fidelity: FidelitySummary | null = null;
   let fidelityStuck = 0;
   const FIDELITY_CHECK_LIMIT = 3;
@@ -222,6 +223,19 @@ export async function runAgent(options: {
   /** Judging our own running page. These are the calls a build spends its rounds on once the
    *  stylesheet comes back with no rules in it — and an unfinished page always reads that way. */
   const previewLooks = new Set(["check_preview", "compare_to_reference", "inspect_element", "check_console_errors", "test_responsive_layout", "take_screenshot"]);
+  /** "duplicate https://www.cloudflare.com/" names a page the run has to read end to end before it
+   * writes a line of it. The brief says so, and the run that skips it rebuilds the one screenful it
+   * opened on and guesses at every section below the fold — which is exactly the wrong spacing, wrong
+   * colour and wrong size the user then looks at. So the write is withheld until the survey is back.
+   * A repo link with "clone" is source to fetch, not a page to copy, so that wording is excluded. */
+  const referenceMatch = /(https?:\/\/[^\s"'<>]+)/i.exec(options.prompt);
+  const isPageCopy = /\b(?:duplicat\w*|replicat\w*|clone[sd]?|re-?create[sd]?|pixel-?perfect|same\s+(?:as|like)\s+this)\b/i.test(options.prompt)
+    && !/\b(?:repo|repository|codebase|source\s+code)\b/i.test(options.prompt);
+  const referenceUrl = referenceMatch && isPageCopy ? referenceMatch[1] : "";
+  let referenceSurveyed = false;
+  const referencePending = () => Boolean(referenceUrl) && !referenceSurveyed;
+  const referencePromptState = () => referencePending() ? ` ${referenceUrl} is the specification, and nothing of it has been read past the first screen: call read_page {full:true} on it before writing any of that page, and build from the section heights, colours and pixel sizes it reports.` : "";
+  const pageWrites = new Set(["write_file", "create_file", "search_replace", "multi_replace", "insert_code", "delete_lines", "apply_patch", "apply_diff", "multi_file_edit", "refactor_code", "format_file", "format_code", "generate_image"]);
   // External tools that only observe; they cannot satisfy a change request on their own.
   const observational = new Set(["take_screenshot", "take_screen_screenshot", "inspect_element", "test_responsive_layout", "read_page", "read_page_content", "check_console_errors", "list_windows", "search_documentation", "web_search", "wait_for_element", "wait_for_window", "focus_window"]);
   // What every page, file and command has returned so far — never the batch ledger, whose own
@@ -399,6 +413,9 @@ export async function runAgent(options: {
       if (result.ok && ["open_browser", "navigate_browser"].includes(result.action.type)) { uiIsOpen = true; browserNeedsVerification = true; }
       if (result.ok && uiProof.includes(result.action.type)) browserNeedsVerification = false;
       if (result.ok && TOOL_RISK[result.action.type] === "edit" && uiIsOpen && !buildInProgress()) browserNeedsVerification = true;
+      // Only the survey proves the run looked past the fold: it scrolls the live page to its real
+      // end and reports every band, so a duplication can be built from measured numbers.
+      if (result.ok && result.action.type === "read_page" && (result.result as { coverage?: string } | null)?.coverage === "full document") referenceSurveyed = true;
       // The pixel check is the strongest UI evidence there is, so it also clears the
       // "go drive the page yourself" obligation.
       if (result.ok && result.action.type === "compare_to_reference") {
@@ -506,7 +523,7 @@ export async function runAgent(options: {
       }
       const context = toolHistory.map((entry, i) => i < toolHistory.length - 2 ? entry.summary : entry.detailed).join("\n").slice(-CONTEXT_WINDOW);
       const planLine = plan.total && plan.open.length ? `Phase plan: ${plan.total - plan.open.length} of ${plan.total} steps are done; the next unfinished step is "${plan.open[0]}"${plan.open.length > 1 ? ` (${plan.open.length - 1} more after it)` : ""}.` : "";
-      const raw = await options.infer(`${options.prompt}\n\n[EXECUTION STATE]\nContinuation ${step + 1}. ${executedActions} actions have already executed. Do not restart the task. ${planLine}Inspected snapshots: ${[...inspected].join(", ").slice(-2000)}. ${needsVerification ? "Changes need verification." : ""}${previewPromptState()}${fidelityPromptState()}\n[OBSERVED TOOL RESULTS]\n${context}\n${history.slice(-3).join("\n\n")}\nUse the observed results to take the NEXT useful action. For an implementation request, inspection must lead to actual file edits, then verification. Stop only when verified.`, (text) => {
+      const raw = await options.infer(`${options.prompt}\n\n[EXECUTION STATE]\nContinuation ${step + 1}. ${executedActions} actions have already executed. Do not restart the task. ${planLine}Inspected snapshots: ${[...inspected].join(", ").slice(-2000)}. ${needsVerification ? "Changes need verification." : ""}${previewPromptState()}${fidelityPromptState()}${referencePromptState()}\n[OBSERVED TOOL RESULTS]\n${context}\n${history.slice(-3).join("\n\n")}\nUse the observed results to take the NEXT useful action. For an implementation request, inspection must lead to actual file edits, then verification. Stop only when verified.`, (text) => {
         const message = partialMessage(text);
         if (message !== undefined) options.onMessageDelta?.(message);
       });
@@ -538,6 +555,12 @@ export async function runAgent(options: {
       // left, and one that ignores that sentence still lands in the loop the user watched:
       // seventeen rounds of "checking the rendered page again" against a page that is unstyled
       // because it is unfinished. Mid-build the look is taken away rather than asked for.
+      const heldWrites = referencePending() ? reply.actions.filter((action) => pageWrites.has(action.type)) : [];
+      if (heldWrites.length) {
+        reply.actions = reply.actions.filter((action) => !pageWrites.has(action.type));
+        history.push(`[REFERENCE UNREAD] ${heldWrites.map((action) => action.type).join(", ")} is out of bounds until ${referenceUrl} has been read end to end. Call read_page {full:true} now (open_browser that address first if the panel is not holding it): it scrolls the live page to its real bottom, waits for the sections that load on the way, and returns every band with its height, background and text colours, each heading's pixel size and weight, its padding, and the images and buttons inside it. Write that section list into your reply — in order, with the colours and pixel numbers it reported — then build one section at a time from those measurements. A page written from the first screenful is a page of guesses: the hero you happened to see, plus invented gaps, colours and sizes, and that is a failed duplication.`);
+        if (!reply.actions.length) continue;
+      }
       const heldLooks = buildInProgress() ? reply.actions.filter((action) => previewLooks.has(action.type)) : [];
       if (heldLooks.length) {
         reply.actions = reply.actions.filter((action) => !previewLooks.has(action.type));

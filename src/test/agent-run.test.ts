@@ -647,3 +647,43 @@ describe("a run that circles on one error", () => {
   });
 });
 
+describe("a duplication that has not read its reference", () => {
+  const survey = { ok: true, result: { coverage: "full document", documentHeightPx: 9400, sectionCount: 14, sections: [{ index: 0, heightPx: 640, background: "rgb(243, 128, 32)" }] } };
+
+  it("withholds the first write until the whole page has been measured", async () => {
+    // The user watched a clone come back with the right hero and invented everything below the
+    // fold. The brief said to scroll first; a run that skips it now simply cannot write.
+    const config = { ...options([
+      reply("Opening the site.", [{ type: "open_browser", url: "https://www.cloudflare.com/" }], "continue"),
+      reply("Writing the hero.", [{ type: "write_file", path: "src/App.jsx", content: "export default () => null" }], "continue"),
+      reply("Reading the whole page first.", [{ type: "read_page", full: true }], "continue"),
+      reply("Now writing the hero.", [{ type: "write_file", path: "src/App.jsx", content: "export default () => null" }], "continue"),
+      reply("Done."),
+    ]), prompt: "duplicate https://www.cloudflare.com/ and build me the page", maxSteps: 12 };
+    config.execute = vi.fn().mockImplementation(async (actions: ToolFeedback["action"][]) => actions.map((action) => ({
+      action, ok: true,
+      result: action.type === "read_page" ? survey.result : { path: "src/App.jsx", url: "https://www.cloudflare.com/" },
+    })));
+    const outcome = await runAgent(config);
+    const prompts = config.infer.mock.calls.map(([prompt]) => String(prompt));
+    const executed = (config.execute as ReturnType<typeof vi.fn>).mock.calls.flatMap(([actions]) => actions.map((action: { type: string }) => action.type));
+    expect(prompts.some((prompt) => prompt.includes("[REFERENCE UNREAD] write_file"))).toBe(true);
+    expect(prompts.some((prompt) => prompt.includes("read_page {full:true}"))).toBe(true);
+    expect(executed.indexOf("read_page")).toBeLessThan(executed.lastIndexOf("write_file"));
+    expect(executed.filter((type) => type === "write_file")).toHaveLength(1);
+    expect(outcome.status).not.toBe("error");
+  });
+
+  it("leaves a repo link alone — cloning source is not copying a page", async () => {
+    const config = { ...options([
+      reply("Writing the fix.", [{ type: "write_file", path: "src/app.ts", content: "export const a = 1" }], "continue"),
+      reply("Done."),
+    ]), prompt: "clone https://github.com/acme/store repo and fix the failing test", maxSteps: 8 };
+    const outcome = await runAgent(config);
+    const prompts = config.infer.mock.calls.map(([prompt]) => String(prompt));
+    expect(prompts.some((prompt) => prompt.includes("[REFERENCE UNREAD]"))).toBe(false);
+    expect((config.execute as ReturnType<typeof vi.fn>).mock.calls.flatMap(([actions]) => actions.map((action: { type: string }) => action.type))).toContain("write_file");
+    expect(outcome.status).not.toBe("error");
+  });
+});
+
