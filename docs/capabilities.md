@@ -6,7 +6,7 @@ commands, drives a browser, and shows you what it did while it does it. It is ma
 product is the app, and calvras.com is the site, the download, and the update feed. There
 is no web version of the app — the site never runs the agent.
 
-Current published build: **10.1.1** (`Calvras-Setup-10.1.1.exe`, or `Calvras-10.1.1-win.zip` unpacked).
+Current published build: **10.1.2** (`Calvras-Setup-10.1.2.exe`, or `Calvras-10.1.2-win.zip` unpacked).
 Sign-in is Google or GitHub, by decision.
 
 ## How it behaves
