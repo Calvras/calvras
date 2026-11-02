@@ -107,13 +107,18 @@ export async function runAgent(options: {
   let unresolvedFailures = false;
   // An agent that meets an error it cannot fix does not stop: it rewords the same attempt and
   // tries again. One duplication job spent 17 minutes re-editing the same CSS against the same
-  // PostCSS conflict, each round reporting that this one would settle it. The signature below is
-  // the failing tool plus the error's own line, so the loop can see the repeat the model keeps
+  // PostCSS conflict, each round reporting that this one would settle it. The key below is the
+  // failing tool plus the error's own line, so the loop can see the repeat the model keeps
   // rephrasing — and say so, then stop, instead of spending the whole run on another attempt.
-  const failureRepeats = new Map<string, number>();
+  // Each error also remembers the exact call that produced it, so only that call passing means it
+  // was really fixed: an unrelated command that happens to succeed proves nothing about the build.
+  const failureRepeats = new Map<string, { count: number; keys: Set<string> }>();
   const STUCK_NUDGE_AT = 3;
   const STUCK_STOP_AT = 6;
   let stuck: { signature: string; detail: string; count: number } | null = null;
+  // The brief is re-read every round, so the same note is only worth putting in front of the model
+  // once per new occurrence of the error — not on every round afterwards.
+  let stuckNote: string | null = null;
   // record() is the only writer, and the loop's own view of the variable stays narrowed to its
   // initial null, so the round reads it back through this.
   const stuckRound = () => stuck as { signature: string; detail: string; count: number } | null;
@@ -283,18 +288,21 @@ export async function runAgent(options: {
     // may legitimately return a count named "skipped" — the batch ledger does exactly that.
     const effective = results.filter((result) => (result.result as { skipped?: boolean } | null)?.skipped !== true);
     executedActions += effective.length;
-    const failedThisRound = new Set<string>();
+    const succeededKeys = new Set<string>();
     for (const result of effective) {
+      const actionKey = `${result.action.type}|${JSON.stringify(result.action)}`;
+      if (result.ok) succeededKeys.add(actionKey);
       if (!result.ok) {
         const signature = failureSignature(result.action.type, failureTextOf(result));
         const detail = signature.slice(signature.indexOf("|") + 1);
         // A one-word signature ("failed", "error") proves nothing and would fire on unrelated
         // rounds, so only a line with real content is counted.
         if (detail.length > 12) {
-          const count = (failureRepeats.get(signature) ?? 0) + 1;
-          failureRepeats.set(signature, count);
-          failedThisRound.add(signature);
-          if (count >= STUCK_NUDGE_AT && (!stuck || count >= stuck.count)) stuck = { signature, detail, count };
+          const entry = failureRepeats.get(signature) ?? { count: 0, keys: new Set<string>() };
+          entry.count += 1;
+          entry.keys.add(actionKey);
+          failureRepeats.set(signature, entry);
+          if (entry.count >= STUCK_NUDGE_AT && (!stuck || entry.count >= stuck.count)) stuck = { signature, detail, count: entry.count };
         }
       }
       if (result.ok && result.action.type === "report_batch" && result.action["status"] === "done") {
@@ -403,10 +411,15 @@ export async function runAgent(options: {
         }
       }
     }
-    // The count is consecutive rounds, not a lifetime tally: an error that stops coming back
-    // stops counting, so a run that worked past it is never held hostage by an old failure.
-    for (const signature of [...failureRepeats.keys()]) if (!failedThisRound.has(signature)) failureRepeats.delete(signature);
-    if (stuck && !failedThisRound.has(stuck.signature)) stuck = null;
+    // The count survives rounds that went well: the run the user cancelled edited the CSS
+    // successfully between failing builds, and clearing on a quiet round meant the repeat never
+    // reached the nudge. An error is only behind you when the call that produced it passes.
+    for (const [signature, entry] of [...failureRepeats]) {
+      if ([...entry.keys].some((key) => succeededKeys.has(key))) {
+        failureRepeats.delete(signature);
+        if (stuck?.signature === signature) { stuck = null; stuckNote = null; }
+      }
+    }
     unresolvedFailures = effective.some((result) => !result.ok) || failedCommands.size > 0;
   };
   /**
@@ -700,13 +713,17 @@ export async function runAgent(options: {
       const stuckNow = stuckRound();
       if (stuckNow) {
         if (stuckNow.count >= STUCK_STOP_AT) {
-          // Six rounds on one error is not a run in progress. End it on the error, in plain words,
+          // Six attempts on one error is not a run in progress. End it on the error, in plain words,
           // rather than spend the rest of the budget on a seventh rewording of the same attempt.
           const message = `It stopped here rather than try the same fix a ${stuckNow.count + 1}th time: "${stuckNow.detail}" came back on every attempt since it first appeared, and nothing after it is verified. Anything written before that is still in the project, and the part that is broken is the setup that produces this error, not the page you asked for.`;
           options.onPhaseComplete?.(message);
           return { status: "blocked", message, ...carried() };
         }
-        history.push(`[SAME ERROR ${stuckNow.count} TIMES] "${stuckNow.detail}" has come back on ${stuckNow.count} rounds in a row, and each of those rounds said the next edit would settle it. It did not. Repeating the attempt is not a strategy, and a sentence claiming the error is gone is not the error being gone. Do this instead: (1) stop touching the file that keeps failing and read what actually produces the error — its config file, the installed version (read_file package.json, then run_command npm ls <that package>), and the whole output of the command that failed; (2) search the exact error text with web_search or search_documentation and follow what that package's current documentation says, because a toolchain that moved a plugin into its own package is fixed by changing the setup, not by rewriting the page again; (3) re-run the one command that failed, and only then call it fixed. If the setup is not yours to change, return status blocked now and name the error in your reply — the user would rather read that than watch another twenty minutes of the same attempt.`);
+        const marker = `${stuckNow.signature}|${stuckNow.count}`;
+        if (stuckNote !== marker) {
+          stuckNote = marker;
+          history.push(`[SAME ERROR ${stuckNow.count} TIMES] "${stuckNow.detail}" has now come back ${stuckNow.count} separate times, and each round before it said the next edit would settle it. It did not. Repeating the attempt is not a strategy, and a sentence claiming the error is gone is not the error being gone. Do this instead: (1) stop touching the file that keeps failing and read what actually produces the error — its config file, the installed version (read_file package.json, then run_command npm ls <that package>), and the whole output of the command that failed; (2) search the exact error text with web_search or search_documentation and follow what that package's current documentation says, because a toolchain that moved a plugin into its own package is fixed by changing the setup, not by rewriting the page again; (3) re-run the one command that failed, and only then call it fixed. If the setup is not yours to change, return status blocked now and name the error in your reply — the user would rather read that than watch another twenty minutes of the same attempt.`);
+        }
       }
 
       // After executing tools the update closes the turn's thought; it is not a new reply,

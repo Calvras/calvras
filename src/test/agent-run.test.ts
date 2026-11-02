@@ -564,23 +564,39 @@ describe("a run that circles on one error", () => {
     expect(config.execute).toHaveBeenCalledTimes(6);
   });
 
-  it("counts only the error that keeps coming back", async () => {
-    // Two different failures in a row each score once, a green round clears both, and the same
-    // error returning afterwards starts again from one — so nothing here earns a nudge.
-    const outcomes = [
-      { ok: false, output: POSTCSS },
-      { ok: false, output: "ECONNREFUSED 127.0.0.1:5173 — the port is taken by another dev server" },
-      { ok: true, output: "built in 412ms" },
-      { ok: false, output: POSTCSS },
-      { ok: false, output: POSTCSS },
-      { ok: true, output: "built in 388ms" },
-    ];
+  it("counts the error across the green rounds between attempts", async () => {
+    // The shape the 17-minute run actually had: the build failed, the CSS edit beside it succeeded,
+    // and the quiet round in between used a different tool. Clearing the tally on any round that did
+    // not fail would restart it every time, so three failing builds would never be named.
+    const build = { type: "run_command", command: "npm run build" };
+    const edit = { type: "write_file", path: "src/index.css", content: "@import 'tailwindcss';" };
+    const rounds = [[build], [edit], [build], [edit], [build], [edit]];
+    const replies = rounds.map((actions, index) => reply(`Attempt ${Math.floor(index / 2) + 1} should resolve the conflict.`, actions, "continue"));
+    const execute = vi.fn().mockImplementation(async (actions: ToolFeedback["action"][]) => actions.map((action) => action.type === "run_command"
+      ? { action, ok: false, result: { output: POSTCSS, exitCode: 1 } }
+      : { action, ok: true, result: { path: "src/index.css", bytesWritten: 24 } }));
+    const config = { ...options(replies), maxSteps: 12, execute };
+    await runAgent(config);
+    const prompts = config.infer.mock.calls.map(([prompt]) => String(prompt));
+    expect(prompts.some((prompt) => prompt.includes("[SAME ERROR 3 TIMES]"))).toBe(true);
+    // One build failure is a build to read; three of them, separated by the green edits that made
+    // each round look like progress, are the loop going in circles — and the note appears exactly
+    // at the third, not before it.
+    expect(prompts.some((prompt) => prompt.includes("[SAME ERROR 1 TIMES]"))).toBe(false);
+    expect(prompts.some((prompt) => prompt.includes("[SAME ERROR 2 TIMES]"))).toBe(false);
+  });
+
+  it("stops counting once that tool works again", async () => {
+    // Two failed builds, a build that passes, then two more: the green build is the point where the
+    // error was genuinely behind the run, so the tally starts over instead of ageing into a stop.
+    const build = [{ type: "run_command", command: "npm run build" }];
+    const passes = [false, false, true, false, false];
     let round = 0;
     const execute = vi.fn().mockImplementation(async (actions: ToolFeedback["action"][]) => {
-      const current = outcomes[round++] ?? { ok: true, output: "built" };
-      return actions.map((action) => ({ action, ok: current.ok, result: { output: current.output, exitCode: current.ok ? 0 : 1 } }));
+      const ok = passes[round++] ?? true;
+      return actions.map((action) => ({ action, ok, result: { output: ok ? "built in 412ms" : POSTCSS, exitCode: ok ? 0 : 1 } }));
     });
-    const config = { ...options(attempts(7)), maxSteps: 10, execute };
+    const config = { ...options(Array.from({ length: 8 }, () => reply("Building again.", build, "continue"))), maxSteps: 12, execute };
     const outcome = await runAgent(config);
     const prompts = config.infer.mock.calls.map(([prompt]) => String(prompt));
     expect(prompts.some((prompt) => prompt.includes("[SAME ERROR"))).toBe(false);

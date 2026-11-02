@@ -17,6 +17,13 @@ Sign-in is Google or GitHub, by decision.
 - **It narrates work in plain sentences.** The live step reads like a person describing what they're
   doing, not a spinner. Tool rows collapse by default and open their code on click. Elapsed time shows
   minutes and seconds once a run passes a minute.
+- **A finished turn is one summary.** While it works every round stays on screen; when the turn closes
+  the whole log folds behind one `Worked for 4m 12s · 9 rounds` line and only the closing sentence is
+  left standing. The chevron opens the steps back up.
+- **One error that keeps coming back ends the turn.** The loop remembers the failing call plus the
+  error's own line, so after the third time it tells the agent to stop re-editing and read the config,
+  the installed version and the full command output instead — and after the sixth it ends the turn and
+  names the error rather than spending the rest of the run on another attempt.
 - **Sending while it works takes over.** Your new message interrupts the running turn instead of
   queueing behind it.
 - **It keeps its own instructions private.** Asked for its system prompt, rules, tool list or model, it
