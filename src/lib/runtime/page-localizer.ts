@@ -243,6 +243,49 @@ export const SURVEY_SOURCE = `(async () => {
   };
 })()`;
 
+/**
+ * The page's own markup, ready to save. Re-typing a 6,900px marketing page is thirty-five rounds of
+ * the model writing down what it was told, and the copy still drifts; the faithful and fast move is to
+ * take what the page actually serves. This runs inside the live document: it clones the DOM, drops the
+ * scripts (left in, they fetch analytics from the origin and break the copy), resolves every src, href,
+ * poster and srcset to an absolute URL so the saved file renders from anywhere, and swaps the
+ * stylesheet links for one local file the caller writes next to it. Inline <style> blocks are handed
+ * back as text so they can join that file.
+ */
+export const PAGE_SOURCE_SNAPSHOT_SOURCE = `(async () => {
+  const abs = (value) => { try { return new URL(String(value), location.href).href; } catch { return String(value); } };
+  const root = document.documentElement;
+  if (!root) throw new Error('The page has no document to copy.');
+  const clone = root.cloneNode(true);
+  const scripts = [...clone.querySelectorAll('script')];
+  const scriptCount = scripts.length;
+  scripts.forEach((node) => node.remove());
+  [...clone.querySelectorAll('noscript')].forEach((node) => node.remove());
+  [...clone.querySelectorAll('template')].forEach((node) => node.remove());
+  const stylesheetHrefs = [...document.querySelectorAll('link[rel~="stylesheet"][href]')].map((link) => String(link.href || ''));
+  const inlineStyles = [...document.querySelectorAll('style')].map((style) => String(style.textContent || '')).filter((text) => text.trim());
+  [...clone.querySelectorAll('link[rel~="stylesheet"]')].forEach((link) => link.remove());
+  [...clone.querySelectorAll('link,script,source,img,video,audio,iframe,input,use,a,form,embed,object')].forEach((node) => {
+    ['src', 'poster', 'data-src'].forEach((attr) => { if (node.hasAttribute(attr)) node.setAttribute(attr, abs(node.getAttribute(attr))); });
+    if (node.hasAttribute('href')) node.setAttribute('href', abs(node.getAttribute('href')));
+    if (node.hasAttribute('xlink:href')) node.setAttribute('xlink:href', abs(node.getAttribute('xlink:href')));
+    if (node.hasAttribute('srcset')) node.setAttribute('srcset', String(node.getAttribute('srcset')).split(',').map((part) => {
+      const bits = part.trim().split(/\\s+/);
+      return bits.length ? [abs(bits[0]), ...bits.slice(1)].join(' ') : part;
+    }).join(', '));
+  });
+  const head = clone.querySelector('head') || clone;
+  const saved = document.createElement('link');
+  saved.setAttribute('rel', 'stylesheet');
+  saved.setAttribute('href', './calvras-page.css');
+  head.appendChild(saved);
+  const type = document.doctype;
+  const doctype = type
+    ? '<!doctype ' + type.name + (type.publicId ? ' PUBLIC "' + type.publicId + '"' : '') + (type.systemId ? ' "' + type.systemId + '"' : '') + '>'
+    : '<!doctype html>';
+  return { url: location.href, title: document.title, doctype, html: clone.outerHTML, stylesheetHrefs, inlineStyles, scriptCount };
+})()`;
+
 export type PageTarget = { i: number; x: number; y: number; width: number; height: number; left: number; top: number; role: string; label: string };export type PageView = { viewport: { width: number; height: number }; scroll: { x: number; y: number }; targets: PageTarget[] };
 
 /**

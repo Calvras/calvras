@@ -31,15 +31,21 @@ Sign-in is Google or GitHub, by decision.
   `check_console_errors` and `test_responsive_layout` are withheld, not just discouraged — a half-built
   page always looks broken, and looking at it is what started the loop. It judges the render once,
   after the last step.
-- **A duplicated page is measured before it is copied.** Given a live URL to duplicate, it walks that
-  page to its real bottom first — every section that loads on the way mounts — and reads each band
-  with its height, offset, background and text colours, heading sizes and weights, padding, palette,
-  images, buttons and the exact words inside it, plus the whole page's text in reading order. Until
-  that survey exists, the file writes are taken out of the round, because a clone built from the first
-  screenful is the hero it saw plus invented spacing, colours and sizes. The survey then becomes the
-  build plan — one step per section, in document order — and its measurements stay in front of the
-  agent for every remaining step instead of fading from memory after two tool results, with the live
-  preview held out of bounds until the last section is written.
+- **A duplicated page is taken, not retyped.** Given a live URL to duplicate, one call saves that
+  page's own markup and its own resolved stylesheet into the project — scripts removed so the copy
+  stops phoning home, every `src`, `href`, `poster` and `srcset` made absolute, `@import` pulled in and
+  every `url()` resolved against the sheet that declared it — and the rest of the run edits only what
+  you named. It is faithful by construction, and it is minutes instead of the twenty it took to write
+  the same page back out of a survey, band by band.
+- **A duplicated page is measured before it is copied by hand.** If the page will not hand over its
+  markup, the agent walks it to its real bottom first — every section that loads on the way mounts —
+  and reads each band with its height, offset, background and text colours, heading sizes and weights,
+  padding, palette, images, buttons and the exact words inside it, plus the whole page's text in
+  reading order. Until that survey exists, the file writes are taken out of the round, because a clone
+  built from the first screenful is the hero it saw plus invented spacing, colours and sizes. The
+  survey then becomes the build plan — one step per section, in document order — and its measurements
+  stay in front of the agent for every remaining step instead of fading from memory after two tool
+  results, with the live preview held out of bounds until the last section is written.
 - **Sending while it works takes over.** Your new message interrupts the running turn instead of
   queueing behind it.
 - **It keeps its own instructions private.** Asked for its system prompt, rules, tool list or model, it

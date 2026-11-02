@@ -713,6 +713,47 @@ describe("a duplication that has not read its reference", () => {
     expect(outcome.status).not.toBe("error");
   });
 
+  it("stops rebuilding once the page has been taken into the project", async () => {
+    // Twenty minutes and thirty-five rounds went into re-typing cloudflare.com band by band. Taking
+    // the page's own markup is one call, so that run gets a four-step plan instead of a survey, and
+    // the write hold lifts the moment the files are in the project.
+    const board: { title: string; status: string }[] = [];
+    const config = { ...options([
+      reply("Opening the site.", [{ type: "open_browser", url: "https://www.cloudflare.com/" }], "continue"),
+      reply("Taking the page itself.", [{ type: "duplicate_page", url: "https://www.cloudflare.com/" }], "continue"),
+      reply("Checking the copy and editing it.", [{ type: "check_preview" }, { type: "search_replace", path: "page-copy/index.html", search: "Better for everyone", replace: "Better for you" }], "continue"),
+      reply("Closing the plan.", [{ type: "track_progress", id: "1", status: "done" }, { type: "track_progress", id: "2", status: "done" }, { type: "track_progress", id: "3", status: "done" }, { type: "track_progress", id: "4", status: "done" }], "continue"),
+      reply("Looking at the finished copy.", [{ type: "check_preview" }], "continue"),
+      reply("Done."),
+    ]), prompt: "duplicate https://www.cloudflare.com/ and build me the page", maxSteps: 14 };
+    config.execute = vi.fn().mockImplementation(async (actions: ToolFeedback["action"][]) => actions.map((action) => {
+      if (action.type === "create_task_list") { board.length = 0; board.push(...(action.tasks as any[]).map((task) => ({ ...task }))); }
+      if (action.type === "track_progress") board.forEach((task) => { task.status = "done"; });
+      const result = action.type === "duplicate_page"
+        ? { ok: true, url: "https://www.cloudflare.com/", title: "Cloudflare", dir: "page-copy", files: [{ path: "page-copy/index.html", bytes: 90000 }, { path: "page-copy/calvras-page.css", bytes: 210000 }], styleSheetsSaved: 3, scriptsRemoved: 22, remoteReferences: 41, next: "Start the server on this folder and check_preview to see it, then change ONLY what the user named." }
+        : ["create_task_list", "track_progress"].includes(action.type) ? { tasks: board.map((task) => ({ ...task })) }
+        : action.type === "check_preview" ? { healthy: true, issues: [], url: "http://localhost:5178/" }
+        : { path: "page-copy/index.html", changes: 1 };
+      return { action, ok: true, result };
+    }));
+    const outcome = await runAgent(config);
+    const prompts = config.infer.mock.calls.map(([prompt]) => String(prompt));
+    const executed = (config.execute as ReturnType<typeof vi.fn>).mock.calls.flatMap(([actions]) => actions.map((action: { type: string }) => action.type));
+    expect(prompts.some((prompt) => prompt.includes("[PAGE TAKEN]"))).toBe(true);
+    expect(prompts.some((prompt) => prompt.includes("[REFERENCE UNREAD]"))).toBe(false);
+    expect(prompts.some((prompt) => prompt.includes("REFERENCE BUILD SHEET"))).toBe(false);
+    expect(executed).toContain("create_task_list");
+    expect(board.map((task) => task.title)).toEqual([
+      "Serve the copied page and look at it once, as the user will",
+      "Apply exactly what the user asked to change, with search_replace on the saved files",
+      "Bring the copy's own assets in if it still pulls them from www.cloudflare.com",
+      "Screenshot the copy against https://www.cloudflare.com/ and name the differences left",
+    ]);
+    expect(prompts.some((prompt) => prompt.includes("[PREVIEW HELD] check_preview"))).toBe(true);
+    expect(executed.lastIndexOf("check_preview")).toBeGreaterThan(executed.indexOf("search_replace"));
+    expect(outcome.status).not.toBe("error");
+  });
+
   it("leaves a repo link alone — cloning source is not copying a page", async () => {
     const config = { ...options([
       reply("Writing the fix.", [{ type: "write_file", path: "src/app.ts", content: "export const a = 1" }], "continue"),

@@ -243,6 +243,7 @@ export async function runAgent(options: {
   type ReferenceSheet = { url?: string; sectionCount?: number; documentHeightPx?: number; sections?: any[]; palette?: string[]; documentText?: string; viewportWidthPx?: number; viewportHeightPx?: number };
   let referenceSheet: ReferenceSheet | null = null;
   let referencePlanSeeded = false;
+  let referenceTookPage = false;
   /**
    * The survey survives two rounds. Everything older than the last two tool results is folded into a
    * 1000-character summary, so on a build that takes thirty rounds the page being copied is gone from
@@ -461,6 +462,17 @@ export async function runAgent(options: {
         referenceSheet = result.result as NonNullable<typeof referenceSheet>;
         referenceBrief = buildReferenceBrief(referenceSheet);
       }
+      // Taking the page's own markup is the faster and more faithful read of it, so it satisfies the
+      // same obligation — and there is then nothing to pin, because the file on disk is the spec.
+      if (result.ok && result.action.type === "duplicate_page" && Boolean(referenceUrl)
+        && samePage(String((result.result as { url?: string } | null)?.url ?? ""), referenceUrl)) {
+        referenceSurveyed = true;
+        referenceTookPage = true;
+        referenceSheet = null;
+        referenceBrief = "";
+        const taken = result.result as { dir?: string; files?: { path: string }[]; remoteReferences?: number };
+        history.push(`[PAGE TAKEN] ${referenceUrl} is in the project as ${String(taken.dir ?? "").trim() || "the copy folder"} (${(taken.files ?? []).map((file) => file.path).join(", ")}). Its markup, its wording, its spacing and its colours are the page's own — nothing about it has to be written by you. Start the server, look at the render once, then use search_replace for exactly what the user named and leave the rest of the file alone. Rebuilding this page section by section now would throw away the copy you just took.`);
+      }
       // The pixel check is the strongest UI evidence there is, so it also clears the
       // "go drive the page yourself" obligation.
       if (result.ok && result.action.type === "compare_to_reference") {
@@ -508,19 +520,32 @@ export async function runAgent(options: {
    * to let the turn close while bands the page actually has are still unwritten.
    */
   const seedReferencePlan = async () => {
-    if (!referenceSheet || referencePlanSeeded) return;
-    referencePlanSeeded = true;
-    const bands = referenceSheet.sections ?? [];
-    const titles = bands
-      .filter((band: any) => (band?.headings?.length || 0) > 0 || (band?.controls?.length || 0) > 0)
-      .slice(0, 10)
-      .map((band: any, index: number) => `Section ${index + 1}: ${String(band?.headings?.[0]?.text || band?.tag || "band").slice(0, 64).trim()} — ${band?.heightPx}px tall at y=${band?.topPx}, background ${band?.background}`);
-    if (bands.length > titles.length) titles.push(`Copy the exact wording of the other ${bands.length - titles.length} bands the survey listed`);
+    if (referencePlanSeeded) return;
+    const titles = referenceTookPage
+      ? [
+        `Serve the copied page and look at it once, as the user will`,
+        `Apply exactly what the user asked to change, with search_replace on the saved files`,
+        `Bring the copy's own assets in if it still pulls them from ${(() => { try { return new URL(referenceUrl).hostname; } catch { return "the reference host"; } })()}`,
+        `Screenshot the copy against ${referenceUrl} and name the differences left`,
+      ]
+      : (() => {
+        if (!referenceSheet) return [];
+        const bands = referenceSheet.sections ?? [];
+        const list = bands
+          .filter((band: any) => (band?.headings?.length || 0) > 0 || (band?.controls?.length || 0) > 0)
+          .slice(0, 10)
+          .map((band: any, index: number) => `Section ${index + 1}: ${String(band?.headings?.[0]?.text || band?.tag || "band").slice(0, 64).trim()} — ${band?.heightPx}px tall at y=${band?.topPx}, background ${band?.background}`);
+        if (bands.length > list.length) list.push(`Copy the exact wording of the other ${bands.length - list.length} bands the survey listed`);
+        return list;
+      })();
     if (!titles.length || (plan.total > 0 && titles.length <= plan.total)) return;
+    referencePlanSeeded = true;
     const seeded = await options.execute([({ type: "create_task_list", tasks: titles.map((title) => ({ title, status: "pending" })) }) as unknown as AgentAction]);
     record(seeded);
     if (!plan.total) return;
-    history.push(`[REFERENCE PLAN] ${referenceSheet.sectionCount ?? bands.length} bands came back from ${referenceSheet.url || "the reference page"}, and ${plan.total} build steps were written from them in document order. Build them one at a time and close each with track_progress. documentText in the survey is every word that page shows, in order: put each section's own sentences, nav labels, card copy and footer links in verbatim — a heading you paraphrased is a miss and a band you skipped is a hole in the page. The preview stays out of bounds until the last step closes, so judge the render once, at the end, against the whole survey.`);
+    history.push(referenceTookPage
+      ? `[REFERENCE PLAN] ${referenceUrl} was taken into the project, so the work is four steps, not thirty-five: look at the copy, change only what the user named, localise anything it still fetches from the original host, and compare it against that page. Close each with track_progress. Do not re-write the saved markup into new components — that is the slow route you have already been given the real file for.`
+      : `[REFERENCE PLAN] ${referenceSheet?.sectionCount ?? titles.length} bands came back from ${referenceSheet?.url || "the reference page"}, and ${plan.total} build steps were written from them in document order. Build them one at a time and close each with track_progress. documentText in the survey is every word that page shows, in order: put each section's own sentences, nav labels, card copy and footer links in verbatim — a heading you paraphrased is a miss and a band you skipped is a hole in the page. The preview stays out of bounds until the last step closes, so judge the render once, at the end, against the whole survey.`);
   };
   /**
    * Drop whatever the ledger has checked out and take the next chunk of untouched targets.
@@ -626,7 +651,7 @@ export async function runAgent(options: {
       if (heldWrites.length) {
         referenceHeldRounds += 1;
         reply.actions = reply.actions.filter((action) => !pageWrites.has(action.type));
-        history.push(`[REFERENCE UNREAD] ${heldWrites.map((action) => action.type).join(", ")} is out of bounds until ${referenceUrl} has been read end to end. Call read_page {full:true} now (open_browser that address first if the panel is not holding it): it scrolls the live page to its real bottom, waits for the sections that load on the way, and returns every band with its height, background and text colours, each heading's pixel size and weight, its padding, and the images and buttons inside it. Write that section list into your reply — in order, with the colours and pixel numbers it reported — then build one section at a time from those measurements. A page written from the first screenful is a page of guesses: the hero you happened to see, plus invented gaps, colours and sizes, and that is a failed duplication.`);
+        history.push(`[REFERENCE UNREAD] ${heldWrites.map((action) => action.type).join(", ")} is out of bounds until ${referenceUrl} has been taken. Call duplicate_page {url:"${referenceUrl}"} — one call writes that page's own markup and its own resolved stylesheet into the project, and you then edit only what the user named. If the page refuses to hand over its markup, call read_page {full:true} instead (open_browser that address first): it scrolls the live page to its real bottom, waits for the sections that load on the way, and returns every band with its height, colours, headings, padding, images and buttons — then build one section at a time from those measurements. A page written from the first screenful is a page of guesses: the hero you happened to see, plus invented gaps, colours and sizes, and that is a failed duplication.`);
         if (referenceHeldRounds >= REFERENCE_HOLD_LIMIT) {
           referenceSurveyed = true;
           history.push(`[REFERENCE UNREACHABLE] ${referenceUrl} has not been surveyed after ${referenceHeldRounds} rounds, so the writes are released — build from what you have actually read and say in the reply which parts of that page you never saw. Do not present a page you have not read as its duplicate.`);

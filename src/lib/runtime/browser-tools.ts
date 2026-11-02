@@ -3,8 +3,9 @@ import { mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { safeProjectPath } from './file-tools';
-import { CLEAR_MARKS_SOURCE, COLLECT_TARGETS_SOURCE, FIRST_SCREEN_SOURCE, PAGE_MEDIA_SOURCE, SURVEY_SOURCE, formatTargets, targetSummary, type PageView } from './page-localizer';
+import { executeFileTool, safeProjectPath } from './file-tools';
+import { CLEAR_MARKS_SOURCE, COLLECT_TARGETS_SOURCE, FIRST_SCREEN_SOURCE, PAGE_MEDIA_SOURCE, PAGE_SOURCE_SNAPSHOT_SOURCE, SURVEY_SOURCE, formatTargets, targetSummary, type PageView } from './page-localizer';
+import { absolutizeCssUrls, buildStylesheet, dropImportRules, importUrls } from './page-source';
 
 // Loaded only when a browser tool actually runs, and kept out of the bundle: the hosted build has no
 // browser to launch, and dragging playwright (plus the electron it references) into the server output
@@ -16,7 +17,7 @@ async function launchChromium() {
   return chromium.launch({ headless: true });
 }
 
-export const BROWSER_TOOLS = ['open_browser', 'navigate_browser', 'take_screenshot', 'click_element', 'fill_input', 'inspect_element', 'check_console_errors', 'test_responsive_layout', 'read_page', 'scroll_page', 'press_page_key', 'go_back', 'wait_for_element', 'upload_file_to_page', 'run_page_script', 'click_at', 'hover_at', 'drag_at', 'type_into_page'];
+export const BROWSER_TOOLS = ['open_browser', 'navigate_browser', 'take_screenshot', 'click_element', 'fill_input', 'inspect_element', 'check_console_errors', 'test_responsive_layout', 'read_page', 'scroll_page', 'press_page_key', 'go_back', 'wait_for_element', 'upload_file_to_page', 'run_page_script', 'click_at', 'hover_at', 'drag_at', 'type_into_page', 'duplicate_page'];
 type Session = { context: BrowserContext; page: Page; errors: string[]; allowedOrigins: Set<string>; externalNetworkApproved: boolean };
 const sessions = new Map<string, Promise<Session>>();
 const queues = new Map<string, Promise<unknown>>();
@@ -141,6 +142,7 @@ async function executeAction(type: string, args: Record<string, unknown>, projec
       continueFromHere: 'This page is open and already read. Carry on with the request from here — answer from the text above, or click the numbered coordinates. Do not spend a round opening, searching for, or screenshotting this page again before the request is done.',
     };
   }
+  if (type === 'duplicate_page') return await duplicatePage(page, session, args, projectPath);
   if (page.url() === 'about:blank') throw new Error('Open a website with open_browser before using this tool.');
   if (type === 'take_screenshot') return { ok: true, ...await captureView(page, args['fullPage'] === true) };
   if (type === 'read_page') {
@@ -271,6 +273,87 @@ async function executeAction(type: string, args: Record<string, unknown>, projec
     return { filled: selector };
   }
   return locator.evaluate((element) => { const field = element as HTMLElement & { value?: unknown; checked?: unknown; disabled?: unknown; placeholder?: unknown }; return ({ tag: element.tagName.toLowerCase(), text: (element.textContent ?? '').slice(0, 12000), html: element.outerHTML.slice(0, 20000), attributes: Object.fromEntries([...element.attributes].map((attr) => [attr.name, attr.value])), value: field.value ?? null, checked: field.checked ?? null, disabled: field.disabled ?? null, placeholder: field.placeholder ?? null, bounds: element.getBoundingClientRect().toJSON(), styles: { display: getComputedStyle(element).display, color: getComputedStyle(element).color, background: getComputedStyle(element).backgroundColor } }); });
+}
+
+/**
+ * The page, taken rather than retyped. `duplicate https://…` used to mean one written section per
+ * model round — thirty-five rounds on a marketing page, most of them spent typing copy it had been
+ * handed, and still wrong in the gaps and the colours. This lands the page's own markup and its own
+ * resolved stylesheet in the project in one call, so the remaining work is only what the user actually
+ * named. Scripts come out (they would call home to the origin and break offline), every asset URL is
+ * absolute, and the writes go through the file tools so the copy is checkpointed like any other edit.
+ */
+async function duplicatePage(page: Page, session: Session, args: Record<string, unknown>, projectPath: string): Promise<any> {
+  const url = webUrl(args['url']);
+  const dir = String(args['dir'] || 'page-copy').replace(/[\\/:*?"<>|]+/g, '-').replace(/^\.+/, '').replace(/\/+$/, '') || 'page-copy';
+  session.allowedOrigins.clear();
+  session.allowedOrigins.add(new URL(url).origin);
+  if (args['externalNetworkApproved'] === true) session.externalNetworkApproved = true;
+  const response = await page.goto(url, { waitUntil: 'domcontentloaded' });
+  // Sections below the fold are mounted by scroll listeners; without the walk the saved page is the
+  // first screen plus empty placeholders, which is the same failure in a new costume.
+  await page.evaluate(async () => {
+    const height = () => Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0);
+    const step = Math.max(300, Math.round(window.innerHeight * 0.7));
+    let y = 0;
+    for (let guard = 0; guard < 60; guard += 1) {
+      window.scrollTo({ top: y, left: 0, behavior: 'instant' });
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      const next = Math.min(y + step, height());
+      if (next === y) break;
+      y = next;
+    }
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  }).catch(() => {});
+  const snap = await page.evaluate(PAGE_SOURCE_SNAPSHOT_SOURCE).catch(() => null) as
+    { url?: string; title?: string; doctype?: string; html?: string; stylesheetHrefs?: string[]; inlineStyles?: string[]; scriptCount?: number } | null;
+  if (!snap?.html) throw new Error(`The page at ${url} would not hand over its markup. Open it with open_browser and read_page {full:true} to copy it by hand instead.`);
+  const sheets: { href: string; css: string }[] = [];
+  const seen = new Set<string>();
+  const grab = async (href: string): Promise<string> => {
+    if (seen.has(href) || !/^https?:/i.test(href)) return '';
+    seen.add(href);
+    try { session.allowedOrigins.add(new URL(href).origin); } catch { /* already resolved */ }
+    const result = await page.request.get(href).catch(() => null);
+    if (!result || !result.ok()) return '';
+    const body = await result.text().catch(() => '');
+    if (!body) return '';
+    let css = body;
+    for (const imported of importUrls(css, href).slice(0, 4)) {
+      const nested = await grab(imported);
+      if (nested) css = `${nested}\n${css}`;
+    }
+    return absolutizeCssUrls(dropImportRules(css), href);
+  };
+  for (const href of (snap.stylesheetHrefs ?? []).slice(0, 12)) {
+    const css = await grab(href);
+    if (css) sheets.push({ href, css });
+  }
+  const inline = (snap.inlineStyles ?? []).map((css) => absolutizeCssUrls(css, snap.url!));
+  const stylesheet = buildStylesheet(sheets, inline);
+  const document_ = `${snap.doctype ?? '<!doctype html>'}\n${snap.html}`;
+  const files: { path: string; bytes: number }[] = [];
+  const save = async (relative: string, content: string) => {
+    const written = await executeFileTool('write_file', { path: `${dir}/${relative}`, content, overwrite: true }, projectPath);
+    files.push({ path: String(written.path || `${dir}/${relative}`), bytes: Buffer.byteLength(content) });
+  };
+  await save('index.html', document_);
+  await save('calvras-page.css', stylesheet || '/* the page served no readable stylesheet */');
+  const remote = (snap.html.match(/(?:src|href|poster)="https?:\/\/[^"]+"/gi) ?? []).length;
+  return {
+    ok: true,
+    url: snap.url,
+    title: snap.title ?? '',
+    status: response?.status() ?? null,
+    dir,
+    files,
+    styleSheetsSaved: sheets.length,
+    styleSheetsSkipped: (snap.stylesheetHrefs ?? []).length - sheets.length,
+    inlineStyleBlocks: inline.length,
+    scriptsRemoved: snap.scriptCount ?? 0,
+    remoteReferences: remote,
+    next: `The page at ${snap.url} is now in the project as ${dir}/index.html with its own CSS at ${dir}/calvras-page.css — its real markup, its own numbers, nothing retyped. Start the server on this folder and check_preview to see it, then change ONLY what the user named. Do not rewrite these files section by section, and do not build a second version of the page by hand: read the file, edit the part they asked about with search_replace, and keep every heading, sentence, image and colour the page itself served.`,
+  };
 }
 
 export async function closeBrowserSessions(projectPath?: string): Promise<void> {
