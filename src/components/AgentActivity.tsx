@@ -192,6 +192,7 @@ function keepLastCopies(phases: readonly AgentPhase[]): boolean[] {
  *  done, so a finished turn is one line of work per round with the closing summary left standing. */
 export function AgentActivity({ phases, done, status, stopReason, error, rating, subagents, unfinished, onUndo, onRate, onResume, onResolve }: AgentActivityProps) {
   const [now, setNow] = useState(Date.now());
+  const [historyOpen, setHistoryOpen] = useState(false);
   useEffect(() => { if (done) return; const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, [done]);
 
   const groups: { phases: AgentPhase[]; divider?: NonNullable<AgentPhase["divider"]> }[] = [];
@@ -203,11 +204,11 @@ export function AgentActivity({ phases, done, status, stopReason, error, rating,
 
   const rounds = groups.flatMap((group) => group.phases);
   const kept = keepLastCopies(rounds);
-  const renderGroups: { divider?: NonNullable<AgentPhase["divider"]>; phases: { phase: AgentPhase; keep: boolean }[] }[] = [];
+  const renderGroups: { divider?: NonNullable<AgentPhase["divider"]>; phases: { phase: AgentPhase; keep: boolean; index: number }[] }[] = [];
   let round = 0;
   for (const group of groups) {
     if (group.divider) { renderGroups.push({ divider: group.divider, phases: [] }); continue; }
-    renderGroups.push({ phases: group.phases.map((phase) => ({ phase, keep: Boolean(kept[round++]) })) });
+    renderGroups.push({ phases: group.phases.map((phase) => ({ phase, keep: Boolean(kept[round]), index: round++ })) });
   }
 
   const allMessages = rounds.map((phase) => phase.message?.trim() || "").filter(Boolean);
@@ -221,38 +222,63 @@ export function AgentActivity({ phases, done, status, stopReason, error, rating,
   const stoppedShort = done && (status === "stopped" || status === "limit" || (status === "blocked" && Boolean(unfinished?.length))) && (didWork || Boolean(unfinished?.length));
   if (done && !groups.length && !failure && !subagents?.length && !stoppedShort) return null;
 
+  // A finished turn is one sentence about what happened, not the whole log of how it got there.
+  // While the run is in flight every round stays on screen — that is what shows the work piling up
+  // under the last one — but when it closes, the rounds fold behind a single line and only the
+  // summary stands. The chevron is the way back in.
+  const foldWhenDone = done && didWork;
+  const summaryRound = rounds.reduce((last, phase, index) => (kept[index] && phase.message?.trim() ? index : last), -1);
+  const workedSeconds = Math.max(1, Math.round(((phases.at(-1)?.endedAt ?? now) - (phases[0]?.startedAt ?? now)) / 1000));
+  const roundCount = rounds.filter((phase) => (phase.trace || []).some((node) => node.type !== "reasoning")).length;
+
+  const timeline = renderGroups.map((group, groupIndex) => {
+    if (group.divider) return <ContextDivider key={`divider-${groupIndex}`} divider={group.divider} />;
+    const lastGroup = groupIndex === renderGroups.length - 1;
+    return (
+      <div key={groupIndex} className="flex flex-col gap-4">
+        {group.phases.map(({ phase, keep, index }, phaseIndex) => {
+          const live = !done && lastGroup && phaseIndex === group.phases.length - 1;
+          // Step rows are filtered out because a step is only credible when it comes from a real
+          // tool call, which always produces one.
+          const nodes = phase.trace.filter((node) => node.type !== "step").map((node) => withAttachments(node, onUndo));
+          const message = phase.message?.trim() || "";
+          if (!nodes.length && !live && !message) return null;
+          return (
+            <div key={phaseIndex} className="flex flex-col gap-1.5">
+              {(nodes.length > 0 || live) && (
+                <ThinkingState
+                  className="reply-round"
+                  nodes={nodes}
+                  autoPlay={false}
+                  running={live}
+                  {...(nodes.length ? {} : { workingLabel: "Thinking…" })}
+                />
+              )}
+              {keep && message && !(foldWhenDone && index === summaryRound) && <ReplyParagraph text={message} />}
+            </div>
+          );
+        })}
+      </div>
+    );
+  });
+
   return <div className="group flex w-full flex-col gap-4">
     {!done && !groups[groups.length - 1]?.phases.length && <ThinkingState nodes={[]} autoPlay={false} running workingLabel="Thinking…" />}
-    {renderGroups.map((group, groupIndex) => {
-      if (group.divider) return <ContextDivider key={`divider-${groupIndex}`} divider={group.divider} />;
-      const lastGroup = groupIndex === renderGroups.length - 1;
-      return (
-        <div key={groupIndex} className="flex flex-col gap-4">
-          {group.phases.map(({ phase, keep }, phaseIndex) => {
-            const live = !done && lastGroup && phaseIndex === group.phases.length - 1;
-            // Step rows are filtered out because a step is only credible when it comes from a real
-            // tool call, which always produces one.
-            const nodes = phase.trace.filter((node) => node.type !== "step").map((node) => withAttachments(node, onUndo));
-            const message = phase.message?.trim() || "";
-            if (!nodes.length && !live && !message) return null;
-            return (
-              <div key={phaseIndex} className="flex flex-col gap-1.5">
-                {(nodes.length > 0 || live) && (
-                  <ThinkingState
-                    className="reply-round"
-                    nodes={nodes}
-                    autoPlay={false}
-                    running={live}
-                    {...(nodes.length ? {} : { workingLabel: "Thinking…" })}
-                  />
-                )}
-                {keep && message && <ReplyParagraph text={message} />}
-              </div>
-            );
-          })}
-        </div>
-      );
-    })}
+    {foldWhenDone ? (
+      <div className="flex flex-col gap-1.5">
+        <button
+          type="button"
+          aria-expanded={historyOpen}
+          onClick={() => setHistoryOpen((open) => !open)}
+          className="flex items-center gap-2 text-left text-[12.5px] text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <ChevronRight className={cn("size-3 shrink-0 transition-transform", historyOpen && "rotate-90")} aria-hidden="true" />
+          <span>{`Worked for ${formatElapsed(workedSeconds)} · ${roundCount} ${roundCount === 1 ? "round" : "rounds"}`}</span>
+        </button>
+        {historyOpen && <div className="flex flex-col gap-4 border-l border-border/60 pl-3">{timeline}</div>}
+        {replyText && <ReplyParagraph text={replyText} />}
+      </div>
+    ) : timeline}
     {subagents?.length ? (
       <div className="flex flex-col gap-1.5">
         {subagents.map((job) => <SubagentRow key={job.id} job={job} now={now} live={!done} resolve={onResolve} />)}

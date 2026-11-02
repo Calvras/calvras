@@ -10,6 +10,15 @@ const replyParagraph = (text: string) => screen.getByText(byReplyLabel(text));
 const queryReplyParagraph = (text: string) => screen.queryByText(byReplyLabel(text));
 const replyParagraphs = (text: string) => screen.queryAllByText(byReplyLabel(text));
 
+/** A finished turn folds its whole log behind one line and shows only the closing summary, so a
+ *  test that wants to look at the rounds has to open that line first. */
+const openHistory = () => {
+  const fold = screen.getByRole("button", { name: /^Worked for / });
+  expect(fold).toHaveAttribute("aria-expanded", "false");
+  fireEvent.click(fold);
+  return fold;
+};
+
 /** The reply style is a collapsible group whose header says what its rows add up to, a rail of one
  *  chip per tool call, and the agent's own sentence under the round that wrote it. A collapsed fold
  *  keeps its rows in the document (the fold is a grid-row animation), so these tests read the
@@ -18,10 +27,12 @@ describe("group header derived from the rows", () => {
   const readRow = { id: "read", type: "tool", toolName: "read_file", primary: "Read file", args: { path: "src/app.tsx" }, status: "completed" as const };
   it("prints the summary the rows add up to", () => {
     render(<AgentActivity done phases={[{ trace: [readRow, { ...readRow, id: "read2", args: { path: "src/main.tsx" } }] }]} />);
+    openHistory();
     expect(screen.getByRole("button", { name: "read 2 files" })).toHaveAttribute("aria-expanded", "false");
   });
   it("counts a command that failed in the same line", () => {
     render(<AgentActivity done phases={[{ trace: [{ id: "cmd", type: "terminal", primary: "Run build", command: "npm run build", status: "failed", exitCode: 1, output: "Missing build script" }] }]} />);
+    openHistory();
     expect(screen.getByRole("button", { name: "ran 1 command · 1 failed" })).toBeInTheDocument();
   });
   it("says what the round is doing while it is still in flight", () => {
@@ -42,6 +53,7 @@ describe("group header derived from the rows", () => {
   });
   it("folds a settled round and opens it on demand", () => {
     render(<AgentActivity done phases={[{ trace: [readRow], message: "The grid fills the window now." }]} />);
+    openHistory();
     const header = screen.getByRole("button", { name: "read 1 file" });
     expect(header).toHaveAttribute("aria-expanded", "false");
     fireEvent.click(header);
@@ -52,6 +64,7 @@ describe("group header derived from the rows", () => {
     const { rerender } = render(<AgentActivity done={false} phases={phases} />);
     expect(screen.getByRole("button", { name: "read 1 file" })).toHaveAttribute("aria-expanded", "true");
     rerender(<AgentActivity done phases={[{ ...phases[0]!, message: "Read it.", endedAt: 5000 }]} />);
+    openHistory();
     expect(screen.getByRole("button", { name: "read 1 file" })).toHaveAttribute("aria-expanded", "false");
   });
   it("folds a thought to its own duration and reveals the sentences on click", () => {
@@ -157,11 +170,15 @@ describe("agent activity", () => {
     expect(replyParagraph("Step 1 done — the week grid renders from real dates.")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "edited 1 file" })).toHaveLength(2);
     rerender(<AgentActivity done phases={[closed, finished, { trace: [], message: "Both steps are in: the grid is built from real dates and the form persists across a reload.", startedAt: 9000, endedAt: 20_000 }]} />);
+    // The turn closed, so only the summary stands; the round sentences are one click away.
     expect(replyParagraph("Both steps are in: the grid is built from real dates and the form persists across a reload.")).toBeInTheDocument();
+    expect(queryReplyParagraph("Step 1 done — the week grid renders from real dates.")).not.toBeInTheDocument();
+    openHistory();
     expect(replyParagraph("Step 1 done — the week grid renders from real dates.")).toBeInTheDocument();
   });
   it("reveals the command and its real output only when the row is opened", () => {
     render(<AgentActivity done phases={[{ trace: [{ id: "command", type: "terminal", primary: "Run tests", command: "npm test", status: "completed" as const, exitCode: 0, output: "first test passed" }] }, ]} />);
+    openHistory();
     fireEvent.click(screen.getByRole("button", { name: "ran 1 command" }));
     const row = screen.getByRole("button", { name: /Run tests/ });
     expect(row).toHaveAttribute("aria-expanded", "false");
@@ -304,5 +321,37 @@ describe("when a round of work is worth its own header", () => {
   it("pins the threshold the timeline is judged against", () => {
     expect(MIN_ROWS_PER_ROUND).toBe(5);
     expect(roundIsFull(Array.from({ length: MIN_ROWS_PER_ROUND - 1 }, (_, i) => tool(String(i))))).toBe(false);
+  });
+});
+/** What the user asked for on the 17-minute run: the turn ended with a wall of one sentence per
+ *  round still standing. A closed turn is a summary; the steps are behind the chevron. */
+describe("a finished turn folds its log to one summary", () => {
+  const write = (id: string, path: string) => ({ id, type: "write", toolName: "write_file", primary: "Write file", args: { path }, status: "completed" as const });
+  it("leaves only the closing summary on screen", () => {
+    render(<AgentActivity done phases={[
+      { trace: [write("w1", "src/a.tsx")], message: "I'm updating the CSS to use the v4 import.", startedAt: 1000, endedAt: 9000 },
+      { trace: [write("w2", "src/b.tsx")], message: "I'm clearing the legacy PostCSS config.", startedAt: 9000, endedAt: 15_000 },
+      { trace: [], message: "The build fails on the same PostCSS error, so the page is not fixed.", startedAt: 15_000, endedAt: 20_000 },
+    ]} />);
+    expect(replyParagraph("The build fails on the same PostCSS error, so the page is not fixed.")).toBeInTheDocument();
+    expect(queryReplyParagraph("I'm updating the CSS to use the v4 import.")).not.toBeInTheDocument();
+    expect(queryReplyParagraph("I'm clearing the legacy PostCSS config.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Worked for / })).toBeInTheDocument();
+    openHistory();
+    expect(replyParagraph("I'm updating the CSS to use the v4 import.")).toBeInTheDocument();
+    expect(replyParagraph("I'm clearing the legacy PostCSS config.")).toBeInTheDocument();
+  });
+  it("keeps every round standing while the run is still working", () => {
+    render(<AgentActivity done={false} phases={[
+      { trace: [write("w1", "src/a.tsx")], message: "I'm updating the CSS to use the v4 import.", startedAt: 1000 },
+      { trace: [write("w2", "src/b.tsx")], startedAt: 9000 },
+    ]} />);
+    expect(replyParagraph("I'm updating the CSS to use the v4 import.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Worked for / })).not.toBeInTheDocument();
+  });
+  it("does not fold an answer that never touched the workspace", () => {
+    render(<AgentActivity done phases={[{ trace: [], message: "Python, Go and Rust are the three to start with.", startedAt: 1000, endedAt: 4000 }]} />);
+    expect(replyParagraph("Python, Go and Rust are the three to start with.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Worked for / })).not.toBeInTheDocument();
   });
 });

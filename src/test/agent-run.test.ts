@@ -537,3 +537,54 @@ describe("rendered preview gate", () => {
     expect(config.infer.mock.calls[3]?.[0]).toContain("PREVIEW VERIFIED");
   });
 });
+/** The 17-minute run: the same PostCSS error came back on every attempt while each round said the
+ *  next edit would settle it. The loop counts the error's own line, not the model's rewording. */
+describe("a run that circles on one error", () => {
+  const POSTCSS = "[plugin:vite:css] [postcss] It looks like you're trying to use `tailwindcss` directly as a PostCSS plugin. The PostCSS plugin has moved to a separate package.";
+  const cssEdit = [{ type: "write_file", path: "src/index.css", content: "@import 'tailwindcss';" }];
+  const failing = (output: string) => vi.fn().mockImplementation(async (actions: ToolFeedback["action"][]) => actions.map((action) => ({ action, ok: false, result: { output, exitCode: 1 } })));
+  const attempts = (count: number) => Array.from({ length: count }, (_, index) => reply(`Attempt ${index + 1} should resolve the conflict.`, cssEdit, "continue"));
+
+  it("names the repeat and orders a change of strategy", async () => {
+    const config = { ...options(attempts(7)), execute: failing(POSTCSS) };
+    await runAgent(config);
+    const prompts = config.infer.mock.calls.map(([prompt]) => String(prompt));
+    expect(prompts.some((prompt) => prompt.includes("[SAME ERROR 3 TIMES]"))).toBe(true);
+    expect(prompts.at(-2) ?? "").toContain("search the exact error text");
+  });
+
+  it("ends the turn on the error rather than trying it a seventh time", async () => {
+    const onPhaseComplete = vi.fn();
+    const config = { ...options(attempts(7)), maxSteps: 10, onPhaseComplete, execute: failing(POSTCSS) };
+    const outcome = await runAgent(config);
+    expect(outcome.status).toBe("blocked");
+    expect(outcome.message).toContain("rather than try the same fix a 7th time");
+    expect(outcome.message).toContain("tailwindcss");
+    expect(onPhaseComplete).toHaveBeenLastCalledWith(outcome.message);
+    expect(config.execute).toHaveBeenCalledTimes(6);
+  });
+
+  it("counts only the error that keeps coming back", async () => {
+    // Two different failures in a row each score once, a green round clears both, and the same
+    // error returning afterwards starts again from one — so nothing here earns a nudge.
+    const outcomes = [
+      { ok: false, output: POSTCSS },
+      { ok: false, output: "ECONNREFUSED 127.0.0.1:5173 — the port is taken by another dev server" },
+      { ok: true, output: "built in 412ms" },
+      { ok: false, output: POSTCSS },
+      { ok: false, output: POSTCSS },
+      { ok: true, output: "built in 388ms" },
+    ];
+    let round = 0;
+    const execute = vi.fn().mockImplementation(async (actions: ToolFeedback["action"][]) => {
+      const current = outcomes[round++] ?? { ok: true, output: "built" };
+      return actions.map((action) => ({ action, ok: current.ok, result: { output: current.output, exitCode: current.ok ? 0 : 1 } }));
+    });
+    const config = { ...options(attempts(7)), maxSteps: 10, execute };
+    const outcome = await runAgent(config);
+    const prompts = config.infer.mock.calls.map(([prompt]) => String(prompt));
+    expect(prompts.some((prompt) => prompt.includes("[SAME ERROR"))).toBe(false);
+    expect(outcome.status).not.toBe("error");
+  });
+});
+
