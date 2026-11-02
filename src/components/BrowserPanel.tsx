@@ -1,5 +1,5 @@
 import { createElement, useEffect, useRef, useState, useSyncExternalStore, type ReactElement } from "react";
-import { ArrowLeft, ArrowRight, Globe2, LockKeyhole, RotateCw } from "lucide-react";
+import { ArrowLeft, ArrowRight, Globe2, LockKeyhole, Maximize2, Minimize2, RotateCw } from "lucide-react";
 import { browserBridge, type BrowserSnapshot } from "@/lib/browser-bridge";
 
 const EMPTY: BrowserSnapshot = { attached: false, ready: false, url: "", title: "", loading: false, project: "" };
@@ -21,7 +21,7 @@ function createWebview(attach: (element: HTMLElement | null) => void, userAgent?
 /** The page Calvras drives. It lives inside the workspace dock so the file list, the local
  * preview and the live browser share one right-hand surface; the <webview> element itself is
  * never unmounted, so switching tabs cannot throw away a page the agent is mid-task on. */
-export function BrowserPanel({ active }: { active: boolean }) {
+export function BrowserPanel({ active, zoomed, onToggleZoom }: { active: boolean; zoomed: boolean; onToggleZoom: () => void }) {
   const elementRef = useRef<any>(null);
   const [address, setAddress] = useState("");
   const [focused, setFocused] = useState(false);
@@ -85,6 +85,18 @@ export function BrowserPanel({ active }: { active: boolean }) {
           />
           <button type="button" onClick={submitAddress} disabled={active || !address.trim()}>Go</button>
         </div>
+        {snapshot.url && snapshot.url !== "about:blank" ? (
+          <button
+            type="button"
+            className="browser-dock-zoom"
+            onClick={onToggleZoom}
+            title={zoomed ? "Back to the side panel" : "Full screen"}
+            aria-label={zoomed ? "Exit full screen preview" : "Full screen preview"}
+            aria-pressed={zoomed}
+          >
+            {zoomed ? <Minimize2 className="size-4" aria-hidden="true" /> : <Maximize2 className="size-4" aria-hidden="true" />}
+          </button>
+        ) : null}
       </div>
       {notice ? <div className="browser-dock-notice" role="alert">{notice}</div> : null}
       <div className="browser-dock-surface">

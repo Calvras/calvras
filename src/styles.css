@@ -826,13 +826,15 @@ html[data-reduce-motion="true"] *, html[data-reduce-motion="true"] *::before, ht
 .browser-dock-resize > span { width: 3px; height: 44px; border-radius: 999px; background: oklch(1 0 0 / 14%); transition: background .15s ease, height .18s ease, box-shadow .18s ease; }
 .browser-dock-resize:hover > span, .browser-dock-resize:focus-visible > span, .browser-dock[data-resizing="true"] .browser-dock-resize > span { height: 64px; background: oklch(1 0 0 / 38%); }
 .browser-dock-resize:focus-visible { outline: none; }
-.browser-dock[data-active="true"] .browser-dock-resize { cursor: default; }
-.browser-dock[data-active="true"] .browser-dock-resize > span { opacity: .35; }
 .browser-dock[data-resizing="true"] webview { pointer-events: none; }
 .chat-page.is-resizing-browser { cursor: col-resize; user-select: none; }
 .chat-page.is-resizing-browser .workspace-header, .chat-page.is-resizing-browser .workspace-project-switcher, .chat-page.is-resizing-browser .workspace-actions, .chat-page.is-resizing-browser .chat-composer, .chat-page.is-resizing-browser .chat-scroll-area { transition: none; }
 .workspace-header, .workspace-project-switcher, .workspace-actions, .chat-composer, .chat-scroll-area { transition: right .32s cubic-bezier(.22, 1, .36, 1), padding-right .32s cubic-bezier(.22, 1, .36, 1); }
 .browser-dock[data-active="true"] { background: var(--background); }
+/* Zoomed: the page takes the whole window, the dock head (and its unzoom button) stays on top,
+   and the drag handle disappears — there is no edge left to drag. */
+.browser-dock[data-zoomed="true"] { left: 0; width: auto; z-index: 60; border-left: 0; }
+.browser-dock[data-zoomed="true"] .browser-dock-resize { display: none; }
 
 /* ── Workspace dock shell ───────────────────────────────────────────────────
    One right-hand surface, tabbed. Every section stays mounted so switching tabs

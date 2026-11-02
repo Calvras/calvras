@@ -176,6 +176,7 @@ export function RightDock({ open, tab, onTabChange, onClose, projectPath, projec
   const stopResizeRef = useRef<(() => void) | null>(null);
   const [width, setWidth] = useState(0);
   const [resizing, setResizing] = useState(false);
+  const [zoomed, setZoomed] = useState(false);
 
   const applyWidth = (value: number, persist = true) => {
     const next = clampDockWidth(value);
@@ -192,8 +193,10 @@ export function RightDock({ open, tab, onTabChange, onClose, projectPath, projec
     return () => stopResizeRef.current?.();
   }, []);
 
+  // A live page used to lock the handle, but the CSS already turns the webview's own pointer
+  // events off while a drag is running, so dragging the edge of a browsing panel is safe.
   const beginResize = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (browserActive || event.button !== 0) return;
+    if (event.button !== 0) return;
     const panel = asideRef.current;
     if (!panel) return;
     event.preventDefault();
@@ -222,14 +225,13 @@ export function RightDock({ open, tab, onTabChange, onClose, projectPath, projec
   };
 
   const resizeWithKeys = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (browserActive || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) return;
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
     event.preventDefault();
     const current = asideRef.current?.getBoundingClientRect().width ?? (width || defaultDockWidth());
     applyWidth(current + (event.key === "ArrowLeft" ? (event.shiftKey ? 64 : 24) : -(event.shiftKey ? 64 : 24)));
   };
 
   const resetWidth = () => {
-    if (browserActive) return;
     const page = asideRef.current?.closest(".chat-page") as HTMLElement | null;
     page?.style.removeProperty("--browser-dock-width");
     try { localStorage.removeItem(WIDTH_KEY); } catch { /* private mode */ }
@@ -237,10 +239,14 @@ export function RightDock({ open, tab, onTabChange, onClose, projectPath, projec
   };
 
   useEffect(() => {
-    const close = (event: globalThis.KeyboardEvent) => { if (event.key === "Escape" && open) onClose(); };
+    const close = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape" || !open) return;
+      if (zoomed) setZoomed(false);
+      else onClose();
+    };
     document.addEventListener("keydown", close);
     return () => document.removeEventListener("keydown", close);
-  }, [open, onClose]);
+  }, [open, onClose, zoomed]);
 
   const tabs = [
     { id: "files" as DockTab, label: "Workspace files", short: "Files", icon: FileText, visible: Boolean(projectPath) },
@@ -257,6 +263,7 @@ export function RightDock({ open, tab, onTabChange, onClose, projectPath, projec
       data-open={open}
       data-active={browserActive && activeTab === "browser"}
       data-resizing={resizing}
+      data-zoomed={zoomed && activeTab === "browser"}
       data-tab={activeTab}
       aria-label="Workspace dock"
       aria-hidden={!open}
@@ -269,8 +276,7 @@ export function RightDock({ open, tab, onTabChange, onClose, projectPath, projec
         aria-valuemin={MIN_DOCK_WIDTH}
         aria-valuemax={maxDockWidth()}
         aria-valuenow={width}
-        aria-disabled={browserActive}
-        tabIndex={browserActive ? -1 : 0}
+        tabIndex={0}
         title="Drag to resize · double-click to reset"
         onPointerDown={beginResize}
         onDoubleClick={resetWidth}
@@ -287,7 +293,7 @@ export function RightDock({ open, tab, onTabChange, onClose, projectPath, projec
               role="tab"
               aria-selected={activeTab === entry.id}
               title={entry.label}
-              onClick={() => onTabChange(entry.id)}
+              onClick={() => { setZoomed(false); onTabChange(entry.id); }}
               className={cn("dock-tab", activeTab === entry.id && "is-selected")}
             >
               <entry.icon className="size-3.5" aria-hidden="true" />
@@ -307,7 +313,7 @@ export function RightDock({ open, tab, onTabChange, onClose, projectPath, projec
           <FilesPane projectPath={projectPath} projectName={projectName} onPickFolder={onPickFolder} execute={execute} open={open && activeTab === "files"} />
         </Panel>
         <Panel label="Browser" active={activeTab === "browser"} className="dock-panel--browser">
-          <BrowserPanel active={browserActive} />
+          <BrowserPanel active={browserActive} zoomed={zoomed && activeTab === "browser"} onToggleZoom={() => setZoomed((value) => !value)} />
         </Panel>
         <Panel label="Subagents" active={activeTab === "agents"}>
           <AgentsPane agents={agents} jobs={jobs} tick={open && activeTab === "agents"} execute={execute} />
