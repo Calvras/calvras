@@ -244,6 +244,7 @@ export async function runAgent(options: {
   let referenceSheet: ReferenceSheet | null = null;
   let referencePlanSeeded = false;
   let referenceTookPage = false;
+  let referenceTakeTried = false;
   /**
    * The survey survives two rounds. Everything older than the last two tool results is folded into a
    * 1000-character summary, so on a build that takes thirty rounds the page being copied is gone from
@@ -270,8 +271,14 @@ export async function runAgent(options: {
     const brief = out.join("\n");
     return brief.length > 40000 ? `${brief.slice(0, 40000)}\n[sheet trimmed — call read_page {full:true} again for the sections past this point]` : brief;
   };
-  const referencePending = () => Boolean(referenceUrl) && !referenceSurveyed;
-  const referencePromptState = () => referencePending() ? ` ${referenceUrl} is the specification, and nothing of it has been read past the first screen: call read_page {full:true} on it before writing any of that page, and build from the section heights, colours and pixel sizes it reports.` : "";
+  // The page's own markup is both the faster and the more faithful read of it, so it is the door this
+  // run is expected to use first: a survey alone no longer releases the writes, because a model that
+  // has measured every band will happily spend thirty-five rounds retyping them — which is the twenty
+  // minutes the user complained about. The hand-built route stays open: once a take has actually been
+  // attempted, the survey is enough.
+  const handRouteOpen = () => referenceTookPage || (referenceTakeTried && referenceSurveyed);
+  const referencePending = () => Boolean(referenceUrl) && !handRouteOpen();
+  const referencePromptState = () => referencePending() ? ` ${referenceUrl} is the specification and none of it is in the project yet: call duplicate_page {url:"${referenceUrl}"} — one call saves that page's own markup and stylesheet into the project, and you then edit only what the user asked. Do not build it from a screenshot or from a survey of bands; that is the slow route and it is what produced the wrong spacing and colours last time.` : "";
   /** Pinned for as long as the build has steps left, then dropped — the finished page is judged by
    * the pixel comparison, and paying for the sheet again after the last band is written buys nothing. */
   const referenceSheetPrompt = () => referenceBrief && buildInProgress() ? `\n${referenceBrief}\n[END REFERENCE BUILD SHEET] This is what the page at ${referenceUrl} measures, section by section, and it stays in front of you for every remaining step. Reproduce each band at its own height, colour, padding and font size, and use its own words exactly as listed — the copy is on the sheet, so inventing headline or card text is a choice, not a limitation. Nothing here is judged against the preview until the last band is written.` : "";
@@ -456,22 +463,29 @@ export async function runAgent(options: {
       // Only the survey proves the run looked past the fold: it scrolls the live page to its real
       // end and reports every band, so a duplication can be built from measured numbers. A survey of
       // our own half-written page is not a read of the reference, so the URL has to match.
-      if (result.ok && result.action.type === "read_page" && (result.result as { coverage?: string } | null)?.coverage === "full document"
+      if (result.ok && !referenceTookPage && result.action.type === "read_page" && (result.result as { coverage?: string } | null)?.coverage === "full document"
         && Boolean(referenceUrl) && samePage(String((result.result as { url?: string } | null)?.url ?? ""), referenceUrl)) {
         referenceSurveyed = true;
         referenceSheet = result.result as NonNullable<typeof referenceSheet>;
         referenceBrief = buildReferenceBrief(referenceSheet);
       }
       // Taking the page's own markup is the faster and more faithful read of it, so it satisfies the
-      // same obligation — and there is then nothing to pin, because the file on disk is the spec.
-      if (result.ok && result.action.type === "duplicate_page" && Boolean(referenceUrl)
-        && samePage(String((result.result as { url?: string } | null)?.url ?? ""), referenceUrl)) {
+      // same obligation — and there is then nothing to pin, because the file on disk is the spec. A
+      // take that failed opens the hand-built route on top of the survey, so a page that refuses to
+      // hand anything over cannot deadlock the run.
+      if (result.action.type === "duplicate_page" && Boolean(referenceUrl)
+        && samePage(String((result.result as { url?: string } | null)?.url ?? "") || String(result.action.url ?? ""), referenceUrl)) {
+        referenceTakeTried = true;
+      }
+      if (result.ok && result.action.type === "duplicate_page" && referenceTakeTried) {
         referenceSurveyed = true;
         referenceTookPage = true;
+        const rebuilt = referencePlanSeeded;
         referenceSheet = null;
         referenceBrief = "";
+        if (referencePlanSeeded) referencePlanSeeded = false;
         const taken = result.result as { dir?: string; files?: { path: string }[]; remoteReferences?: number };
-        history.push(`[PAGE TAKEN] ${referenceUrl} is in the project as ${String(taken.dir ?? "").trim() || "the copy folder"} (${(taken.files ?? []).map((file) => file.path).join(", ")}). Its markup, its wording, its spacing and its colours are the page's own — nothing about it has to be written by you. Start the server, look at the render once, then use search_replace for exactly what the user named and leave the rest of the file alone. Rebuilding this page section by section now would throw away the copy you just took.`);
+        history.push(`[PAGE TAKEN] ${referenceUrl} is in the project as ${String(taken.dir ?? "").trim() || "the copy folder"} (${(taken.files ?? []).map((file) => file.path).join(", ")}). Its markup, its wording, its spacing and its colours are the page's own — nothing about it has to be written by you. Start the server, look at the render once, then use search_replace for exactly what the user named and leave the rest of the file alone. Rebuilding this page section by section now would throw away the copy you just took.${rebuilt ? " The plan you were given was written for the slow route and has been replaced with the four steps this copy needs." : ""}`);
       }
       // The pixel check is the strongest UI evidence there is, so it also clears the
       // "go drive the page yourself" obligation.
@@ -538,7 +552,11 @@ export async function runAgent(options: {
         if (bands.length > list.length) list.push(`Copy the exact wording of the other ${bands.length - list.length} bands the survey listed`);
         return list;
       })();
-    if (!titles.length || (plan.total > 0 && titles.length <= plan.total)) return;
+    // A plan shorter than the one already on the board is normally the model's own, finer breakdown —
+    // leave it alone. The four steps a taken page needs are the exception: they replace a band-by-band
+    // plan written before the copy arrived, and leaving that plan standing would hold the preview
+    // against thirty rounds of work nobody has to do.
+    if (!titles.length || (!referenceTookPage && plan.total > 0 && titles.length <= plan.total)) return;
     referencePlanSeeded = true;
     const seeded = await options.execute([({ type: "create_task_list", tasks: titles.map((title) => ({ title, status: "pending" })) }) as unknown as AgentAction]);
     record(seeded);
@@ -651,10 +669,12 @@ export async function runAgent(options: {
       if (heldWrites.length) {
         referenceHeldRounds += 1;
         reply.actions = reply.actions.filter((action) => !pageWrites.has(action.type));
-        history.push(`[REFERENCE UNREAD] ${heldWrites.map((action) => action.type).join(", ")} is out of bounds until ${referenceUrl} has been taken. Call duplicate_page {url:"${referenceUrl}"} — one call writes that page's own markup and its own resolved stylesheet into the project, and you then edit only what the user named. If the page refuses to hand over its markup, call read_page {full:true} instead (open_browser that address first): it scrolls the live page to its real bottom, waits for the sections that load on the way, and returns every band with its height, colours, headings, padding, images and buttons — then build one section at a time from those measurements. A page written from the first screenful is a page of guesses: the hero you happened to see, plus invented gaps, colours and sizes, and that is a failed duplication.`);
+        history.push(referenceTakeTried
+          ? `[REFERENCE UNREAD] ${heldWrites.map((action) => action.type).join(", ")} is out of bounds until the survey of ${referenceUrl} is in. duplicate_page could not bring that page back, so read it yourself: open_browser that address, then call read_page {full:true} — it scrolls the live page to its real bottom, waits for the sections that load on the way, and returns every band with its height, colours, headings, padding, images and buttons. Then build one section at a time from those measurements and copy each band's own wording verbatim. A page written from the first screenful is a page of guesses: the hero you happened to see, plus invented gaps, colours and sizes.`
+          : `[REFERENCE UNREAD] ${heldWrites.map((action) => action.type).join(", ")} is out of bounds until ${referenceUrl} is in the project. Call duplicate_page {url:"${referenceUrl}"} — one call writes that page's own markup and its own resolved stylesheet into the project, with its wording, its spacing and its colours intact, and the rest of the run changes only what the user named. Do not survey the page and rebuild it band by band: that is the route that spent twenty minutes retyping a page the site had already handed over, and it is how the wrong spacing and colours got in.`);
         if (referenceHeldRounds >= REFERENCE_HOLD_LIMIT) {
           referenceSurveyed = true;
-          history.push(`[REFERENCE UNREACHABLE] ${referenceUrl} has not been surveyed after ${referenceHeldRounds} rounds, so the writes are released — build from what you have actually read and say in the reply which parts of that page you never saw. Do not present a page you have not read as its duplicate.`);
+          history.push(`[REFERENCE UNREACHABLE] ${referenceUrl} has resisted ${referenceHeldRounds} rounds, so the writes are released — build from what you have actually read and say in the reply which parts of that page you never saw. Do not present a page you have not read as its duplicate.`);
         }
         if (!reply.actions.length) continue;
       }

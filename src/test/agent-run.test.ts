@@ -654,27 +654,34 @@ describe("a duplication that has not read its reference", () => {
     { index: 2, tag: "footer", topPx: 8800, heightPx: 600, background: "rgb(15, 15, 15)", color: "rgb(255, 255, 255)", paddingPx: "60 24 60 24", maxWidthPx: 0, textAlign: "start", headings: [{ tag: "h2", text: "Better for everyone", sizePx: 40, weight: "600", color: "rgb(255,255,255)", lineHeightPx: 48 }], controls: [], media: [], text: "Better for everyone" },
   ] } };
 
-  it("withholds the first write until the whole page has been measured", async () => {
-    // The user watched a clone come back with the right hero and invented everything below the
-    // fold. The brief said to scroll first; a run that skips it now simply cannot write.
+  it("withholds the writes until the page is taken, and only a failed take opens the hand-built route", async () => {
+    // The user watched a clone come back with the right hero and invented everything below the fold,
+    // then watched the next run spend twenty minutes retyping bands it could have taken in one call.
+    // Measuring the page is no longer enough to unlock writing: the copy itself has to land, or the
+    // call that fetches it has to fail.
     const config = { ...options([
       reply("Opening the site.", [{ type: "open_browser", url: "https://www.cloudflare.com/" }], "continue"),
       reply("Writing the hero.", [{ type: "write_file", path: "src/App.jsx", content: "export default () => null" }], "continue"),
-      reply("Reading the whole page first.", [{ type: "read_page", full: true }], "continue"),
+      reply("Taking the page itself.", [{ type: "duplicate_page", url: "https://www.cloudflare.com/" }], "continue"),
+      reply("Reading the whole page instead.", [{ type: "read_page", full: true }], "continue"),
       reply("Now writing the hero.", [{ type: "write_file", path: "src/App.jsx", content: "export default () => null" }], "continue"),
       reply("Done."),
     ]), prompt: "duplicate https://www.cloudflare.com/ and build me the page", maxSteps: 12 };
     config.execute = vi.fn().mockImplementation(async (actions: ToolFeedback["action"][]) => actions.map((action) => ({
-      action, ok: true,
-      result: action.type === "read_page" ? survey.result : { path: "src/App.jsx", url: "https://www.cloudflare.com/" },
+      action,
+      ok: action.type !== "duplicate_page",
+      result: action.type === "duplicate_page" ? { error: "The page at https://www.cloudflare.com/ would not hand over its markup." }
+        : action.type === "read_page" ? survey.result : { path: "src/App.jsx", url: "https://www.cloudflare.com/" },
     })));
     const outcome = await runAgent(config);
     const prompts = config.infer.mock.calls.map(([prompt]) => String(prompt));
     const executed = (config.execute as ReturnType<typeof vi.fn>).mock.calls.flatMap(([actions]) => actions.map((action: { type: string }) => action.type));
     expect(prompts.some((prompt) => prompt.includes("[REFERENCE UNREAD] write_file"))).toBe(true);
-    expect(prompts.some((prompt) => prompt.includes("read_page {full:true}"))).toBe(true);
-    expect(executed.indexOf("read_page")).toBeLessThan(executed.lastIndexOf("write_file"));
+    expect(prompts.some((prompt) => prompt.includes('duplicate_page {url:"https://www.cloudflare.com/"}'))).toBe(true);
+    expect(prompts.some((prompt) => prompt.includes("Do not survey the page and rebuild it band by band"))).toBe(true);
+    expect(executed.indexOf("duplicate_page")).toBeLessThan(executed.indexOf("read_page"));
     expect(executed.filter((type) => type === "write_file")).toHaveLength(1);
+    expect(prompts.some((prompt) => prompt.includes("[REFERENCE UNREACHABLE]"))).toBe(false);
     expect(outcome.status).not.toBe("error");
   });
 
@@ -686,6 +693,7 @@ describe("a duplication that has not read its reference", () => {
     const board: { title: string; status: string }[] = [];
     const config = { ...options([
       reply("Opening the site.", [{ type: "open_browser", url: "https://www.cloudflare.com/" }], "continue"),
+      reply("Taking the page.", [{ type: "duplicate_page", url: "https://www.cloudflare.com/" }], "continue"),
       reply("Measuring the whole page.", [{ type: "read_page", full: true }], "continue"),
       reply("Checking the preview now.", [{ type: "check_preview" }, { type: "write_file", path: "src/App.jsx", content: "export default () => null" }], "continue"),
       reply("Closing the plan.", [{ type: "track_progress", id: "1", status: "done" }, { type: "track_progress", id: "2", status: "done" }, { type: "track_progress", id: "3", status: "done" }], "continue"),
@@ -695,11 +703,12 @@ describe("a duplication that has not read its reference", () => {
     config.execute = vi.fn().mockImplementation(async (actions: ToolFeedback["action"][]) => actions.map((action) => {
       if (action.type === "create_task_list") { board.length = 0; board.push(...(action.tasks as any[]).map((task) => ({ ...task }))); }
       if (action.type === "track_progress") board.forEach((task) => { task.status = "done"; });
-      const result = action.type === "read_page" ? survey.result
+      const result = action.type === "duplicate_page" ? { error: "The page would not hand over its markup." }
+        : action.type === "read_page" ? survey.result
         : ["create_task_list", "track_progress"].includes(action.type) ? { tasks: board.map((task) => ({ ...task })) }
         : action.type === "check_preview" ? { healthy: true, issues: [], url: "http://localhost:5178/" }
         : { path: "src/App.jsx", url: "https://www.cloudflare.com/" };
-      return { action, ok: true, result };
+      return { action, ok: action.type !== "duplicate_page", result };
     }));
     const outcome = await runAgent(config);
     const prompts = config.infer.mock.calls.map(([prompt]) => String(prompt));
@@ -751,6 +760,46 @@ describe("a duplication that has not read its reference", () => {
     ]);
     expect(prompts.some((prompt) => prompt.includes("[PREVIEW HELD] check_preview"))).toBe(true);
     expect(executed.lastIndexOf("check_preview")).toBeGreaterThan(executed.indexOf("search_replace"));
+    expect(outcome.status).not.toBe("error");
+  });
+
+  it("replaces the band-by-band plan the moment the real markup lands", async () => {
+    // The survey route writes one step per section. If the take then succeeds, those steps would keep
+    // the preview held against work nobody is going to do — so the plan is rewritten to the four steps
+    // a copy needs, and the run stops rebuilding.
+    const board: { title: string; status: string }[] = [];
+    const config = { ...options([
+      reply("Opening the site.", [{ type: "open_browser", url: "https://www.cloudflare.com/" }], "continue"),
+      reply("Measuring it.", [{ type: "read_page", full: true }], "continue"),
+      reply("Changing my mind and taking the page.", [{ type: "duplicate_page", url: "https://www.cloudflare.com/" }], "continue"),
+      reply("Working the copy.", [{ type: "search_replace", path: "page-copy/index.html", search: "a", replace: "b" }], "continue"),
+      reply("Closing the plan.", [{ type: "track_progress", id: "1", status: "done" }, { type: "track_progress", id: "2", status: "done" }, { type: "track_progress", id: "3", status: "done" }, { type: "track_progress", id: "4", status: "done" }], "continue"),
+      reply("Done."),
+    ]), prompt: "duplicate https://www.cloudflare.com/ and build me the page", maxSteps: 14 };
+    config.execute = vi.fn().mockImplementation(async (actions: ToolFeedback["action"][]) => actions.map((action) => {
+      if (action.type === "create_task_list") { board.length = 0; board.push(...(action.tasks as any[]).map((task) => ({ ...task }))); }
+      if (action.type === "track_progress") board.forEach((task) => { task.status = "done"; });
+      const result = action.type === "duplicate_page"
+        ? { ok: true, url: "https://www.cloudflare.com/", dir: "page-copy", files: [{ path: "page-copy/index.html", bytes: 90000 }], styleSheetsSaved: 3, scriptsRemoved: 22, remoteReferences: 41, next: "change ONLY what the user named." }
+        : action.type === "read_page" ? survey.result
+        : ["create_task_list", "track_progress"].includes(action.type) ? { tasks: board.map((task) => ({ ...task })) }
+        : { path: "page-copy/index.html", changes: 1 };
+      return { action, ok: true, result };
+    }));
+    const outcome = await runAgent(config);
+    const prompts = config.infer.mock.calls.map(([prompt]) => String(prompt));
+    const planned = (config.execute as ReturnType<typeof vi.fn>).mock.calls.flatMap(([actions]) => actions.filter((action: { type: string }) => action.type === "create_task_list").flatMap((action: any) => action.tasks.map((task: { title: string }) => task.title)));
+    expect(planned.filter((title: string) => title.startsWith("Section 1:"))).toHaveLength(1);
+    expect(planned.filter((title: string) => title.startsWith("Serve the copied page"))).toHaveLength(1);
+    expect(board.map((task) => task.title)).toEqual([
+      "Serve the copied page and look at it once, as the user will",
+      "Apply exactly what the user asked to change, with search_replace on the saved files",
+      "Bring the copy's own assets in if it still pulls them from www.cloudflare.com",
+      "Screenshot the copy against https://www.cloudflare.com/ and name the differences left",
+    ]);
+    expect(prompts.some((prompt) => prompt.includes("The plan you were given was written for the slow route and has been replaced"))).toBe(true);
+    expect(prompts[2]).toContain("REFERENCE BUILD SHEET");
+    expect(prompts.slice(3).some((prompt) => prompt.includes("REFERENCE BUILD SHEET"))).toBe(false);
     expect(outcome.status).not.toBe("error");
   });
 
