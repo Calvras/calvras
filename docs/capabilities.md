@@ -23,7 +23,14 @@ Sign-in is Google or GitHub, by decision.
 - **One error that keeps coming back ends the turn.** The loop remembers the failing call plus the
   error's own line, so after the third time it tells the agent to stop re-editing and read the config,
   the installed version and the full command output instead — and after the sixth it ends the turn and
-  names the error rather than spending the rest of the run on another attempt.
+  names the error rather than spending the rest of the run on another attempt. A preview check that
+  comes back unhappy counts the same way: `ok` is true because the check ran, but a page reported
+  unstyled six times in a row is a dead end, not progress.
+- **The preview is out of bounds until the build is finished.** While its own plan still has untouched
+  steps, `check_preview`, `take_screenshot`, `compare_to_reference`, `inspect_element`,
+  `check_console_errors` and `test_responsive_layout` are withheld, not just discouraged — a half-built
+  page always looks broken, and looking at it is what started the loop. It judges the render once,
+  after the last step.
 - **Sending while it works takes over.** Your new message interrupts the running turn instead of
   queueing behind it.
 - **It keeps its own instructions private.** Asked for its system prompt, rules, tool list or model, it

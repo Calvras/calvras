@@ -219,6 +219,9 @@ export async function runAgent(options: {
   const carried = () => (plan.open.length ? { openSteps: plan.open.slice(0, 6) } : {});
   const inspected = new Set<string>();
   const snapshotReads = new Set(["read_file", "read_package_json", "list_dir", "list_files", "directory_tree", "analyze_project"]);
+  /** Judging our own running page. These are the calls a build spends its rounds on once the
+   *  stylesheet comes back with no rules in it — and an unfinished page always reads that way. */
+  const previewLooks = new Set(["check_preview", "compare_to_reference", "inspect_element", "check_console_errors", "test_responsive_layout", "take_screenshot"]);
   // External tools that only observe; they cannot satisfy a change request on their own.
   const observational = new Set(["take_screenshot", "take_screen_screenshot", "inspect_element", "test_responsive_layout", "read_page", "read_page_content", "check_console_errors", "list_windows", "search_documentation", "web_search", "wait_for_element", "wait_for_window", "focus_window"]);
   // What every page, file and command has returned so far — never the batch ledger, whose own
@@ -259,6 +262,17 @@ export async function runAgent(options: {
     const data = (result.result ?? {}) as { error?: unknown; output?: unknown; stderr?: unknown };
     return String(data.error ?? data.output ?? data.stderr ?? "").trim();
   };
+  /** A look at the running page that comes back unhappy is the same dead end as a failed command,
+   *  but the tool itself succeeded, so `ok` is true and nothing counted it. That is how a run spends
+   *  seventeen rounds reading the same unstyled page: the repeat is in the verdict, not in an error. */
+  const lookProblem = (result: ToolFeedback): string => {
+    const data = (result.result ?? {}) as { healthy?: boolean; issues?: unknown; matched?: boolean; score?: unknown; diffPercent?: unknown; mismatch?: unknown };
+    if (result.action.type === "check_preview" && data.healthy === false)
+      return (Array.isArray(data.issues) ? data.issues.join("; ") : "") || "the preview did not render";
+    if (result.action.type === "compare_to_reference" && data.matched === false)
+      return `the rebuilt page still differs from the reference (${String(data.score ?? data.diffPercent ?? data.mismatch ?? "no match")})`;
+    return "";
+  };
   /** The line that carries the failure, with the parts that legitimately change between attempts
    *  (paths, ports, counts) taken out, so the same error recognises itself next round even when
    *  the file it names moved. */
@@ -291,9 +305,12 @@ export async function runAgent(options: {
     const succeededKeys = new Set<string>();
     for (const result of effective) {
       const actionKey = `${result.action.type}|${JSON.stringify(result.action)}`;
-      if (result.ok) succeededKeys.add(actionKey);
-      if (!result.ok) {
-        const signature = failureSignature(result.action.type, failureTextOf(result));
+      const problem = result.ok ? lookProblem(result) : failureTextOf(result);
+      // A look that came back unhappy ran fine as a tool, so `ok` is true — but it is not the call
+      // passing. Only a clean result retires the error it produced.
+      if (result.ok && !problem) succeededKeys.add(actionKey);
+      if (problem) {
+        const signature = failureSignature(result.action.type, problem);
         const detail = signature.slice(signature.indexOf("|") + 1);
         // A one-word signature ("failed", "error") proves nothing and would fire on unrelated
         // rounds, so only a line with real content is counted.
@@ -517,6 +534,15 @@ export async function runAgent(options: {
         if (strikes >= REPEATED_READ_LIMIT) return { status: "blocked", ...(reply.message.trim() ? { message: reply.message } : {}), ...carried() };
         continue;
       }
+      // The brief already tells the model the preview is out of bounds while its plan has steps
+      // left, and one that ignores that sentence still lands in the loop the user watched:
+      // seventeen rounds of "checking the rendered page again" against a page that is unstyled
+      // because it is unfinished. Mid-build the look is taken away rather than asked for.
+      const heldLooks = buildInProgress() ? reply.actions.filter((action) => previewLooks.has(action.type)) : [];
+      if (heldLooks.length) {
+        reply.actions = reply.actions.filter((action) => !previewLooks.has(action.type));
+        history.push(`[PREVIEW HELD] ${heldLooks.map((action) => action.type).join(", ")} is out of bounds while your plan still has ${plan.open.length} step(s) untouched; the next one is "${plan.open[0]}". A page whose stylesheet has no rules in it is a page you have not written yet, not a page that is broken — the setup that produces the error is the thing to change, and that happens by writing the remaining files. Judge the rendered page once, after the last step is marked done.`);
+      }
       if (!reply.actions.length) {
         const steering = options.getSteering?.() ?? [];
         if (steering.length) { history.push(`[USER STEERING]\n${steering.join("\n")}\nHandle this instruction before completing.`); continue; }
@@ -722,7 +748,7 @@ export async function runAgent(options: {
         const marker = `${stuckNow.signature}|${stuckNow.count}`;
         if (stuckNote !== marker) {
           stuckNote = marker;
-          history.push(`[SAME ERROR ${stuckNow.count} TIMES] "${stuckNow.detail}" has now come back ${stuckNow.count} separate times, and each round before it said the next edit would settle it. It did not. Repeating the attempt is not a strategy, and a sentence claiming the error is gone is not the error being gone. Do this instead: (1) stop touching the file that keeps failing and read what actually produces the error — its config file, the installed version (read_file package.json, then run_command npm ls <that package>), and the whole output of the command that failed; (2) search the exact error text with web_search or search_documentation and follow what that package's current documentation says, because a toolchain that moved a plugin into its own package is fixed by changing the setup, not by rewriting the page again; (3) re-run the one command that failed, and only then call it fixed. If the setup is not yours to change, return status blocked now and name the error in your reply — the user would rather read that than watch another twenty minutes of the same attempt.`);
+          history.push(`[SAME ERROR ${stuckNow.count} TIMES] "${stuckNow.detail}" has now come back ${stuckNow.count} separate times, and each round before it said the next edit would settle it. It did not. Repeating the attempt is not a strategy, and a sentence claiming the error is gone is not the error being gone. Do this instead: (1) stop touching the file that keeps failing and read what actually produces the error — its config file, the installed version (read_file package.json, then run_command npm ls <that package>), and the whole output of the command that failed; (2) search the exact error text with web_search or search_documentation and follow what that package's current documentation says, because a toolchain that moved a plugin into its own package is fixed by changing the setup, not by rewriting the page again; (3) re-run the one command that failed, or the one check that came back unhappy, and only then call it fixed. If the setup is not yours to change, return status blocked now and name the error in your reply — the user would rather read that than watch another twenty minutes of the same attempt.`);
         }
       }
 

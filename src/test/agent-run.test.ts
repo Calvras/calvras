@@ -602,5 +602,48 @@ describe("a run that circles on one error", () => {
     expect(prompts.some((prompt) => prompt.includes("[SAME ERROR"))).toBe(false);
     expect(outcome.status).not.toBe("error");
   });
+
+  it("counts an unhealthy look at the page as a repeat", async () => {
+    // The seventeen rounds the user watched were not failed commands: every check_preview ran
+    // happily and reported the same thing — a stylesheet with no rules in it. The verdict is the
+    // error, so it has to be counted like one.
+    const check = [{ type: "check_preview" }];
+    const execute = vi.fn().mockImplementation(async (actions: ToolFeedback["action"][]) =>
+      actions.map((action) => ({ action, ok: true, result: { healthy: false, issues: ["The stylesheet has no rules in it"] } })));
+    const config = { ...options(Array.from({ length: 9 }, () => reply("Checking the rendered page again.", check, "continue"))), maxSteps: 12, execute };
+    const outcome = await runAgent(config);
+    const prompts = config.infer.mock.calls.map(([prompt]) => String(prompt));
+    expect(prompts.some((prompt) => prompt.includes("[SAME ERROR 3 TIMES]"))).toBe(true);
+    expect(prompts.some((prompt) => prompt.includes("stylesheet has no rules"))).toBe(true);
+    // Six of the same verdict is the end of the turn, not a seventh look.
+    expect(outcome.status).toBe("blocked");
+    expect(outcome.message).toContain("rather than try the same fix a 7th time");
+    expect(config.execute).toHaveBeenCalledTimes(6);
+  });
+
+  it("takes the preview away while the plan still has steps", async () => {
+    // A page that is not finished always looks broken, so a mid-build look is not information — it
+    // is the thing that starts the loop. The tool call is withheld, not merely discouraged.
+    const plan = [{ type: "plan_tasks" }];
+    const write = [{ type: "write_file", path: "src/App.jsx", content: "export default () => null" }];
+    const config = options([
+      reply("Planning the page.", plan, "continue"),
+      reply("Checking what it looks like so far.", [{ type: "check_preview" }, { type: "take_screenshot" }], "continue"),
+      reply("Writing the hero.", [write[0]!, { type: "track_progress", status: "done" }], "continue"),
+      reply("Done."),
+    ]);
+    config.execute = vi.fn().mockImplementation(async (actions: ToolFeedback["action"][]) => actions.map((action) => action.type === "plan_tasks"
+      ? { action, ok: true, result: { tasks: [{ title: "Header", status: "pending" }, { title: "Hero", status: "pending" }] } }
+      : action.type === "track_progress"
+        ? { action, ok: true, result: { tasks: [{ title: "Header", status: "done" }, { title: "Hero", status: "done" }] } }
+        : { action, ok: true, result: { path: "src/App.jsx", healthy: true, image: "x" } }));
+    const outcome = await runAgent({ ...config, maxSteps: 12 });
+    const prompts = config.infer.mock.calls.map(([prompt]) => String(prompt));
+    const executed = (config.execute as ReturnType<typeof vi.fn>).mock.calls.flatMap(([actions]) => actions.map((action: { type: string }) => action.type));
+    expect(prompts.some((prompt) => prompt.includes("[PREVIEW HELD] check_preview, take_screenshot"))).toBe(true);
+    expect(executed).not.toContain("check_preview");
+    expect(executed).toContain("write_file");
+    expect(outcome.status).not.toBe("error");
+  });
 });
 
