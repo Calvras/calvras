@@ -324,7 +324,13 @@ export async function executeFileTool(type: string,args: Record<string,any>,proj
     if (previous!==null && !args['overwrite']) throw new Error('Destination exists; explicit overwrite required');
     return commit(root,[{path:destination,before:previous,after:before},...(type==='copy_file'?[]:[{path:target,before,after:null}])]);
   }
-  if (type==='create_file' && before!==null) throw new Error('File already exists');
+  if (type==='create_file' && before!==null) {
+    // The run that re-sends the file it just wrote is retrying an interrupted round, not trying to
+    // clobber work: 'File already exists' on identical content is the error that killed a ten-minute
+    // duplication on its 7th attempt, because nothing about retrying could make it go away.
+    if (typeof args['content']==='string' && args['content']===before) return {ok:true,changes:[],unchanged:true,path:target,bytes:before.length};
+    throw new Error('File already exists with different content — use search_replace to change the lines you mean, or write_file {"overwrite":true} to rebuild the file');
+  }
   if (type==='delete_file') {
     if(before===null) throw new Error('File does not exist');
     return commit(root,[{path:target,before,after:null}]);

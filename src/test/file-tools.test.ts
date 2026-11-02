@@ -22,7 +22,15 @@ describe('project file tools',()=>{
     expect(created.checkpointId).toBeTruthy(); expect(created.diffRows[0].type).toBe('add');
     expect((await call('read_file',{path:'src/app.ts'})).content).toContain('value = 1');
     expect((await call('get_file_info',{path:'src/app.ts'})).type).toBe('file');
-    await expect(call('create_file',{path:'src/app.ts',content:'overwrite'})).rejects.toThrow('already exists');
+    await expect(call('create_file',{path:'src/app.ts',content:'overwrite'})).rejects.toThrow('search_replace');
+  });
+  it('takes a re-sent file as the retry it is instead of an error the run cannot recover from',async()=>{
+    // A duplication died on its 7th round because the model re-submitted a component it had already
+    // written and 'File already exists' came back identically every time.
+    await call('create_file',{path:'src/Hero.jsx',content:'export default function Hero(){return null}\n'});
+    const again=await call('create_file',{path:'src/Hero.jsx',content:'export default function Hero(){return null}\n'});
+    expect(again).toMatchObject({ok:true,unchanged:true});
+    expect((await call('read_file',{path:'src/Hero.jsx'})).content).toContain('function Hero');
   });
   it('rejects traversal, absolute external paths, secrets, and symlink escape',async()=>{
     await expect(safeProjectPath(root,'../outside.txt')).rejects.toThrow('inside');
