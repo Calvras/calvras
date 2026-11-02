@@ -31,6 +31,15 @@ Sign-in is Google or GitHub, by decision.
   `check_console_errors` and `test_responsive_layout` are withheld, not just discouraged — a half-built
   page always looks broken, and looking at it is what started the loop. It judges the render once,
   after the last step.
+- **A duplicated page is measured before it is copied.** Given a live URL to duplicate, it walks that
+  page to its real bottom first — every section that loads on the way mounts — and reads each band
+  with its height, offset, background and text colours, heading sizes and weights, padding, palette,
+  images, buttons and the exact words inside it, plus the whole page's text in reading order. Until
+  that survey exists, the file writes are taken out of the round, because a clone built from the first
+  screenful is the hero it saw plus invented spacing, colours and sizes. The survey then becomes the
+  build plan — one step per section, in document order — and its measurements stay in front of the
+  agent for every remaining step instead of fading from memory after two tool results, with the live
+  preview held out of bounds until the last section is written.
 - **Sending while it works takes over.** Your new message interrupts the running turn instead of
   queueing behind it.
 - **It keeps its own instructions private.** Asked for its system prompt, rules, tool list or model, it
@@ -121,6 +130,10 @@ Roughly 70 tools are callable in a turn (`src/lib/tool-catalog.ts` and the runti
 **Web**
 - A browser panel inside the app the agent drives like a person does — pointing at the open page,
   clicking, typing, screenshotting — plus a headless browser for scraping and multi-step jobs.
+- The panel is yours while it works: drag its left edge to any width at any time, and use the arrow
+  in its top-right corner to spread the page over the whole window and back.
+- `read_page {full:true}` returns the whole live document as a build sheet — every band with its
+  pixel height and offset, colours, headings, padding, images and buttons — not just the first screen.
 - Real `web_search` with cited sources, `github_request`, and `deploy_application`.
 - Batch work: a durable queue that dedupes, resumes after a restart, and survives a thousand targets;
   enough for applying to jobs or booking things on your behalf from a list. Closing a target needs the

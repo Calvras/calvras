@@ -8,7 +8,11 @@ export function feedbackContext(results: ToolFeedback[], detailed = true) {
     const evidence = detailed ? data && typeof data === "object" ? { ...data, ...(data["image"] ? { image: "[Screenshot attached separately]" } : {}), ...(Array.isArray(data["layouts"]) ? { layouts: (data["layouts"] as any[]).map(({ image, ...layout }) => layout) } : {}) } : result : { error: data?.["error"], exitCode: data?.["exitCode"], ready: data?.["ready"], url: data?.["url"], output: typeof data?.["output"] === "string" ? clip(data["output"], 500) : undefined };
     // Keep the evidence readable. Stringifying it inside another JSON string
     // repeatedly escaped code, paths and JSON files before the model saw them.
-    return `${JSON.stringify({ action: identity, ok })}\n${clip(JSON.stringify(evidence) ?? "null", detailed ? ok ? 8000 : 5000 : 1000)}`;
+    // A page survey is the whole specification of a duplication: measured bands plus every word on
+    // the document. The standard 8000-char evidence clip would cut its middle out, and the bands in
+    // the middle are the sections the clone then never gets built.
+    const budget = detailed ? (action.type === "read_page" && data?.["coverage"] === "full document" ? 64_000 : ok ? 8000 : 5000) : 1000;
+    return `${JSON.stringify({ action: identity, ok })}\n${clip(JSON.stringify(evidence) ?? "null", budget)}`;
   }).join("\n");
 }
 

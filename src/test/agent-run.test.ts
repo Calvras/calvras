@@ -648,7 +648,11 @@ describe("a run that circles on one error", () => {
 });
 
 describe("a duplication that has not read its reference", () => {
-  const survey = { ok: true, result: { coverage: "full document", documentHeightPx: 9400, sectionCount: 14, sections: [{ index: 0, heightPx: 640, background: "rgb(243, 128, 32)" }] } };
+  const survey = { ok: true, result: { coverage: "full document", url: "https://www.cloudflare.com/", documentHeightPx: 9400, sectionCount: 14, viewportWidthPx: 1280, viewportHeightPx: 800, palette: ["rgb(243, 128, 32) x22"], documentText: "We help who work online\nBetter for everyone", sections: [
+    { index: 0, tag: "header", topPx: 0, heightPx: 64, background: "rgb(0, 0, 0)", color: "rgb(255, 255, 255)", paddingPx: "0 24 0 24", maxWidthPx: 0, textAlign: "start", headings: [], controls: [{ text: "Log in", background: "rgb(0,0,0)", color: "rgb(255,255,255)", radiusPx: 6, paddingPx: "8 16 8 16", fontSizePx: 14 }], media: [], text: "Log in" },
+    { index: 1, tag: "section", topPx: 64, heightPx: 640, background: "rgb(243, 128, 32)", color: "rgb(15, 15, 15)", paddingPx: "80 24 80 24", maxWidthPx: 1180, textAlign: "start", headings: [{ tag: "h1", text: "We help who work online", sizePx: 72, weight: "700", color: "rgb(15,15,15)", lineHeightPx: 76 }], controls: [], media: [{ tag: "img", alt: "network map", size: "600x400", src: "https://www.cloudflare.com/img/map.png" }], text: "We help who work online" },
+    { index: 2, tag: "footer", topPx: 8800, heightPx: 600, background: "rgb(15, 15, 15)", color: "rgb(255, 255, 255)", paddingPx: "60 24 60 24", maxWidthPx: 0, textAlign: "start", headings: [{ tag: "h2", text: "Better for everyone", sizePx: 40, weight: "600", color: "rgb(255,255,255)", lineHeightPx: 48 }], controls: [], media: [], text: "Better for everyone" },
+  ] } };
 
   it("withholds the first write until the whole page has been measured", async () => {
     // The user watched a clone come back with the right hero and invented everything below the
@@ -671,6 +675,41 @@ describe("a duplication that has not read its reference", () => {
     expect(prompts.some((prompt) => prompt.includes("read_page {full:true}"))).toBe(true);
     expect(executed.indexOf("read_page")).toBeLessThan(executed.lastIndexOf("write_file"));
     expect(executed.filter((type) => type === "write_file")).toHaveLength(1);
+    expect(outcome.status).not.toBe("error");
+  });
+
+  it("writes the plan itself from the sections it measured and holds the preview until they close", async () => {
+    // The demo run checked http://localhost:5178 while it was still writing, because the preview gate
+    // only counts steps the model chose to write down — and it wrote none. The survey now becomes the
+    // plan, so the gate has something to hold against, and the sheet stays in the prompt for the whole
+    // build instead of folding into a 1000-character summary two rounds later.
+    const board: { title: string; status: string }[] = [];
+    const config = { ...options([
+      reply("Opening the site.", [{ type: "open_browser", url: "https://www.cloudflare.com/" }], "continue"),
+      reply("Measuring the whole page.", [{ type: "read_page", full: true }], "continue"),
+      reply("Checking the preview now.", [{ type: "check_preview" }, { type: "write_file", path: "src/App.jsx", content: "export default () => null" }], "continue"),
+      reply("Closing the plan.", [{ type: "track_progress", id: "1", status: "done" }, { type: "track_progress", id: "2", status: "done" }, { type: "track_progress", id: "3", status: "done" }], "continue"),
+      reply("Looking at the finished page.", [{ type: "check_preview" }], "continue"),
+      reply("Built every band."),
+    ]), prompt: "duplicate https://www.cloudflare.com/ and build me the page", maxSteps: 14 };
+    config.execute = vi.fn().mockImplementation(async (actions: ToolFeedback["action"][]) => actions.map((action) => {
+      if (action.type === "create_task_list") { board.length = 0; board.push(...(action.tasks as any[]).map((task) => ({ ...task }))); }
+      if (action.type === "track_progress") board.forEach((task) => { task.status = "done"; });
+      const result = action.type === "read_page" ? survey.result
+        : ["create_task_list", "track_progress"].includes(action.type) ? { tasks: board.map((task) => ({ ...task })) }
+        : action.type === "check_preview" ? { healthy: true, issues: [], url: "http://localhost:5178/" }
+        : { path: "src/App.jsx", url: "https://www.cloudflare.com/" };
+      return { action, ok: true, result };
+    }));
+    const outcome = await runAgent(config);
+    const prompts = config.infer.mock.calls.map(([prompt]) => String(prompt));
+    const executed = (config.execute as ReturnType<typeof vi.fn>).mock.calls.flatMap(([actions]) => actions.map((action: { type: string }) => action.type));
+    expect(executed).toContain("create_task_list");
+    expect(prompts.some((prompt) => prompt.includes("[REFERENCE PLAN]"))).toBe(true);
+    expect(prompts.some((prompt) => prompt.includes("REFERENCE BUILD SHEET"))).toBe(true);
+    expect(prompts.some((prompt) => prompt.includes('h1 "We help who work online" 72px'))).toBe(true);
+    expect(executed.indexOf("check_preview")).toBeGreaterThan(executed.indexOf("write_file"));
+    expect(prompts.some((prompt) => prompt.includes("[PREVIEW HELD] check_preview"))).toBe(true);
     expect(outcome.status).not.toBe("error");
   });
 

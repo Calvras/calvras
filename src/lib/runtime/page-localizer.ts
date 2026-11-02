@@ -148,6 +148,7 @@ export const PAGE_MEDIA_SOURCE = `(() => {
  */
 export const SURVEY_SOURCE = `(async () => {
   const clean = (value) => String(value == null ? '' : value).replace(/\\s+/g, ' ').trim();
+  const lines = (value) => String(value == null ? '' : value).split('\\n').map((line) => clean(line)).filter(Boolean).join('\\n');
   const px = (value) => Math.round(parseFloat(value) || 0);
   const box = (style) => [px(style.paddingTop), px(style.paddingRight), px(style.paddingBottom), px(style.paddingLeft)].join(' ');
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -188,21 +189,21 @@ export const SURVEY_SOURCE = `(async () => {
     .sort((a, b) => (a.getBoundingClientRect().top + window.scrollY) - (b.getBoundingClientRect().top + window.scrollY));
   const colors = new Map();
   const note = (value) => { if (value && value !== 'rgba(0, 0, 0, 0)' && value !== 'transparent') colors.set(value, (colors.get(value) || 0) + 1); };
-  const sections = bands.slice(0, 40).map((node, index) => {
+  const sections = bands.slice(0, 48).map((node, index) => {
     const rect = node.getBoundingClientRect();
     const style = getComputedStyle(node);
     note(style.backgroundColor);
-    const headings = [...node.querySelectorAll('h1,h2,h3,h4')].slice(0, 5).map((head) => {
+    const headings = [...node.querySelectorAll('h1,h2,h3,h4')].slice(0, 8).map((head) => {
       const headStyle = getComputedStyle(head);
       note(headStyle.color);
       return { tag: head.tagName.toLowerCase(), text: clean(head.textContent).slice(0, 110), sizePx: px(headStyle.fontSize), weight: headStyle.fontWeight, color: headStyle.color, lineHeightPx: px(headStyle.lineHeight) };
     });
-    const controls = [...node.querySelectorAll('a[href],button')].slice(0, 6).map((control) => {
+    const controls = [...node.querySelectorAll('a[href],button')].slice(0, 10).map((control) => {
       const controlStyle = getComputedStyle(control);
       note(controlStyle.backgroundColor); note(controlStyle.color);
       return { text: clean(control.textContent).slice(0, 50), background: controlStyle.backgroundColor, color: controlStyle.color, radiusPx: px(controlStyle.borderRadius), paddingPx: box(controlStyle), fontSizePx: px(controlStyle.fontSize) };
     });
-    const media = [...node.querySelectorAll('img,svg,video')].filter((item) => { const r = item.getBoundingClientRect(); return r.width > 24 && r.height > 24; }).slice(0, 5).map((item) => ({
+    const media = [...node.querySelectorAll('img,svg,video')].filter((item) => { const r = item.getBoundingClientRect(); return r.width > 24 && r.height > 24; }).slice(0, 6).map((item) => ({
       tag: item.tagName.toLowerCase(),
       alt: clean(item.getAttribute('alt')).slice(0, 70),
       src: (item.currentSrc || item.src || item.getAttribute('src') || '').toString().slice(0, 180),
@@ -225,7 +226,7 @@ export const SURVEY_SOURCE = `(async () => {
       headings,
       controls,
       media,
-      text: clean(node.innerText || node.textContent).slice(0, 240),
+      text: lines(node.innerText || node.textContent).slice(0, 700),
     };
   }).filter((band) => band.text || band.headings.length || band.controls.length || band.media.length);
   return {
@@ -236,6 +237,7 @@ export const SURVEY_SOURCE = `(async () => {
     viewportHeightPx: window.innerHeight,
     viewportWidthPx: window.innerWidth,
     sectionCount: bands.length,
+    documentText: lines(document.body ? document.body.innerText : '').slice(0, 24000),
     palette: [...colors.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12).map(([color, used]) => color + ' x' + used),
     sections,
   };

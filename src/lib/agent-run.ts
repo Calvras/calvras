@@ -231,10 +231,49 @@ export async function runAgent(options: {
   const referenceMatch = /(https?:\/\/[^\s"'<>]+)/i.exec(options.prompt);
   const isPageCopy = /\b(?:duplicat\w*|replicat\w*|clone[sd]?|re-?create[sd]?|pixel-?perfect|same\s+(?:as|like)\s+this)\b/i.test(options.prompt)
     && !/\b(?:repo|repository|codebase|source\s+code)\b/i.test(options.prompt);
-  const referenceUrl = referenceMatch && isPageCopy ? referenceMatch[1] : "";
+  const referenceUrl = (referenceMatch && isPageCopy ? referenceMatch[1] : "") ?? "";
+  const samePage = (left: string, right: string) => {
+    if (!left || !right) return false;
+    if (left.replace(/\/+$/, "") === right.replace(/\/+$/, "")) return true;
+    try { return new URL(left).hostname.replace(/^www\./, "") === new URL(right).hostname.replace(/^www\./, ""); } catch { return false; }
+  };
   let referenceSurveyed = false;
+  let referenceHeldRounds = 0;
+  const REFERENCE_HOLD_LIMIT = 3;
+  type ReferenceSheet = { url?: string; sectionCount?: number; documentHeightPx?: number; sections?: any[]; palette?: string[]; documentText?: string; viewportWidthPx?: number; viewportHeightPx?: number };
+  let referenceSheet: ReferenceSheet | null = null;
+  let referencePlanSeeded = false;
+  /**
+   * The survey survives two rounds. Everything older than the last two tool results is folded into a
+   * 1000-character summary, so on a build that takes thirty rounds the page being copied is gone from
+   * the prompt before the middle of it is written — and the run finishes inventing sections it cannot
+   * remember measuring. This is the same sheet re-rendered compactly and pinned into every prompt for
+   * as long as the plan has open steps, so the numbers are in front of the model as it writes them.
+   */
+  let referenceBrief = "";
+  const buildReferenceBrief = (sheet: ReferenceSheet) => {
+    const bands = sheet.sections ?? [];
+    const out = [
+      `REFERENCE BUILD SHEET — ${sheet.url ?? referenceUrl} · ${sheet.documentHeightPx ?? 0}px tall · ${sheet.sectionCount ?? bands.length} sections · viewport ${sheet.viewportWidthPx ?? 0}x${sheet.viewportHeightPx ?? 0}`,
+      `palette: ${(sheet.palette ?? []).join(" | ")}`,
+    ];
+    for (const band of bands) {
+      out.push(`${Number(band?.index) + 1}. <${band?.tag}>${band?.id ? `#${band.id}` : ""} y=${band?.topPx} h=${band?.heightPx} bg=${band?.background} fg=${band?.color} pad=${band?.paddingPx} maxw=${band?.maxWidthPx} align=${band?.textAlign}${band?.font ? ` font=${band.font}` : ""}${band?.baseFontSizePx ? ` base=${band.baseFontSizePx}px` : ""}`);
+      for (const head of band?.headings ?? []) out.push(`   ${head.tag} "${head.text}" ${head.sizePx}px w${head.weight} ${head.color} lh${head.lineHeightPx}`);
+      for (const control of band?.controls ?? []) out.push(`   link/btn "${control.text}" bg=${control.background} fg=${control.color} r=${control.radiusPx} pad=${control.paddingPx} ${control.fontSizePx}px`);
+      for (const item of band?.media ?? []) out.push(`   ${item.tag} ${item.size} alt="${item.alt}" ${item.src}`);
+      if (band?.text) out.push(`   words: ${String(band.text).replace(/\n/g, " ¶ ").slice(0, 600)}`);
+    }
+    const words = String(sheet.documentText ?? "");
+    if (words) out.push(`EVERY WORD ON THE PAGE, IN DOCUMENT ORDER (copy it verbatim into these sections): ${words.slice(0, 12000)}`);
+    const brief = out.join("\n");
+    return brief.length > 40000 ? `${brief.slice(0, 40000)}\n[sheet trimmed — call read_page {full:true} again for the sections past this point]` : brief;
+  };
   const referencePending = () => Boolean(referenceUrl) && !referenceSurveyed;
   const referencePromptState = () => referencePending() ? ` ${referenceUrl} is the specification, and nothing of it has been read past the first screen: call read_page {full:true} on it before writing any of that page, and build from the section heights, colours and pixel sizes it reports.` : "";
+  /** Pinned for as long as the build has steps left, then dropped — the finished page is judged by
+   * the pixel comparison, and paying for the sheet again after the last band is written buys nothing. */
+  const referenceSheetPrompt = () => referenceBrief && buildInProgress() ? `\n${referenceBrief}\n[END REFERENCE BUILD SHEET] This is what the page at ${referenceUrl} measures, section by section, and it stays in front of you for every remaining step. Reproduce each band at its own height, colour, padding and font size, and use its own words exactly as listed — the copy is on the sheet, so inventing headline or card text is a choice, not a limitation. Nothing here is judged against the preview until the last band is written.` : "";
   const pageWrites = new Set(["write_file", "create_file", "search_replace", "multi_replace", "insert_code", "delete_lines", "apply_patch", "apply_diff", "multi_file_edit", "refactor_code", "format_file", "format_code", "generate_image"]);
   // External tools that only observe; they cannot satisfy a change request on their own.
   const observational = new Set(["take_screenshot", "take_screen_screenshot", "inspect_element", "test_responsive_layout", "read_page", "read_page_content", "check_console_errors", "list_windows", "search_documentation", "web_search", "wait_for_element", "wait_for_window", "focus_window"]);
@@ -414,8 +453,14 @@ export async function runAgent(options: {
       if (result.ok && uiProof.includes(result.action.type)) browserNeedsVerification = false;
       if (result.ok && TOOL_RISK[result.action.type] === "edit" && uiIsOpen && !buildInProgress()) browserNeedsVerification = true;
       // Only the survey proves the run looked past the fold: it scrolls the live page to its real
-      // end and reports every band, so a duplication can be built from measured numbers.
-      if (result.ok && result.action.type === "read_page" && (result.result as { coverage?: string } | null)?.coverage === "full document") referenceSurveyed = true;
+      // end and reports every band, so a duplication can be built from measured numbers. A survey of
+      // our own half-written page is not a read of the reference, so the URL has to match.
+      if (result.ok && result.action.type === "read_page" && (result.result as { coverage?: string } | null)?.coverage === "full document"
+        && Boolean(referenceUrl) && samePage(String((result.result as { url?: string } | null)?.url ?? ""), referenceUrl)) {
+        referenceSurveyed = true;
+        referenceSheet = result.result as NonNullable<typeof referenceSheet>;
+        referenceBrief = buildReferenceBrief(referenceSheet);
+      }
       // The pixel check is the strongest UI evidence there is, so it also clears the
       // "go drive the page yourself" obligation.
       if (result.ok && result.action.type === "compare_to_reference") {
@@ -457,6 +502,27 @@ export async function runAgent(options: {
     unresolvedFailures = effective.some((result) => !result.ok) || failedCommands.size > 0;
   };
   /**
+   * A duplication gets its plan from the reference itself, not from the model's memory of the
+   * screenful it happened to open on. One step per surveyed section, in document order, and the plan
+   * gate then does what no sentence in the brief could: holds the preview out of bounds and refuses
+   * to let the turn close while bands the page actually has are still unwritten.
+   */
+  const seedReferencePlan = async () => {
+    if (!referenceSheet || referencePlanSeeded) return;
+    referencePlanSeeded = true;
+    const bands = referenceSheet.sections ?? [];
+    const titles = bands
+      .filter((band: any) => (band?.headings?.length || 0) > 0 || (band?.controls?.length || 0) > 0)
+      .slice(0, 10)
+      .map((band: any, index: number) => `Section ${index + 1}: ${String(band?.headings?.[0]?.text || band?.tag || "band").slice(0, 64).trim()} — ${band?.heightPx}px tall at y=${band?.topPx}, background ${band?.background}`);
+    if (bands.length > titles.length) titles.push(`Copy the exact wording of the other ${bands.length - titles.length} bands the survey listed`);
+    if (!titles.length || (plan.total > 0 && titles.length <= plan.total)) return;
+    const seeded = await options.execute([({ type: "create_task_list", tasks: titles.map((title) => ({ title, status: "pending" })) }) as unknown as AgentAction]);
+    record(seeded);
+    if (!plan.total) return;
+    history.push(`[REFERENCE PLAN] ${referenceSheet.sectionCount ?? bands.length} bands came back from ${referenceSheet.url || "the reference page"}, and ${plan.total} build steps were written from them in document order. Build them one at a time and close each with track_progress. documentText in the survey is every word that page shows, in order: put each section's own sentences, nav labels, card copy and footer links in verbatim — a heading you paraphrased is a miss and a band you skipped is a hole in the page. The preview stays out of bounds until the last step closes, so judge the render once, at the end, against the whole survey.`);
+  };
+  /**
    * Drop whatever the ledger has checked out and take the next chunk of untouched targets.
    * A completion attempt or an idle round is never a stop while the queue has work: the run is
    * handed new targets instead of a countdown, and a target dropped three times is closed as
@@ -495,6 +561,7 @@ export async function runAgent(options: {
     if (options.initialActions?.length) {
       // Opening inspection runs through the real tools; the model writes every public update.
       record(await options.execute(options.initialActions));
+      await seedReferencePlan();
     }
     for (let step = 0; step < (options.maxSteps ?? 800); step++) {
       options.signal.throwIfAborted();
@@ -523,7 +590,7 @@ export async function runAgent(options: {
       }
       const context = toolHistory.map((entry, i) => i < toolHistory.length - 2 ? entry.summary : entry.detailed).join("\n").slice(-CONTEXT_WINDOW);
       const planLine = plan.total && plan.open.length ? `Phase plan: ${plan.total - plan.open.length} of ${plan.total} steps are done; the next unfinished step is "${plan.open[0]}"${plan.open.length > 1 ? ` (${plan.open.length - 1} more after it)` : ""}.` : "";
-      const raw = await options.infer(`${options.prompt}\n\n[EXECUTION STATE]\nContinuation ${step + 1}. ${executedActions} actions have already executed. Do not restart the task. ${planLine}Inspected snapshots: ${[...inspected].join(", ").slice(-2000)}. ${needsVerification ? "Changes need verification." : ""}${previewPromptState()}${fidelityPromptState()}${referencePromptState()}\n[OBSERVED TOOL RESULTS]\n${context}\n${history.slice(-3).join("\n\n")}\nUse the observed results to take the NEXT useful action. For an implementation request, inspection must lead to actual file edits, then verification. Stop only when verified.`, (text) => {
+      const raw = await options.infer(`${options.prompt}\n\n[EXECUTION STATE]\nContinuation ${step + 1}. ${executedActions} actions have already executed. Do not restart the task. ${planLine}Inspected snapshots: ${[...inspected].join(", ").slice(-2000)}. ${needsVerification ? "Changes need verification." : ""}${previewPromptState()}${fidelityPromptState()}${referencePromptState()}${referenceSheetPrompt()}\n[OBSERVED TOOL RESULTS]\n${context}\n${history.slice(-3).join("\n\n")}\nUse the observed results to take the NEXT useful action. For an implementation request, inspection must lead to actual file edits, then verification. Stop only when verified.`, (text) => {
         const message = partialMessage(text);
         if (message !== undefined) options.onMessageDelta?.(message);
       });
@@ -557,8 +624,13 @@ export async function runAgent(options: {
       // because it is unfinished. Mid-build the look is taken away rather than asked for.
       const heldWrites = referencePending() ? reply.actions.filter((action) => pageWrites.has(action.type)) : [];
       if (heldWrites.length) {
+        referenceHeldRounds += 1;
         reply.actions = reply.actions.filter((action) => !pageWrites.has(action.type));
         history.push(`[REFERENCE UNREAD] ${heldWrites.map((action) => action.type).join(", ")} is out of bounds until ${referenceUrl} has been read end to end. Call read_page {full:true} now (open_browser that address first if the panel is not holding it): it scrolls the live page to its real bottom, waits for the sections that load on the way, and returns every band with its height, background and text colours, each heading's pixel size and weight, its padding, and the images and buttons inside it. Write that section list into your reply — in order, with the colours and pixel numbers it reported — then build one section at a time from those measurements. A page written from the first screenful is a page of guesses: the hero you happened to see, plus invented gaps, colours and sizes, and that is a failed duplication.`);
+        if (referenceHeldRounds >= REFERENCE_HOLD_LIMIT) {
+          referenceSurveyed = true;
+          history.push(`[REFERENCE UNREACHABLE] ${referenceUrl} has not been surveyed after ${referenceHeldRounds} rounds, so the writes are released — build from what you have actually read and say in the reply which parts of that page you never saw. Do not present a page you have not read as its duplicate.`);
+        }
         if (!reply.actions.length) continue;
       }
       const heldLooks = buildInProgress() ? reply.actions.filter((action) => previewLooks.has(action.type)) : [];
@@ -746,6 +818,7 @@ export async function runAgent(options: {
       idleRounds = 0;
       const results = await options.execute(reply.actions);
       record(results);
+      await seedReferencePlan();
       // A target closed on a reference no page printed stays closed — sending that application a
       // second time to earn a receipt is how a batch ends up applying twice — but the run is told,
       // once, to go back for the page's own words and to name the gap in its final count.
