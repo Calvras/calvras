@@ -1191,6 +1191,10 @@ export function Index() {
         node.output = [
           `Preview ${health.healthy ? "passed the DOM check" : "needs work"}: ${title || pageUrl}`,
           `URL: ${pageUrl}`,
+          // The user asked for the panel to stop refreshing on its own, so a check reads the page it
+          // already holds instead of reloading it. Say that in the evidence, so a render measured
+          // from a live page is never mistaken for a freshly loaded one.
+          loaded.reused === true ? "The panel already showed this address, so it was left alone — this check read the page as it stands, no reload. A dev server updates it as files change; call check_preview {reload:true} for a clean load." : "",
           layout ? `Layout: ${layout.textLength ?? 0} chars of text, ${layout.visibleElements ?? 0} visible elements, ${layout.richElements ?? 0} media/interactive, ${layout.cssRules ?? 0} CSS rules in effect, ${layout.designedControls ?? 0}/${layout.controls ?? 0} controls carrying any styling of their own, ${layout.overlaps ?? 0} overlapping text blocks, content paints ${Math.round((Number(layout.contentWidth ?? 0) / Math.max(1, Number(layout.viewportWidth ?? 1))) * 100)}% of the ${layout.viewportWidth ?? 0}px window, default browser font: ${layout.defaultFont ? "yes" : "no"}.` : "Layout: could not be inspected.",
           text ? `Visible page text:\n${text.slice(0, 3000)}` : "Visible page text: (none)",
           health.issues.length ? `Problems:\n${health.issues.map((issue) => `- ${issue}`).join("\n")}` : "Problems: none",
@@ -1460,7 +1464,7 @@ export function Index() {
                   data = { ok: false, error: "No server preview is open yet. Start the server with start_server, then check_preview." };
                 } else {
                   revealBrowserPanel(false);
-                  const inspection = await inspectPreview(previewUrl, { reload: true, node });
+                  const inspection = await inspectPreview(previewUrl, { reload: action["reload"] === true, node });
                   data = { ...inspection, preview: inspection };
                 }
               } else if (usesVisibleBrowser) {

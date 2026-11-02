@@ -374,10 +374,13 @@ class BrowserBridge {
     const element = await this.requireElement();
     let current = "";
     try { current = element.getURL(); } catch { /* the webview may still be booting */ }
-    if (current === url && !options?.reload) return { ok: true, url, title: element.getTitle(), reused: true };
+    // A page is the same page whether or not the address carries its trailing slash: re-loading it
+    // because of one is a refresh the user can see and no check needed.
+    const holds = (candidate: string) => candidate.replace(/\/+$/, "") === url.replace(/\/+$/, "");
+    if (holds(current) && !options?.reload) return { ok: true, url, title: element.getTitle(), reused: true };
     const failed = this.waitForStop(element);
     try {
-      if (current === url) element.reload();
+      if (holds(current)) element.reload();
       else await element.loadURL(url);
     } catch { await failed; return { ok: false, url }; }
     const failure = await failed;

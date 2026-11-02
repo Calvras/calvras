@@ -132,6 +132,9 @@ Roughly 70 tools are callable in a turn (`src/lib/tool-catalog.ts` and the runti
   clicking, typing, screenshotting — plus a headless browser for scraping and multi-step jobs.
 - The panel is yours while it works: drag its left edge to any width at any time, and use the arrow
   in its top-right corner to spread the page over the whole window and back.
+- Nothing reloads the page in it on its own. A preview check measures the page the panel is already
+  showing instead of refreshing it first; the reload button is the only thing that does that, unless a
+  check is explicitly asked for a clean load.
 - `read_page {full:true}` returns the whole live document as a build sheet — every band with its
   pixel height and offset, colours, headings, padding, images and buttons — not just the first screen.
 - Real `web_search` with cited sources, `github_request`, and `deploy_application`.
