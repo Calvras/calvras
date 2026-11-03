@@ -10,9 +10,17 @@ import { cn } from "@/lib/utils";
  *  reference TextEffect; anything carrying markdown structure (headings, lists, code) keeps
  *  that markup and instead fades and rises as a block, because staggering inside parsed HTML
  *  would break the layout. Both stay keyed to the paragraph so a growing reply only animates
- *  the words that are new. */
-function ReplyParagraph({ text }: { text: string }) {
+ *  the words that are new.
+ *
+ *  The reveal is for the words arriving now, so `animate` is off for a turn that is already
+ *  closed: reopening the app restored every past reply and replayed all of them at once. */
+function ReplyParagraph({ text, animate }: { text: string; animate: boolean }) {
   const isPlainProse = !/^(\s*[-*+#>|]|\s*\d+\.|```|\!\[|\[.*\]\(.*\))/m.test(text) && !/`/.test(text);
+  if (!animate) {
+    return isPlainProse
+      ? <p className="font-sans text-[14px] leading-[22px] text-foreground/90">{text}</p>
+      : <Markdown text={text} />;
+  }
   if (isPlainProse) {
     return (
       <TextEffect per="word" preset="fade" className="font-sans text-[14px] leading-[22px] text-foreground/90">
@@ -245,6 +253,10 @@ export function AgentActivity({ phases, done, status, stopReason, error, rating,
           if (!nodes.length && !live && !message) return null;
           return (
             <div key={phaseIndex} className="flex flex-col gap-1.5">
+              {/* The sentence comes first: it is what the run said it was about to do, and the rows
+                  under it are it doing that. Printing the rail above the paragraph made every round
+                  read as a post-hoc caption to work already finished. */}
+              {keep && message && !(foldWhenDone && index === summaryRound) && <ReplyParagraph text={message} animate={!done} />}
               {(nodes.length > 0 || live) && (
                 <ThinkingState
                   className="reply-round"
@@ -254,7 +266,6 @@ export function AgentActivity({ phases, done, status, stopReason, error, rating,
                   {...(nodes.length ? {} : { workingLabel: "Thinking…" })}
                 />
               )}
-              {keep && message && !(foldWhenDone && index === summaryRound) && <ReplyParagraph text={message} />}
             </div>
           );
         })}
@@ -276,7 +287,7 @@ export function AgentActivity({ phases, done, status, stopReason, error, rating,
           <span>{`Worked for ${formatElapsed(workedSeconds)} · ${roundCount} ${roundCount === 1 ? "round" : "rounds"}`}</span>
         </button>
         {historyOpen && <div className="flex flex-col gap-4 border-l border-border/60 pl-3">{timeline}</div>}
-        {replyText && <ReplyParagraph text={replyText} />}
+        {replyText && <ReplyParagraph text={replyText} animate={false} />}
       </div>
     ) : timeline}
     {subagents?.length ? (

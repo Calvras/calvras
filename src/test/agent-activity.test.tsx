@@ -2,10 +2,12 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { AgentActivity, MIN_ROWS_PER_ROUND, roundIsFull } from "../components/AgentActivity";
 
-/** A reply paragraph reveals word by word, so its sentence lives in one span per word and the
- *  default text matcher can no longer see it as a whole. The animated paragraph carries the full
- *  sentence as its accessible label, and that is what these queries look for. */
-const byReplyLabel = (text: string) => (_content: string, element: Element | null) => element?.getAttribute?.("aria-label") === text;
+/** A reply paragraph reveals word by word only while it is being written, so its sentence lives
+ *  either in one span per word (animated, with the full line as the container's accessible label)
+ *  or as one static paragraph. Both shapes are what these queries look for. */
+const byReplyLabel = (text: string) => (_content: string, element: Element | null) =>
+  element?.getAttribute?.("aria-label") === text
+  || (element?.tagName === "P" && !element.hasAttribute("aria-label") && element.textContent?.trim() === text);
 const replyParagraph = (text: string) => screen.getByText(byReplyLabel(text));
 const queryReplyParagraph = (text: string) => screen.queryByText(byReplyLabel(text));
 const replyParagraphs = (text: string) => screen.queryAllByText(byReplyLabel(text));
@@ -78,7 +80,7 @@ describe("group header derived from the rows", () => {
 });
 
 describe("the agent's own words", () => {
-  it("renders the round's sentence as markdown under that round", () => {
+  it("renders the round's sentence as markdown", () => {
     render(<AgentActivity done phases={[{ trace: [], message: "Start with:\n- Python\n- Go" }]} />);
     expect(screen.getByText("Start with:")).toBeInTheDocument();
     expect(screen.getByText("Python")).toBeInTheDocument();
@@ -102,9 +104,27 @@ describe("the agent's own words", () => {
     const paragraph = replyParagraph("Hello there.");
     expect(paragraph).toBeInTheDocument();
     expect(container.querySelectorAll("[aria-expanded]").length).toBe(0);
+  });
+  it("reveals a closing sentence word by word while the reply is still arriving", () => {
+    render(<AgentActivity done={false} phases={[{ trace: [], message: "Hello there." }]} />);
     // The sentence is not painted in one go: each word is its own animated segment, and the
     // whole line stays readable through the paragraph's accessible label.
-    expect(paragraph.querySelectorAll("span[aria-hidden='true']")).toHaveLength(3);
+    expect(replyParagraph("Hello there.").querySelectorAll("span[aria-hidden='true']")).toHaveLength(3);
+  });
+  it("prints a restored reply as it stands, with nothing left to animate", () => {
+    // Opening the app re-reads every past turn, and each one replayed its reveal at once, so the
+    // conversation arrived as a wall of typing animations. Only the reply being written moves.
+    render(<AgentActivity done phases={[{ trace: [], message: "Hello there." }]} />);
+    expect(replyParagraph("Hello there.").querySelectorAll("span[aria-hidden='true']")).toHaveLength(0);
+  });
+  it("puts the round's sentence above the work it announces", () => {
+    // The run says what it is about to do, then does it. Rendering the rail first made every
+    // paragraph read as a caption to work that had already finished.
+    const readRow = { id: "read", type: "tool", toolName: "read_file", primary: "Read file", args: { path: "src/app.tsx" }, status: "completed" as const };
+    render(<AgentActivity done={false} phases={[{ trace: [readRow], message: "Reading the setup first." }]} />);
+    const paragraph = replyParagraph("Reading the setup first.");
+    const rail = screen.getByRole("button", { name: "read 1 file" });
+    expect(paragraph.compareDocumentPosition(rail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
   it("filters a step that no tool call produced out of the rail", () => {
     render(<AgentActivity done phases={[{ trace: [{ type: "step", primary: "Invented step" }], message: "Done." }]} />);
