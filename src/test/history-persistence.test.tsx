@@ -92,6 +92,24 @@ describe("conversation history", () => {
     expect(readChats()["chat-1"]).toBeUndefined();
   });
 
+  it("keeps a conversation a second window of the same account wrote", () => {
+    // Two Calvras windows on one machine each hold their own copy of the chat map. Writing the
+    // whole map back took the key outright, so the window that never opened the other's chat
+    // erased it — which is how an afternoon of work vanished from History.
+    signIn("shikari@calvras.com");
+    const { state } = mount();
+    act(() => state().addRecent({ id: "chat-1", label: "This window" }));
+    act(() => state().saveChat("chat-1", { messages: [{ role: "user", text: "This window" }] }));
+    const otherWindow = { "chat-9": { id: "chat-9", label: "Other window", savedAt: Date.now() + 5_000, messages: [{ role: "user", text: "Other window" }] } };
+    localStorage.setItem(scopedKey("chats"), JSON.stringify(otherWindow));
+    act(() => state().saveChat("chat-1", { messages: [{ role: "user", text: "This window, later" }] }));
+
+    const stored = readChats();
+    expect(Object.keys(stored).sort()).toEqual(["chat-1", "chat-9"]);
+    expect(stored["chat-1"]!.messages).toEqual([{ role: "user", text: "This window, later" }]);
+    expect(stored["chat-9"]!.messages).toEqual([{ role: "user", text: "Other window" }]);
+  });
+
   it("renames the conversation in History and in the store together", () => {
     signIn("shikari@calvras.com");
     const { state } = mount();

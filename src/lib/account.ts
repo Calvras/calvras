@@ -119,7 +119,23 @@ export function readChats(): Record<string, StoredChat> {
   return chats;
 }
 
-export function writeChats(chats: Record<string, StoredChat>) { writeScoped("chats", chats); }
+/** The whole map goes back to storage, but it is merged with whatever is already there: a second
+ * window of the same account holds its own copy and the last writer used to take the key outright,
+ * which quietly deletes every conversation that window never opened. Only ids the caller names as
+ * removed are dropped, so a chat the user deletes from History stays deleted. */
+export function writeChats(chats: Record<string, StoredChat>, removed: string[] = []) {
+  const stored = readScoped<unknown>("chats", {});
+  const base = stored && typeof stored === "object" && !Array.isArray(stored) ? stored as Record<string, StoredChat | undefined> : {};
+  const next = chats as Record<string, StoredChat | undefined>;
+  const merged: Record<string, StoredChat> = {};
+  for (const id of new Set([...Object.keys(base), ...Object.keys(next)])) {
+    if (removed.includes(id)) continue;
+    const mine = next[id]; const theirs = base[id];
+    const winner = mine && theirs ? (mine.savedAt >= theirs.savedAt ? mine : theirs) : mine || theirs;
+    if (winner) merged[id] = winner;
+  }
+  writeScoped("chats", merged);
+}
 
 /** A conversation's running summary lives beside the conversation, not beside the account, so
  * opening an old chat brings back what the agent already knew about it. */

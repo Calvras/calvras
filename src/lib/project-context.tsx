@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from "react";
 import { clearScoped, readChats, readScoped, writeChats, writeScoped, type StoredChat } from "./account";
 import { browserBridge } from "./browser-bridge";
 
@@ -59,6 +59,9 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const [recents, setRecents] = useState<RecentChat[]>([]);
   const [activeProject, setActiveProject] = useState<Project | null>(null);
   const [chats, setChats] = useState<Record<string, StoredChat>>({});
+  /** Chats this window deleted, kept apart from the map so a merge with storage on write cannot
+   * resurrect a conversation the user removed with their own hands. */
+  const removedChats = useRef<string[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
 
@@ -88,7 +91,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!mounted) return;
-    writeChats(chats);
+    writeChats(chats, removedChats.current);
   }, [chats, mounted]);
 
   useEffect(() => {
@@ -102,6 +105,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   // a cleared history reappeared the next time the app opened.
   useEffect(() => {
     const reload = () => {
+      removedChats.current = [];
       setProjects(readScoped<Project[]>("projects", []));
       setRecents(readScoped<RecentChat[]>("recents", []));
       const stored = readChats();
@@ -187,6 +191,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     );
     const gone = Object.values(chats).find((chat) => chat.id === idOrLabel || chat.label === idOrLabel);
     if (!gone) return;
+    removedChats.current = [...removedChats.current, gone.id];
     const { [gone.id]: _removed, ...rest } = chats;
     setChats(rest);
     if (activeChatId === gone.id) setActiveChatId(null);
