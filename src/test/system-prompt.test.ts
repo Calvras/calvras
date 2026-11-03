@@ -149,6 +149,36 @@ describe("browser round economy", () => {
   });
 });
 
+describe("a named product is looked at, not remembered", () => {
+  // "make it look like after effect" produced a generic dark dashboard with fake knobs and a
+  // "Tool 4" strip. The name was treated as enough, so nothing ever opened to show what the real
+  // application looks like, and the user rejected the whole site.
+  it("sends a product name to a real reference before the first component", () => {
+    expect(CALVRAS_SYSTEM_PROMPT).toContain("the product IS the reference, and you have not seen it yet");
+    expect(CALVRAS_SYSTEM_PROMPT).toContain("A product name is not a memory you may build from");
+    expect(CALVRAS_SYSTEM_PROMPT).toContain("never ship the guess and call it the product");
+  });
+
+  it("reaches a worker, which is built from the same prompt by substitution", () => {
+    expect(workerSystemPrompt("builder")).toContain("A product name is not a memory you may build from");
+  });
+});
+
+describe("an app is built to run", () => {
+  // "teach it how to create application run them electron and all": the prompt covered a web page
+  // and a server, so a desktop ask stopped at source files that were never launched.
+  it("names the shape an app takes and how each one is proven", () => {
+    expect(CALVRAS_SYSTEM_PROMPT).toContain('"Build me an app" asks for a program that starts');
+    expect(CALVRAS_SYSTEM_PROMPT).toContain("An Electron build whose output you quote but whose window never appeared is not finished");
+    expect(CALVRAS_SYSTEM_PROMPT).toContain("wait_for_window {title} or list_windows {}");
+    expect(CALVRAS_SYSTEM_PROMPT).toContain("it goes through a preload script");
+  });
+
+  it("reaches a worker, which is built from the same prompt by substitution", () => {
+    expect(workerSystemPrompt("builder")).toContain('"Build me an app" asks for a program that starts');
+  });
+});
+
 describe("record shape extraction", () => {
   // Telling a small model to keep the shape did not hold — it invented its own keys. The skeleton
   // is now lifted out of the pasted records and put in front of the ask, so this is the one part
