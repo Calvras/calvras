@@ -31,6 +31,22 @@ describe("composer permissions", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send your answer" }));
     expect(onDecision).toHaveBeenLastCalledWith("answer", "use pnpm instead");
   });
+  it("asks a question with nothing ticked, so the label cannot answer it", () => {
+    // The card the user got said "Enter API Key" as its only option — pre-selected — and pressing
+    // Send answer returned that label to the run as if it were the key. Five cards, one paste.
+    const onDecision = vi.fn();
+    render(<ComposerApproval request={{ id: "q", kind: "question", question: "What is your Gemini API key?", choices: ["Enter API Key"] }} onDecision={onDecision} />);
+    expect(screen.getByLabelText("Enter API Key")).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "Send answer" })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Your answer"), { target: { value: "AIza-example" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send your answer" }));
+    expect(onDecision).toHaveBeenCalledWith("AIza-example");
+  });
+  it("shows one field and no choice list for a question that has no alternatives", () => {
+    render(<ComposerApproval request={{ id: "q", kind: "question", question: "Which folder should I build it in?" }} onDecision={vi.fn()} />);
+    expect(screen.queryAllByRole("radio")).toHaveLength(0);
+    expect(screen.getByLabelText("Your answer")).toBeInTheDocument();
+  });
   it("morphs the same composer into a decision and restores the draft afterwards", () => {
     const onDecision = vi.fn();
     const { rerender } = render(<PromptInput defaultValue="Keep this draft" />);

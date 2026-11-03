@@ -23,10 +23,13 @@ export function AccessSelector({ value, onChange }: { value: AccessMode; onChang
   </div>;
 }
 export function ComposerApproval({ request, onDecision, onStop }: { request: ComposerRequest; onDecision: (choice: string, answer?: string) => void; onStop?: (() => void) | undefined }) {
+  const isQuestion = request.kind === "question";
   const [choice, setChoice] = useState("once");
   const [answer, setAnswer] = useState("");
-  useEffect(() => { setChoice(request.kind === "question" ? request.choices?.[0] || "" : "once"); setAnswer(""); }, [request.id]);
-  const isQuestion = request.kind === "question";
+  // Nothing is ticked on a question. The first option used to arrive pre-selected, so a card that
+  // said "Enter API Key" was already answered with its own label, and the run read that string as
+  // the key and asked again — five cards for one paste.
+  useEffect(() => { setChoice(isQuestion ? "" : "once"); setAnswer(""); }, [request.id]);
   const choices = isQuestion ? request.choices || [] : ["once", "always", "deny"];
   const labels: Record<string, string> = { once: "Allow once", always: "Always allow", deny: "Don't allow" };
   const typed = answer.trim();
@@ -37,10 +40,13 @@ export function ComposerApproval({ request, onDecision, onStop }: { request: Com
     if (typed) return onDecision("answer", typed);
     onDecision(choice);
   };
+  const field = <input aria-label="Your answer" autoFocus={isQuestion && !choices.length} value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder={isQuestion ? "Type your answer…" : "Or type your own answer — Calvras will follow it…"} className="mt-2 w-full rounded-xl border border-[#dfd6c8] bg-transparent px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-[#6b5a46]" />;
+  const list = <fieldset disabled={request.busy} className={`mt-3 space-y-1${typed ? " opacity-50" : ""}`}><legend className="sr-only">Choose a response</legend>{choices.map((option) => <label key={option} className="flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2 text-xs hover:bg-black/5"><input type="radio" name={`approval-${request.id}`} value={option} checked={typed ? false : choice === option} disabled={Boolean(typed)} onChange={() => setChoice(option)} className="accent-[#6b5a46]" /><span>{isQuestion ? option : labels[option]}</span></label>)}</fieldset>;
   return <section aria-label="Calvras needs your decision" className="w-full max-w-[480px] rounded-[24px] border border-[#dfd6c8] bg-[#f5f0e8] p-4 text-[#1a1512] shadow-xl">
     <div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-[#6b5a46]" /><p className="min-w-0 flex-1 break-words text-[13px] font-medium leading-5">{request.question}</p><button type="button" aria-label="Stop task" onClick={onStop} className="rounded-full p-1 hover:bg-black/5"><X className="size-3.5" /></button></div>
-    <fieldset disabled={request.busy} className={`mt-3 space-y-1${typed ? " opacity-50" : ""}`}><legend className="sr-only">Choose a response</legend>{choices.map((option) => <label key={option} className="flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2 text-xs hover:bg-black/5"><input type="radio" name={`approval-${request.id}`} value={option} checked={typed ? false : choice === option} disabled={Boolean(typed)} onChange={() => setChoice(option)} className="accent-[#6b5a46]" /><span>{isQuestion ? option : labels[option]}</span></label>)}</fieldset>
-    <input aria-label="Your answer" value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder={isQuestion ? "Or type an answer…" : "Or type your own answer — Calvras will follow it…"} className="mt-2 w-full rounded-xl border border-[#dfd6c8] bg-transparent px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-[#6b5a46]" />
+    {/* A question with no alternatives to offer is one field and nothing else — an empty choice
+        list used to sit above it taking the space a real option would have earned. */}
+    {isQuestion ? <>{choices.length ? list : null}{field}</> : <>{list}{field}</>}
     <div className="mt-3 flex justify-end"><button type="button" disabled={request.busy || !(typed || choice)} onClick={submit} className="rounded-full bg-[#1a1512] px-4 py-2 text-xs font-medium text-[#f5f0e8] disabled:opacity-40">{request.busy ? "Applying…" : typed ? "Send your answer" : isQuestion ? "Send answer" : "Confirm choice"}</button></div>
   </section>;
 }

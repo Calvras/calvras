@@ -43,6 +43,25 @@ describe("real agent loop", () => {
     expect(String(config.infer.mock.calls[2]?.[0])).toContain("renders in their input box");
     expect(config.execute.mock.calls[1]?.[0]).toEqual([{ type: "ask_user", question: "Is this for your own subjects, or for clients booking you?" }]);
   });
+  it("answers a repeated ask_user from the run's own ledger instead of opening a second card", async () => {
+    // The live loop: the same "please provide your Google Gemini API key" card five times for one
+    // paste, because nothing recorded that the question had already been answered in this run.
+    const ask = { type: "ask_user", question: "What is your Google Gemini API key?" };
+    const config = {
+      ...options([
+        reply("I need the key to wire the agent.", [ask], "continue"),
+        reply("Writing it into the env file.", [{ type: "write_file", path: ".env.local", content: "GEMINI_API_KEY=AIza-example" }], "continue"),
+        reply("Still need the key.", [ask], "continue"),
+        reply("Wired, and the agent answers."),
+      ]),
+      maxSteps: 8,
+    };
+    config.execute = vi.fn().mockImplementation(async (actions: ToolFeedback["action"][]) => actions.map((action) => ({ action, ok: true, result: action.type === "ask_user" ? { answer: "AIza-example" } : { exitCode: 0 } })));
+    await runAgent(config);
+    const asked = config.execute.mock.calls.flatMap((call) => call[0] as ToolFeedback["action"][]).filter((action) => action.type === "ask_user");
+    expect(asked).toHaveLength(1);
+    expect(config.infer.mock.calls.some((call) => String(call[0]).includes("[ALREADY ANSWERED]"))).toBe(true);
+  });
   it("turns a build with no folder open into a write the user can approve", async () => {
     // The live stall: five rounds of "where should I create it?" in prose, which nothing can
     // answer, when the first create_file is itself what raises the folder card.

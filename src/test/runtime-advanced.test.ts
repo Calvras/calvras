@@ -90,6 +90,11 @@ describe("advanced runtime executes real operations", () => {
     expect(await approve({ type: "request_user_approval", question: "May I continue?" })).toMatchObject({ approved: true, decidedBy: "full_access_mode" });
     expect(await session.execute({ type: "list_mcp_tools" })).toMatchObject({ tools: [], needsSetup: expect.any(String) });
   });
+  it("refuses an ask_user that carries no question instead of showing a blank card", async () => {
+    // The user got a card reading "What information is missing?" with an empty answer box: the
+    // runtime's fallback for a question the model never put in its question field.
+    await expect(session.execute({ type: "ask_user", options: ["Enter API Key"] } as ToolAction)).rejects.toThrow(/question field/);
+  });
   it("searches the live web and reports only the citations the engine returned", async () => {
     const html = `<a class="result__a" href="https://duckduckgo.com/l/?uddg=${encodeURIComponent("https://tanstack.com/start")}&amp;rut=x">TanStack Start</a><a class="result__snippet" href="#">The full-stack framework for React.</a>`;
     const fetchStub = vi.fn(async () => new Response(html, { status: 200 }));

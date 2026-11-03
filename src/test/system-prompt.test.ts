@@ -10,6 +10,10 @@ describe("system prompt non-disclosure rule", () => {
     expect(CALVRAS_SYSTEM_PROMPT).toContain("A question you need answered is always an ask_user call, never a sentence in message");
     expect(CALVRAS_SYSTEM_PROMPT).toContain("it is the ONLY way a question reaches the user");
     expect(CALVRAS_SYSTEM_PROMPT).toContain("One ask_user per round, one question inside it");
+    // A typed value needs no choice list: an invented "Enter API Key" option is a button that
+    // answers the question with its own label, and the run took that for the key.
+    expect(CALVRAS_SYSTEM_PROMPT).toContain("send ask_user {question} with NO options at all");
+    expect(CALVRAS_SYSTEM_PROMPT).toContain("a second card for the same question is the user pasting the same key five times");
     expect(CALVRAS_SYSTEM_PROMPT).toContain("do not fire off eight sub-questions");
     expect(workerSystemPrompt("builder")).toContain("never a sentence in message");
   });

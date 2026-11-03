@@ -47,4 +47,10 @@ describe("safe concurrency and compact context", () => {
     expect(feedbackContext(feedback, false).length).toBeLessThan(1000);
     expect(feedbackContext(feedback)).not.toContain('"content"');
   });
+  it("keeps an answer the user gave after the round that carried it scrolls away", () => {
+    // The collapsed summary carried error/exitCode/ready/url/output only, so a key pasted into an
+    // ask_user card disappeared from context two rounds later and the run asked for it again.
+    const feedback = [{ action: { type: "ask_user" as const, question: "What is your Gemini API key?" }, ok: true, result: { answer: "AIza-example" } }];
+    expect(feedbackContext(feedback, false)).toContain("AIza-example");
+  });
 });

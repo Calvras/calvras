@@ -51,6 +51,7 @@ export function validateToolAction(value: Record<string, any>): ToolAction {
   if (["write_file", "create_file"].includes(type) && typeof value["content"] !== "string") throw new Error(`${type} needs the whole new file in its content field, as one JSON string with newlines escaped. For a small change to an existing file, call search_replace instead.`);
   if (["rename_file", "move_file", "copy_file"].includes(type)) { require("from", "the path being renamed"); require("to", "the path it becomes"); }
   if (["search_files", "grep_search", "find_files"].includes(type)) require("pattern", "what to look for");
+  if (type === "ask_user") require("question", "the one thing you need from the user, written as a question in its question field");
   if (type === "search_replace") { require("search", "the exact text being replaced"); if (typeof value["replace"] !== "string") throw new Error("search_replace needs replace: the text that takes its place, or an empty string to delete it."); }
   if (type === "type_text" && typeof value["text"] !== "string") throw new Error("type_text needs text: the exact characters to type.");
   if (type === "press_keys" && typeof value["keys"] !== "string") throw new Error("press_keys needs keys, like Enter, Tab, or ctrl+s.");

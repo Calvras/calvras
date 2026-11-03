@@ -5,7 +5,7 @@ export function feedbackContext(results: ToolFeedback[], detailed = true) {
   return results.map(({ action, ok, result }) => {
     const data = result as Record<string, unknown> | null;
     const identity = { type: action.type, path: action.path, command: action.command };
-    const evidence = detailed ? data && typeof data === "object" ? { ...data, ...(data["image"] ? { image: "[Screenshot attached separately]" } : {}), ...(Array.isArray(data["layouts"]) ? { layouts: (data["layouts"] as any[]).map(({ image, ...layout }) => layout) } : {}) } : result : { error: data?.["error"], exitCode: data?.["exitCode"], ready: data?.["ready"], url: data?.["url"], output: typeof data?.["output"] === "string" ? clip(data["output"], 500) : undefined };
+    const evidence = detailed ? data && typeof data === "object" ? { ...data, ...(data["image"] ? { image: "[Screenshot attached separately]" } : {}), ...(Array.isArray(data["layouts"]) ? { layouts: (data["layouts"] as any[]).map(({ image, ...layout }) => layout) } : {}) } : result : { error: data?.["error"], exitCode: data?.["exitCode"], ready: data?.["ready"], url: data?.["url"], answer: data?.["answer"], output: typeof data?.["output"] === "string" ? clip(data["output"], 500) : undefined };
     // Keep the evidence readable. Stringifying it inside another JSON string
     // repeatedly escaped code, paths and JSON files before the model saw them.
     // A page survey is the whole specification of a duplication: measured bands plus every word on

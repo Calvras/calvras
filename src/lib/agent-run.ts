@@ -283,6 +283,33 @@ export async function runAgent(options: {
    * the pixel comparison, and paying for the sheet again after the last band is written buys nothing. */
   const referenceSheetPrompt = () => referenceBrief && buildInProgress() ? `\n${referenceBrief}\n[END REFERENCE BUILD SHEET] This is what the page at ${referenceUrl} measures, section by section, and it stays in front of you for every remaining step. Reproduce each band at its own height, colour, padding and font size, and use its own words exactly as listed — the copy is on the sheet, so inventing headline or card text is a choice, not a limitation. Nothing here is judged against the preview until the last band is written.` : "";
   const pageWrites = new Set(["write_file", "create_file", "search_replace", "multi_replace", "insert_code", "delete_lines", "apply_patch", "apply_diff", "multi_file_edit", "refactor_code", "format_file", "format_code", "generate_image"]);
+  /** What the user has already answered in this run, keyed on their own words for the question.
+   *  A pasted key used to vanish from the model's context two rounds later, so the same ask came
+   *  back again and again and each card looked like a question nobody had answered yet. */
+  const answered: { question: string; answer: string }[] = [];
+  const askKey = (action: AgentAction) => String(action.question || action.message || "").toLowerCase().replace(/\s+/g, " ").trim();
+  const askMatched = (key: string) => answered.find((entry) => entry.question === key || (key.length > 12 && (key.includes(entry.question) || entry.question.includes(key))));
+  /** Runs the model's actions, except an ask_user for something already answered: that one is
+   *  closed from the ledger without opening a second card the user has no reason to fill in twice.
+   *  The answer itself is not reprinted into the note — a key stays where it already is. */
+  const runActions = async (actions: AgentAction[]): Promise<ToolFeedback[]> => {
+    const slots: (ToolFeedback | null)[] = actions.map(() => null);
+    const run: { index: number; action: AgentAction }[] = [];
+    actions.forEach((action, index) => {
+      const key = action.type === "ask_user" ? askKey(action) : "";
+      const prior = key ? askMatched(key) : undefined;
+      if (prior) {
+        slots[index] = { action, ok: true, result: { answer: prior.answer, alreadyAnswered: true, note: `This exact question was already answered earlier in this run — the answer is in your tool results above. Use it and do not ask again. If that answer turned out to be wrong or was rejected, say what was rejected and ask in different words for a replacement.` } };
+        history.push(`[ALREADY ANSWERED] Your ask_user "${key.slice(0, 160)}" got its answer in this run, so no second card was shown. Read that answer back from your own tool results and carry on with it.`);
+        return;
+      }
+      run.push({ index, action });
+    });
+    if (!run.length) return slots.filter((slot): slot is ToolFeedback => slot !== null);
+    const results = await options.execute(run.map((entry) => entry.action));
+    results.forEach((result, position) => { const entry = run[position]; if (entry) slots[entry.index] = result; });
+    return slots.filter((slot): slot is ToolFeedback => slot !== null);
+  };
   // External tools that only observe; they cannot satisfy a change request on their own.
   const observational = new Set(["take_screenshot", "take_screen_screenshot", "inspect_element", "test_responsive_layout", "read_page", "read_page_content", "check_console_errors", "list_windows", "search_documentation", "web_search", "wait_for_element", "wait_for_window", "focus_window"]);
   // What every page, file and command has returned so far — never the batch ledger, whose own
@@ -366,6 +393,11 @@ export async function runAgent(options: {
     const succeededKeys = new Set<string>();
     for (const result of effective) {
       const actionKey = `${result.action.type}|${JSON.stringify(result.action)}`;
+      if (result.action.type === "ask_user" && result.ok) {
+        const given = String((result.result as { answer?: unknown } | null)?.answer ?? "").trim();
+        const key = askKey(result.action);
+        if (given && key && !askMatched(key)) answered.push({ question: key, answer: given });
+      }
       const problem = result.ok ? lookProblem(result) : failureTextOf(result);
       // A look that came back unhappy ran fine as a tool, so `ok` is true — but it is not the call
       // passing. Only a clean result retires the error it produced.
@@ -861,7 +893,7 @@ export async function runAgent(options: {
       }
       if (reply.message.trim()) options.onFeedback(reply.message);
       idleRounds = 0;
-      const results = await options.execute(reply.actions);
+      const results = await runActions(reply.actions);
       record(results);
       await seedReferencePlan();
       // A target closed on a reference no page printed stays closed — sending that application a
