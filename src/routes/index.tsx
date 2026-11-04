@@ -52,7 +52,23 @@ export const Route = createFileRoute("/")({
  * public site that the same build answers on calvras.com is the marketing page only. */
 function Home() {
   const { workspace } = Route.useLoaderData();
-  if (!workspace) return <LandingPage />;
+  const [showLanding, setShowLanding] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const p = new URLSearchParams(window.location.search);
+      if (
+        p.get("view") === "landing" ||
+        p.get("landing") === "1" ||
+        p.get("cursor") === "1" ||
+        window.location.hash === "#landing"
+      ) {
+        setShowLanding(true);
+      }
+    }
+  }, []);
+
+  if (!workspace || showLanding) return <LandingPage />;
   return <LaunchGate><Index /></LaunchGate>;
 }
 
