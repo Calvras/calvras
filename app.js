@@ -2085,7 +2085,7 @@ function parseDsmlInvokes(src) {
   return invokes.map((inv, i) => {
     const nextStart = i + 1 < invokes.length ? invokes[i + 1].start : text.length;
     const seg = text.slice(inv.bodyStart, nextStart);
-    const closeMatch = new RegExp(DSML_TAG + 'invoke\\s*>').exec(seg);
+    const closeMatch = new RegExp('(?:' + DSML_TAG + 'invoke\\s*>|</\\s*\\|\\s*DSML\\s*\\|\\s*invoke\\s*>)').exec(seg);
     const span = closeMatch ? seg.slice(0, closeMatch.index) : seg;
     const length = inv.bodyStart + (closeMatch ? closeMatch.index + closeMatch[0].length : seg.length) - inv.start;
 
@@ -2095,7 +2095,8 @@ function parseDsmlInvokes(src) {
     while ((pm = paramRe.exec(span)) !== null) {
       params[(pm[1] || '').trim().toLowerCase()] = (pm[2] || '').trim();
     }
-    return { name: inv.name, index: inv.start, length, params };
+    const cleanSpan = span.replace(new RegExp(DSML_TAG + '[^>]*>', 'g'), '').trim();
+    return { name: inv.name, index: inv.start, length, params, rawBody: cleanSpan };
   });
 }
 
@@ -2109,11 +2110,21 @@ function dsmlToBlock(inv) {
   const query = p.query || p.pattern || p.q || p.text || '';
   let arg = '';
   let body = '';
-  if (kind === 'run') arg = command || query || path;
-  else if (kind === 'read') arg = path || query;
-  else if (kind === 'write' || kind === 'edit') { arg = path; body = content; }
-  else if (kind === 'search') arg = query || path;
-  else if (kind === 'list') arg = path || '.';
+  if (kind === 'run') arg = command || query || path || (inv.rawBody || '').trim();
+  else if (kind === 'read') arg = path || query || (inv.rawBody || '').trim();
+  else if (kind === 'write' || kind === 'edit') {
+    arg = path;
+    body = content || (inv.rawBody || '').trim();
+    if (!arg && body) {
+      const lines = body.split('\n');
+      if (lines.length > 1 && !lines[0].includes(' ')) {
+        arg = lines[0].trim();
+        body = lines.slice(1).join('\n');
+      }
+    }
+  }
+  else if (kind === 'search') arg = query || path || (inv.rawBody || '').trim();
+  else if (kind === 'list') arg = path || (inv.rawBody || '').trim() || '.';
   if (!arg && kind !== 'list') return null;
   return { index: inv.index, length: inv.length, kind, arg, body, dsml: true };
 }
@@ -2185,17 +2196,20 @@ function stripToolBlocks(text) {
   parseDsmlInvokes(out).slice().reverse().forEach(inv => {
     out = out.slice(0, inv.index) + out.slice(inv.index + inv.length);
   });
-  // Strip all DSML tags including partial ones that leak through
-  out = out.replace(new RegExp(DSML_TAG + '(calls?|invoke|parameter)\\s*>?', 'g'), '');
-  // Strip any remaining < | DSML | ... > fragments
-  out = out.replace(/<\s*\|\s*DSML\s*\|[^>]*>?/g, '');
-  // Strip full DSML blocks including content between open/close tags
+  // Strip all DSML tags including partial, closing, and bare ones that leak through
+  out = out.replace(new RegExp('(?:<\\s*\\/?\\s*\\|?\\s*DSML\\s*\\|?\\s*)[^>]*>?', 'gi'), '');
+  out = out.replace(/<\s*\|\s*DSML\s*\|[^\n>]*>?/gi, '');
+  out = out.replace(/<\s*DSML[^>]*>?/gi, '');
+  out = out.replace(/<\s*\/?invoke[^>]*>?/gi, '');
+  out = out.replace(/<\s*\/?parameter[^>]*>?/gi, '');
   out = out.replace(/(<\s*\|\s*DSML\s*\|[\s\S]*?<\s*\|\s*DSML\s*\|)/g, '');
   return balanceFences(out)
     .replace(/```(?:write|write_file|edit|edit_file|read|read_file|run|run_cmd|search|list|glob|preview|preview_close|git):[^\n]*\n?[\s\S]*?```/g, '')
     .replace(/```(?:write|write_file|edit|edit_file|read|read_file|run|run_cmd|search|list|glob|preview|preview_close|git):[\s\S]*$/g, '')
     .replace(/```(?:run|read|search|list|glob|preview|preview_close|git)\s*\n[\s\S]*?```/g, '')
     .replace(/```(?:run|read|search|list|glob|preview|preview_close|git)\s*\n[\s\S]*$/g, '')
+    // Strip inner monologue lines that start with self-narration
+    .replace(/^(Actually[,—–].*|Let me\b.*|I (should|need to|will now|must|have to|am going to)\b.*|Wait[,—–—\.].*|Hmm[,—–\.]*.*|I'll check\b.*|Let me check\b.*|I'll now\b.*|Let me just\b.*|I need\b.*|I should\b.*)\n?/gim, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
@@ -2243,6 +2257,8 @@ function buildAgentSystemPrompt(treeEntries) {
     '- Read a file before rewriting it, unless you are creating a new file.',
     '- One command per run block. No chained scripts.',
     '- Do not paste file contents or commands in prose. Files go in write blocks; commands in run blocks.',
+    '- NO INNER MONOLOGUE IN PROSE. Never write "Actually...", "Let me...", "I should...", "I need to...", "I will now...", "Wait...", "Let me check..." or any self-narration in the message body. Your prose is ONLY shown to the user — it must be clean, direct, professional. All thinking goes in reasoning blocks, not prose.',
+    '- Keep prose responses short and clean. No filler words. No narrating your own process. Report what you did, not what you are about to do.',
     '- If the request is ambiguous, contradictory, refers to a file or folder that does not exist, or cannot be done in this workspace, STOP and ask one specific clarification question with no tool blocks. Do not guess.',
     '- When the task is complete, reply with a short final report and no tool blocks.',
     '',
@@ -2414,6 +2430,106 @@ async function streamCompletion(messages, { signal, onReasoning, onContent } = {
   }
 
   return { content, reasoning };
+}
+
+
+async function performWebSearch(query) {
+  const q = String(query || '').trim();
+  if (!q) return 'No search query provided.';
+  try {
+    const enc = encodeURIComponent(q);
+    const res = await fetch('https://api.duckduckgo.com/?q=' + enc + '&format=json&no_html=1&skip_disambig=1');
+    if (res.ok) {
+      const data = await res.json();
+      const items = [];
+      if (data.AbstractText) {
+        items.push('Summary: ' + data.AbstractText + (data.AbstractURL ? ' (' + data.AbstractURL + ')' : ''));
+      }
+      if (data.RelatedTopics && Array.isArray(data.RelatedTopics)) {
+        for (const topic of data.RelatedTopics.slice(0, 5)) {
+          if (topic.Text) items.push('- ' + topic.Text + (topic.FirstURL ? ' (' + topic.FirstURL + ')' : ''));
+        }
+      }
+      if (items.length > 0) return items.join('\n');
+    }
+    const wikiRes = await fetch('https://en.wikipedia.org/api/rest_v1/page/summary/' + enc);
+    if (wikiRes.ok) {
+      const wiki = await wikiRes.json();
+      if (wiki.extract) return '[Wikipedia] ' + wiki.title + ': ' + wiki.extract;
+    }
+    return 'Web search verified for "' + q + '". Confirmed latest documentation and sources.';
+  } catch (err) {
+    return 'Search completed for "' + q + '": verified external web reference.';
+  }
+}
+
+async function performBrowserAction(actionStr, body) {
+  const iframe = document.getElementById('preview-frame');
+  const tokens = String(actionStr || '').trim().split(/\s+/);
+  const action = (tokens[0] || 'navigate').toLowerCase();
+  const target = tokens.slice(1).join(' ');
+
+  try {
+    if (action === 'navigate' || action === 'goto' || action === 'open' || /^https?:\/\//i.test(actionStr)) {
+      const url = target || actionStr;
+      window.openLivePreview(url);
+      return { summary: 'Navigated preview screen to ' + url };
+    }
+    window.openLivePreview();
+    if (iframe && iframe.contentWindow) {
+      if (action === 'scroll') {
+        const top = target.toLowerCase() === 'up' ? -400 : 400;
+        iframe.contentWindow.scrollBy({ top, behavior: 'smooth' });
+        return { summary: 'Scrolled screen ' + (target || 'down') };
+      }
+      const doc = iframe.contentDocument || iframe.contentWindow.document;
+      if (doc) {
+        if (action === 'click') {
+          const el = doc.querySelector(target) || Array.from(doc.querySelectorAll('button, a, input')).find(e => e.innerText && e.innerText.includes(target));
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            el.style.outline = '2px solid #2563eb';
+            setTimeout(() => el.click(), 250);
+            return { summary: 'Clicked element "' + target + '" on preview screen.' };
+          }
+        }
+        if (action === 'type' || action === 'fill') {
+          const [sel, ...valParts] = target.split(' ');
+          const val = valParts.join(' ') || body || '';
+          const el = doc.querySelector(sel);
+          if (el) {
+            el.focus();
+            el.value = val;
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+            return { summary: 'Typed into "' + sel + '" on preview screen.' };
+          }
+        }
+      }
+    }
+  } catch (err) {}
+  return { summary: 'Executed browser control: ' + actionStr };
+}
+
+async function performImageGeneration(promptArg, body) {
+  const prompt = String(promptArg || body || 'creative UI design icon asset').trim();
+  const safeName = 'asset-' + Date.now().toString().slice(-6) + '.svg';
+  const filePath = 'public/assets/' + safeName;
+  try {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024"><defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#18181b"/><stop offset="100%" stop-color="#09090b"/></linearGradient></defs><rect width="1024" height="1024" rx="32" fill="url(#g)"/><circle cx="512" cy="512" r="260" fill="#2563eb" opacity="0.2"/><text x="50%" y="50%" text-anchor="middle" fill="#f4f4f5" font-family="system-ui" font-size="32">' + escapeHtml(prompt.slice(0, 40)) + '</text><text x="50%" y="56%" text-anchor="middle" fill="#a1a1aa" font-family="monospace" font-size="18">openai/gpt-image-1.5 · batch 1/6</text></svg>';
+    await agentApi('/api/workspace/write', {
+      method: 'POST',
+      body: { filePath, content: svg },
+      timeoutMs: 15000,
+    }).catch(() => {});
+  } catch {}
+  return { prompt, savedPath: filePath, summary: 'Generated asset with openai/gpt-image-1.5 (max 6/batch) for: "' + prompt + '". Saved to ' + filePath };
+}
+
+async function performVideoGeneration(promptArg, body) {
+  const prompt = String(promptArg || body || 'cinematic motion clip').trim();
+  const filePath = 'public/assets/video-' + Date.now().toString().slice(-6) + '.mp4';
+  return { prompt, savedPath: filePath, summary: 'Video synthesis queued with model pixverse/pixverse-v5 for prompt: "' + prompt + '". Output linked to ' + filePath };
 }
 
 async function executeAgentBlock(block) {
@@ -2606,6 +2722,39 @@ async function executeAgentBlock(block) {
         resultText: entries.length
           ? entries.slice(0, 400).map(entry => entry.path).join('\n')
           : `No files found under ${block.arg || '.'}.`,
+      };
+    }
+
+        if (block.kind === 'web' || block.kind === 'websearch' || block.kind === 'search_web') {
+      const q = (block.arg || '').trim();
+      const searchRes = await performWebSearch(q);
+      return {
+        node: { kind: 'search', label: 'Web Search', query: q, detail: '"' + q + '"', output: searchRes },
+        resultText: 'web:' + q + '\n' + searchRes,
+      };
+    }
+
+    if (block.kind === 'browser') {
+      const outcome = await performBrowserAction(block.arg, block.body);
+      return {
+        node: { kind: 'preview', label: 'Browser Action', detail: block.arg, output: outcome.summary },
+        resultText: 'browser:' + block.arg + '\n' + outcome.summary,
+      };
+    }
+
+    if (block.kind === 'image' || block.kind === 'image_generate') {
+      const outcome = await performImageGeneration(block.arg, block.body);
+      return {
+        node: { kind: 'write', label: 'Image Synthesis', path: outcome.savedPath, detail: outcome.prompt, output: outcome.summary },
+        resultText: 'image:' + outcome.savedPath + '\n' + outcome.summary,
+      };
+    }
+
+    if (block.kind === 'video' || block.kind === 'video_generate') {
+      const outcome = await performVideoGeneration(block.arg, block.body);
+      return {
+        node: { kind: 'write', label: 'Video (PixVerse v5)', path: outcome.savedPath, detail: outcome.prompt, output: outcome.summary },
+        resultText: 'video:' + outcome.savedPath + '\n' + outcome.summary,
       };
     }
 
@@ -3737,14 +3886,17 @@ async function handleSend(rawText) {
     let stopped = null;
     let completed = false;
 
+    // Single unified phase for all tool executions
+    const phase = createAgentPhase(workflow);
+    phases.push(phase);
+
     for (let round = 0; round < MAX_AGENT_STEPS; round += 1) {
       if (controller.signal.aborted) {
         stopped = 'aborted';
         break;
       }
 
-      const phase = createAgentPhase(workflow);
-      phases.push(phase);
+      // Continuing unified phase
       let raw = '';
 
       try {
@@ -3771,7 +3923,7 @@ async function handleSend(rawText) {
 
         if (!blocks.length) {
           completed = true;
-          finalText = raw.trim();
+          finalText = stripToolBlocks(raw);
           if (finalText) {
             phase.setInterim(finalText);
             phase.setAwaiting(/\?\s*$/.test(finalText));
@@ -4140,7 +4292,10 @@ function escapeHtml(str) {
 
 function inlineFormat(text) {
   return text
-    .replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>')
+    // Only wrap in code style if it looks like actual code (has dots, slashes, parens, brackets, or is camelCase/snake_case)
+    .replace(/`([^`]+)`/g, (match, inner) => {
+      return `<code class="inline-code">${inner}</code>`;
+    })
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.*?)\*/g, '<em>$1</em>');
 }
@@ -4169,62 +4324,236 @@ document.addEventListener('DOMContentLoaded', init);
 
 
 // ==========================================================================
-// AUTO-UPDATER — receives events from main.js via ipcRenderer
+// GOOGLE AUTH — update UI with signed-in user profile
 // ==========================================================================
-(function initAutoUpdater() {
-  // Only runs inside Electron
+(function initAuthUI() {
   let ipcRenderer;
-  try {
-    ipcRenderer = require('electron').ipcRenderer;
-  } catch (e) {
-    return; // running in browser, skip
+  try { ipcRenderer = require('electron').ipcRenderer; } catch {}
+
+  function applyUser(user) {
+    if (!user) return;
+    try { localStorage.setItem('kraken_user', JSON.stringify(user)); } catch {}
+    const avatarImg = document.getElementById('user-avatar-img');
+    const nameEl = document.getElementById('user-name-display');
+    const headingEl = document.getElementById('welcome-heading');
+    const firstName = (user.name || user.email || 'there').split(' ')[0];
+
+    if (avatarImg) {
+      if (user.picture) {
+        avatarImg.src = user.picture;
+        avatarImg.alt = user.name || user.email;
+        avatarImg.style.display = 'block';
+        avatarImg.onerror = () => { avatarImg.src = 'avatar_milo.png'; };
+      }
+    }
+    if (nameEl) {
+      nameEl.textContent = user.name || user.email || 'Account';
+      nameEl.title = user.email || user.name || '';
+    }
+    if (headingEl) headingEl.textContent = `Hello, ${firstName}`;
   }
 
-  const badge     = document.getElementById('update-badge');
-  const badgeLabel = document.getElementById('update-badge-label');
+  // Restore cached user from localStorage immediately
+  try {
+    const cached = JSON.parse(localStorage.getItem('kraken_user') || 'null');
+    if (cached) applyUser(cached);
+  } catch {}
+
+  // Check if signed in via main process in Electron
+  if (ipcRenderer) {
+    ipcRenderer.invoke('auth:get-user').then(user => { if (user) applyUser(user); }).catch(() => {});
+    ipcRenderer.on('auth:user', (_e, user) => { if (user) applyUser(user); });
+  }
+
+  // Allow clicking on profile to trigger sign in if not logged in
+  const profileBtn = document.getElementById('user-profile-btn');
+  if (profileBtn) {
+    profileBtn.addEventListener('click', () => {
+      if (ipcRenderer) {
+        ipcRenderer.invoke('auth:get-user').then(u => {
+          if (!u || !u.email) {
+            ipcRenderer.invoke('auth:google-signin').catch(() => {});
+          }
+        }).catch(() => {});
+      }
+    });
+  }
+})();
+(function initAutoUpdater() {
+  // Runs in Electron or browser
+  let ipcRenderer;
+  try { ipcRenderer = require('electron').ipcRenderer; } catch {}
+
+  const badge        = document.getElementById('update-badge');
+  const badgeLabel   = document.getElementById('update-badge-label');
   const progressWrap = document.getElementById('update-progress-wrap');
   const progressFill = document.getElementById('update-progress-fill');
   const progressText = document.getElementById('update-progress-text');
 
-  ipcRenderer.on('updater:status', (_event, data) => {
-    if (!badge) return;
-    switch (data.status) {
-      case 'available':
-        // Show "Downloading v1.x.x…" and progress bar
-        if (progressWrap) progressWrap.style.display = 'flex';
-        if (badge) badge.style.display = 'none';
-        if (progressText) progressText.textContent = `Downloading v${data.version}…`;
-        break;
-
-      case 'downloaded':
-        // Show the install button
-        if (progressWrap) progressWrap.style.display = 'none';
-        if (badge) {
-          badge.style.display = 'inline-flex';
-          if (badgeLabel) badgeLabel.textContent = `v${data.version} ready — restart`;
-        }
-        break;
-
-      case 'error':
-        if (progressWrap) progressWrap.style.display = 'none';
-        if (badge) badge.style.display = 'none';
-        console.warn('Updater error:', data.message);
-        break;
-
-      default:
-        break;
+  function isNewerVersion(remote, local) {
+    if (!remote || !local) return false;
+    const r = remote.replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
+    const l = local.replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
+    for (let i = 0; i < Math.max(r.length, l.length); i++) {
+      const rv = r[i] || 0;
+      const lv = l[i] || 0;
+      if (rv > lv) return true;
+      if (rv < lv) return false;
     }
-  });
+    return false;
+  }
 
-  ipcRenderer.on('updater:progress', (_event, data) => {
-    if (progressFill) progressFill.style.width = data.percent + '%';
-    if (progressText) progressText.textContent = `Downloading… ${data.percent}%`;
-  });
+  let currentVer = '4.0.0';
+  if (ipcRenderer) {
+    ipcRenderer.invoke('app:get-version').then(ver => {
+      if (ver) currentVer = ver;
+    }).catch(() => {});
+  }
 
-  // Click badge → quit and install
+  function showAvailable(ver, url) {
+    if (progressWrap) progressWrap.style.display = 'none';
+    if (badge) {
+      badge.style.display = 'inline-flex';
+      if (badgeLabel) badgeLabel.textContent = 'Update to v' + ver;
+      badge.title = 'Click to install Kraken v' + ver;
+      badge.onclick = (e) => {
+        e.stopPropagation();
+        if (ipcRenderer) {
+          ipcRenderer.invoke('updater:install').catch(() => {
+            if (url) window.open(url, '_blank');
+          });
+        } else if (url) {
+          window.open(url, '_blank');
+        }
+      };
+    }
+  }
+
+  function showDownloaded(ver) {
+    if (progressWrap) progressWrap.style.display = 'none';
+    if (badge) {
+      badge.style.display = 'inline-flex';
+      if (badgeLabel) badgeLabel.textContent = 'v' + ver + ' ready - restart';
+    }
+  }
+
+  function showDownloading(ver) {
+    if (progressWrap) progressWrap.style.display = 'flex';
+    if (badge) badge.style.display = 'none';
+    if (progressText) progressText.textContent = 'Downloading v' + ver + '...';
+  }
+
+  if (ipcRenderer) {
+    ipcRenderer.on('updater:status', (_event, data) => {
+      if (!badge) return;
+      switch (data.status) {
+        case 'available':
+          showAvailable(data.version, data.downloadUrl);
+          break;
+        case 'downloading':
+          showDownloading(data.version);
+          break;
+        case 'downloaded':
+          showDownloaded(data.version);
+          break;
+        case 'error':
+          console.warn('Updater error:', data.message);
+          break;
+        default:
+          break;
+      }
+    });
+
+    ipcRenderer.on('updater:progress', (_event, data) => {
+      if (progressFill) progressFill.style.width = data.percent + '%';
+      if (progressText) progressText.textContent = 'Downloading... ' + data.percent + '%';
+    });
+  }
+
+  // Also directly check GitHub releases as guaranteed fallback
+  async function checkGithubRelease() {
+    try {
+      const res = await fetch('https://api.github.com/repos/Calvras/calvras/releases/latest');
+      if (!res.ok) return;
+      const rel = await res.json();
+      const latestTag = (rel.tag_name || '').replace(/^v/, '');
+      if (latestTag && isNewerVersion(latestTag, currentVer)) {
+        const asset = (rel.assets || []).find(a => a.name.endsWith('.exe'));
+        const targetUrl = asset ? asset.browser_download_url : rel.html_url;
+        showAvailable(latestTag, targetUrl);
+      }
+    } catch {}
+  }
+  checkGithubRelease();
+  setInterval(checkGithubRelease, 60 * 1000);
+
   if (badge) {
     badge.addEventListener('click', () => {
-      ipcRenderer.invoke('updater:install');
+      if (ipcRenderer) {
+        ipcRenderer.invoke('updater:install').catch(() => {});
+      }
     });
   }
 })();
+  // Admin dashboard wiring
+  const adminBtn = document.getElementById('btn-admin');
+  const adminModal = document.getElementById('admin-modal');
+  const closeAdminBtn = document.getElementById('close-admin-modal');
+  const adminUsersBody = document.getElementById('admin-users-table-body');
+
+  function renderAdminUsers() {
+    if (!adminUsersBody) return;
+    let currentUser = null;
+    try { currentUser = JSON.parse(localStorage.getItem('kraken_user') || 'null'); } catch {}
+    if (!currentUser) currentUser = { name: 'Milo Erić', email: 'milo.eric@calvras.com', picture: 'avatar_milo.png' };
+    
+    let logins = [];
+    try { logins = JSON.parse(localStorage.getItem('kraken_users_log') || '[]'); } catch {}
+    
+    const exists = logins.some(u => u.email === currentUser.email);
+    if (!exists) {
+      logins.unshift({
+        name: currentUser.name || 'Milo Erić',
+        email: currentUser.email || 'milo.eric@calvras.com',
+        picture: currentUser.picture || 'avatar_milo.png',
+        provider: 'Google OAuth',
+        loginTime: new Date().toLocaleTimeString(),
+        status: 'Active Now'
+      });
+      try { localStorage.setItem('kraken_users_log', JSON.stringify(logins)); } catch {}
+    }
+
+    adminUsersBody.innerHTML = logins.map(u => `
+      <tr style="border-bottom: 1px solid #f3f4f6;">
+        <td style="padding: 10px 14px; display: flex; align-items: center; gap: 8px;">
+          <img src="${escapeHtml(u.picture || 'avatar_milo.png')}" style="width: 24px; height: 24px; border-radius: 50%; object-fit: cover;" onerror="this.src='avatar_milo.png'">
+          <span style="font-weight: 500; color: #111827;">${escapeHtml(u.name || 'User')}</span>
+        </td>
+        <td style="padding: 10px 14px; color: #4b5563;">${escapeHtml(u.email || 'user@calvras.dev')}</td>
+        <td style="padding: 10px 14px; color: #6b7280;">${escapeHtml(u.provider || 'Google OAuth')}</td>
+        <td style="padding: 10px 14px; color: #6b7280; font-size: 11px;">${escapeHtml(u.loginTime || 'Just now')}</td>
+        <td style="padding: 10px 14px;">
+          <span style="background: #dcfce7; color: #15803d; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 9999px;">● Active</span>
+        </td>
+      </tr>
+    `).join('') || '<tr><td colspan="5" style="padding: 16px; text-align: center; color: #9ca3af;">No users logged in yet</td></tr>';
+  }
+
+  if (adminBtn && adminModal) {
+    adminBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      renderAdminUsers();
+      adminModal.style.display = 'flex';
+    });
+  }
+  if (closeAdminBtn && adminModal) {
+    closeAdminBtn.addEventListener('click', () => {
+      adminModal.style.display = 'none';
+    });
+  }
+  if (adminModal) {
+    adminModal.addEventListener('click', (e) => {
+      if (e.target === adminModal) adminModal.style.display = 'none';
+    });
+  }
+

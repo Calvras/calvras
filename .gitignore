@@ -35,3 +35,13 @@ render_*.js
 take_*.js
 electron_dump.json
 server.log
+.output/
+.preview-test/
+.wrangler/
+electron-dist/
+test_shot2_preview.js
+LandingPage_orig.tsx
+Launch_Kraken.bat
+dribbble.html
+page.html
+

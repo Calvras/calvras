@@ -42,11 +42,17 @@ ipcMain.handle('kraken:pick-folder', async () => {
   return result.filePaths[0];
 });
 
-ipcMain.handle('updater:install', () => {
+ipcMain.handle('updater:install', async () => {
   try {
     const { autoUpdater } = require('electron-updater');
     autoUpdater.quitAndInstall(false, true);
-  } catch {}
+  } catch (err) {
+    shell.openExternal('https://github.com/Calvras/calvras/releases/latest');
+  }
+});
+
+ipcMain.handle('app:get-version', () => {
+  return app.getVersion();
 });
 
 ipcMain.handle('auth:google-signin', async () => {
@@ -201,6 +207,8 @@ function windowDefaults() {
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
+      webSecurity: false,
+      webviewTag: true,
     },
     autoHideMenuBar: true,
   };

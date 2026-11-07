@@ -1,18 +1,3 @@
-// The agent's response style: a collapsible group per turn, one rail chip per tool call, and the
-// agent's own sentence under the group it belongs to.
-//
-// This is the `ai-thinking-and-tool-calls` component, integrated as-is. Three things were added on
-// top of it, all because Calvras feeds it live state rather than a scripted demo:
-//   · `running` on ThinkingState — with autoPlay off, every node is revealed and this says whether
-//     the group is still in flight, which is what drives the shimmer and the auto-collapse.
-//   · `checkpointId` / `image` / `previewUrl` on TraceNode — the undo control, the browser
-//     screenshot and the dev-server URL ride in through `renderContent`, which the component
-//     already supports for custom tool bodies.
-//   · `activity` / `divider` on AgentPhase — the run loop's own working indicator, and the seam a
-//     context compression leaves between two halves of a turn.
-// Everything else — the single-SVG activity rail, the chip metrics, the thought fold, the summary
-// the header derives from the rows, and the auto-collapse that leaves one summary per turn — is the
-// reference behaviour, unmodified.
 "use client";
 
 import * as React from "react";
@@ -36,10 +21,10 @@ import {
   Bot,
   Plug,
   Wrench,
-  ImagePlus,
+  PenLine,
 } from "lucide-react";
 
-/* ═══════════════ transcript.rs:92-166 metrics ═══════════════ */
+/* ═══════════════ Rust constants (transcript.rs:92-166) ═══════════════ */
 const TOOL_LABEL_LINE_HEIGHT = 18;
 const TOOL_GROUP_HEADER_HEIGHT = 26;
 const TOOL_TREE_ROW_HEIGHT = 32;
@@ -106,7 +91,6 @@ function nodeToCall(node: TraceNode): any {
     mcp: "mcp",
     agent: "agent",
     task: "agent",
-    generate_image: "image",
   };
   const kind = node.toolName ? kindMap[node.toolName] ?? "tool" : "tool";
   return { kind, name: node.toolName ?? node.primary ?? node.type, path, ...a };
@@ -136,8 +120,6 @@ function toolChipContent(call: any): [string, string] {
       return ["Web", singleLine(call.query ?? "")];
     case "mcp":
       return ["MCP", singleLine(call.label ?? call.name ?? "")];
-    case "image":
-      return ["Image", singleLine(call.path ?? "")];
     case "agent":
       return ["Agent", singleLine(call.detail ?? call.description ?? "")];
     case "thought":
@@ -152,7 +134,7 @@ function toolChipContent(call: any): [string, string] {
   }
 }
 
-/** view.rs:539 tool_group_summary — the header text, derived from the rows it sits over */
+/** view.rs:539 tool_group_summary */
 function toolGroupSummary(tools: { call: any; is_error: boolean }[]): string {
   let commands = 0,
     reads = 0,
@@ -160,15 +142,11 @@ function toolGroupSummary(tools: { call: any; is_error: boolean }[]): string {
     fetches = 0,
     failed = 0;
   const edited: string[] = [];
-  let images = 0;
   for (const { call, is_error } of tools) {
     if (is_error) failed++;
     switch (call?.kind) {
       case "exec":
         commands++;
-        break;
-      case "image":
-        images++;
         break;
       case "write":
       case "edit":
@@ -195,7 +173,6 @@ function toolGroupSummary(tools: { call: any; is_error: boolean }[]): string {
   const segments: string[] = [];
   if (commands > 0) segments.push(`ran ${plural(commands, "command", "commands")}`);
   if (edited.length > 0) segments.push(`edited ${plural(edited.length, "file", "files")}`);
-  if (images > 0) segments.push(`generated ${plural(images, "image", "images")}`);
   if (reads > 0) segments.push(`read ${plural(reads, "file", "files")}`);
   if (searches > 0) segments.push(`searched ${plural(searches, "time", "times")}`);
   if (fetches > 0) segments.push(`fetched ${plural(fetches, "page", "pages")}`);
@@ -218,8 +195,6 @@ function railIcon(call: any, label: string) {
       return <FilePlus2 className={cls} aria-hidden="true" />;
     case "edit":
       return <FilePen className={cls} aria-hidden="true" />;
-    case "image":
-      return <ImagePlus className={cls} aria-hidden="true" />;
     case "search":
       return <Search className={cls} aria-hidden="true" />;
     case "glob":
@@ -238,11 +213,7 @@ function railIcon(call: any, label: string) {
   }
 }
 
-/** transcript.rs:9702 activity_rail — trunk + elbow + branch, icon at tip.
- *  ONE SVG owns the whole ribbon: mixing CSS hairline divs with SVG strokes puts adjacent segments
- *  on different pixel grids (a div box at 12.5 paints 12.5–13.5, a stroke centred on 12.5 paints
- *  12.0–13.0) and every junction shows a half-pixel step. All segments here share one coordinate
- *  space. */
+/** transcript.rs:9702 activity_rail — trunk + elbow + branch, icon at tip. */
 function ActivityRail({
   hasPredecessor,
   continues,
@@ -252,8 +223,6 @@ function ActivityRail({
   continues: boolean;
   failed: boolean;
 }) {
-  // SOLID colors only — the dark `--border` token is itself alpha, which double-blended at the
-  // joints. These neutrals are opaque and sit close to each theme's background.
   const stroke = failed
     ? "stroke-rose-300 dark:stroke-rose-800"
     : "stroke-neutral-300 dark:stroke-neutral-700";
@@ -266,8 +235,6 @@ function ActivityRail({
       height={TOOL_TREE_ROW_HEIGHT}
       className="pointer-events-none absolute inset-y-0 left-0 h-full flex-none overflow-visible"
     >
-      {/* incoming trunk: the FIRST row extends upward toward the header chevron, so the tree hangs
-          from the disclosure instead of starting in mid-air */}
       <line
         x1={ACTIVITY_TRUNK_X}
         y1={hasPredecessor ? 0 : -10}
@@ -276,7 +243,6 @@ function ActivityRail({
         strokeWidth={1}
         className={stroke}
       />
-      {/* elbow + branch: quarter-bend to horizontal, 4px break before the icon */}
       <path
         d={`M${ACTIVITY_TRUNK_X} ${bendY} Q${ACTIVITY_TRUNK_X} ${branchY} ${ACTIVITY_TRUNK_X + ACTIVITY_BEND_RADIUS} ${branchY} H${ACTIVITY_BRANCH_END_X}`}
         fill="none"
@@ -284,8 +250,6 @@ function ActivityRail({
         className={stroke}
       />
       {continues && (
-        /* continuation trunk: from the bend — overlapping the elbow's vertical start is what makes
-           the joint read as one line. Safe because these strokes are opaque. */
         <line
           x1={ACTIVITY_TRUNK_X}
           y1={bendY}
@@ -299,81 +263,71 @@ function ActivityRail({
   );
 }
 
-/** transcript.rs:428 thought inline markdown → styled runs (record, not surface).
- *  Small variant — thinking is a trace, not the reply. */
 function thoughtInline(text: string): React.ReactNode {
   return renderInline(text, true);
 }
 
 /* ═══════════════ Types (public API) ═══════════════ */
 export type TraceNodeType = "reasoning" | "step" | "search" | "tool" | "terminal" | "diffs" | (string & {});
-export type DetailLine = { text: string; tone?: "add" | "del" | "ctx" | "muted" | "error" };
+export type DetailLine = { text: string; tone?: "add" | "del" | "ctx" | "muted" | "error" | undefined };
 export interface ToolDefinition<TArgs = any, TResult = any> {
   name: string;
-  label?: string | ((args: TArgs) => string);
+  label?: string | ((args: TArgs) => string) | undefined;
   icon?: any;
-  iconClassName?: string;
-  formatChip?: (args: TArgs, result?: TResult) => string;
-  monoChip?: boolean;
-  renderCustomContent?: (props: {
-    args?: TArgs;
-    result?: TResult;
+  iconClassName?: string | undefined;
+  formatChip?: ((args: TArgs, result?: TResult) => string) | undefined;
+  monoChip?: boolean | undefined;
+  renderCustomContent?: ((props: {
+    args?: TArgs | undefined;
+    result?: TResult | undefined;
     node: TraceNode<TArgs, TResult>;
-  }) => React.ReactNode;
+  }) => React.ReactNode) | undefined;
 }
 export type TraceNode<TArgs = any, TResult = any> = {
-  id?: string;
+  id?: string | undefined;
   type: TraceNodeType;
-  toolName?: string;
-  sentences?: string[];
-  durationSeconds?: number;
-  primary?: string;
-  secondary?: string;
-  mono?: boolean;
+  toolName?: string | undefined;
+  sentences?: string[] | undefined;
+  durationSeconds?: number | undefined;
+  primary?: string | undefined;
+  secondary?: string | undefined;
+  mono?: boolean | undefined;
   icon?: any;
-  iconClassName?: string;
-  status?: "pending" | "running" | "completed" | "failed";
-  args?: TArgs;
-  result?: TResult;
-  command?: string;
-  output?: string;
-  exitCode?: number;
-  durationMs?: number;
-  add?: number;
-  del?: number;
-  diffRows?: DiffRow[];
-  diffFile?: string;
-  codeSnippet?: string;
-  /** Code the agent READ — rendered as a syntax-highlighted excerpt block (line numbers start at
-   *  `lineStart`, 300px scroll cap). */
-  code?: string;
-  lineStart?: number;
-  lineEnd?: number;
-  lang?: string;
-  details?: DetailLine[];
-  sources?: { name: string; url?: string }[];
-  renderContent?: () => React.ReactNode;
-  /** Calvras: the edit this call checkpointed, so its row carries an undo. */
-  checkpointId?: string;
-  /** Calvras: a screenshot this call produced, shown in its own fold. */
-  image?: string;
-  /** Calvras: the dev-server URL a call brought up, so the row can open the preview panel. */
-  previewUrl?: string;
+  iconClassName?: string | undefined;
+  status?: "pending" | "running" | "completed" | "failed" | undefined;
+  args?: TArgs | undefined;
+  result?: TResult | undefined;
+  command?: string | undefined;
+  output?: string | undefined;
+  exitCode?: number | undefined;
+  durationMs?: number | undefined;
+  add?: number | undefined;
+  del?: number | undefined;
+  diffRows?: DiffRow[] | undefined;
+  diffFile?: string | undefined;
+  codeSnippet?: string | undefined;
+  code?: string | undefined;
+  lineStart?: number | undefined;
+  lineEnd?: number | undefined;
+  lang?: string | undefined;
+  details?: DetailLine[] | undefined;
+  sources?: { name: string; url?: string | undefined }[] | undefined;
+  renderContent?: (() => React.ReactNode) | undefined;
+  checkpointId?: string | undefined;
+  image?: string | undefined;
+  previewUrl?: string | undefined;
 };
-/** Calvras: a turn's phases carry two more fields than the reference's. `activity` is what the run
- *  loop reports (Thinking until the first tool call, Working after), and `divider` marks the phase
- *  that is a context-compression seam rather than work. */
 export type AgentPhase = {
   trace: TraceNode[];
-  message?: string;
-  startedAt?: number;
-  endedAt?: number;
-  activity?: "thinking" | "working";
-  divider?: { state: "compressing" | "compressed"; detail?: string };
+  message?: string | undefined;
+  startedAt?: number | undefined;
+  endedAt?: number | undefined;
+  activity?: "thinking" | "working" | undefined;
+  divider?: { state: "compressing" | "compressed"; detail?: string | undefined } | undefined;
 };
 export type DiffRow = {
-  old?: number | null;
-  cur?: number | null;
+  old?: number | null | undefined;
+  cur?: number | null | undefined;
   type: "add" | "del" | "ctx" | "hunk";
   text: string;
 };
@@ -387,7 +341,6 @@ export const DEFAULT_TOOL_REGISTRY: Record<string, ToolDefinition> = {
   write_file: { name: "write_file", label: "Write", icon: FilePlus2 },
   edit: { name: "edit", label: "Edit", icon: FilePen },
   edit_file: { name: "edit_file", label: "Edit", icon: FilePen },
-  generate_image: { name: "generate_image", label: "Image", icon: ImagePlus },
   patch: { name: "patch", label: "Patch", icon: FileDiffIcon },
   search: { name: "search", label: "Search", icon: Search },
   search_web: { name: "search_web", label: "Search", icon: Search },
@@ -424,7 +377,7 @@ function OutputDetail({ lines: raw }: { lines: string[] }) {
           className="whitespace-pre"
           style={{ height: OUTPUT_LINE_HEIGHT, lineHeight: `${OUTPUT_LINE_HEIGHT}px` }}
         >
-          {line || " "}
+          {line || "\u00a0"}
         </div>
       ))}
       {truncatedBy > 0 && <MoreLinesRow count={truncatedBy} />}
@@ -474,21 +427,43 @@ function callBlockLines(node: TraceNode, call: any): string[] {
   return text.split("\n").filter((l) => l.length);
 }
 
+/* ═══════════════ exports kept for API compat ═══════════════ */
+export function PixelDotsLoader({ className }: { className?: string | undefined }) {
+  const delays = Array.from({ length: 9 }, (_, i) => {
+    const r = Math.floor(i / 3),
+      c = i % 3;
+    return (c + Math.abs(r - 1)) * 90;
+  });
+  return (
+    <span
+      aria-hidden="true"
+      className={cn("grid shrink-0 grid-cols-[repeat(3,3px)] items-center gap-[1.5px]", className)}
+    >
+      {delays.map((delay, i) => (
+        <span
+          key={i}
+          className="size-[3px] rounded-full bg-foreground/80 motion-reduce:animate-none"
+          style={{ opacity: 0.2, animation: `agent-pixel-on 650ms cubic-bezier(0.23,1,0.32,1) ${delay}ms infinite` }}
+        />
+      ))}
+    </span>
+  );
+}
+
 /* ═══════════════ Syntax highlighting (read excerpts) ═══════════════ */
 const TOKEN_RE =
   /(\/\/.*$|\/\*[\s\S]*?\*\/|#.*$)|("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)|\b(const|let|var|function|return|if|else|for|of|in|while|do|break|continue|new|class|extends|implements|interface|type|enum|import|export|from|as|default|async|await|try|catch|finally|throw|switch|case|typeof|instanceof|void|delete|public|private|protected|readonly|static|get|set|super|this|null|undefined|true|false|fn|struct|impl|pub|use|mut|match|def|self|None|Some|Ok|Err)\b|(\b\d+(?:\.\d+)?\b)|(\b[A-Z][A-Za-z0-9_]*\b)|([a-zA-Z_$][\w$]*(?=\s*\())/gm;
 
 const TOKEN_CLS: Record<number, string> = {
-  1: "italic text-muted-foreground/50", // comment
-  2: "text-emerald-600 dark:text-emerald-400", // string
-  3: "text-violet-600 dark:text-violet-400", // keyword
-  4: "text-amber-600 dark:text-amber-400", // number
-  5: "text-sky-600 dark:text-sky-300", // type
-  6: "text-blue-600 dark:text-blue-400", // function call
+  1: "italic text-muted-foreground/50",
+  2: "text-emerald-600 dark:text-emerald-400",
+  3: "text-violet-600 dark:text-violet-400",
+  4: "text-amber-600 dark:text-amber-400",
+  5: "text-sky-600 dark:text-sky-300",
+  6: "text-blue-600 dark:text-blue-400",
 };
 
-/** Tiny single-pass tokenizer — strings/comments/keywords/numbers/types/calls.
- *  Not a parser: good enough for read excerpts, zero dependencies. */
+/** Tiny single-pass tokenizer — strings/comments/keywords/numbers/types/calls. */
 export function highlightCode(code: string): React.ReactNode {
   const out: React.ReactNode[] = [];
   let last = 0;
@@ -510,19 +485,14 @@ export function highlightCode(code: string): React.ReactNode {
   return out;
 }
 
-/** The excerpt the agent actually READ — highlighted, numbered from the real range, scroll-capped. */
-export function CodeBlock({
-  code,
-  lineStart = 1,
-  lang,
-  className,
-}: {
+/** transcript.rs read-chip upgrade: the excerpt the agent actually read. */
+export function CodeBlock({ code, lineStart = 1, lang, className }: {
   code: string;
-  lineStart?: number;
+  lineStart?: number | undefined;
   lang?: string | undefined;
-  className?: string;
+  className?: string | undefined;
 }) {
-  void lang; // tokenizer is language-agnostic
+  void lang;
   const lines = code.replace(/\n+$/, "").split("\n");
   return (
     <div className={cn("overflow-hidden rounded-lg border border-border/70 bg-card font-mono text-[12px] select-text", className)}>
@@ -550,10 +520,10 @@ export function TerminalCommand({
 }: {
   command: string;
   output?: string | undefined;
-  exitCode?: number;
+  exitCode?: number | undefined;
   durationMs?: number | undefined;
-  isRunning?: boolean;
-  className?: string;
+  isRunning?: boolean | undefined;
+  className?: string | undefined;
 }) {
   const [copied, setCopied] = React.useState(false);
   const lines = (output ?? "").split("\n");
@@ -608,7 +578,7 @@ export function TerminalCommand({
           <pre className="font-mono whitespace-pre">
             {lines.slice(0, OUTPUT_DETAIL_MAX_LINES).map((l, i) => (
               <div key={i} style={{ height: OUTPUT_LINE_HEIGHT, lineHeight: `${OUTPUT_LINE_HEIGHT}px` }}>
-                {l || " "}
+                {l || "\u00a0"}
               </div>
             ))}
             {truncatedBy > 0 && <MoreLinesRow count={truncatedBy} />}
@@ -619,7 +589,7 @@ export function TerminalCommand({
   );
 }
 
-export function FileDiff({ file, rows = [], className }: { file: string; rows?: DiffRow[]; className?: string }) {
+export function FileDiff({ file, rows = [], className }: { file: string; rows: DiffRow[]; className?: string | undefined }) {
   const [copied, setCopied] = React.useState(false);
   const added = rows.filter((r) => r.type === "add").length;
   const removed = rows.filter((r) => r.type === "del").length;
@@ -731,9 +701,9 @@ export function StreamingText({
   ...props
 }: React.HTMLAttributes<HTMLDivElement> & {
   text: string;
-  speed?: number;
-  chunkSize?: number;
-  onComplete?: () => void;
+  speed?: number | undefined;
+  chunkSize?: number | undefined;
+  onComplete?: (() => void) | undefined;
 }) {
   const [shown, setShown] = React.useState("");
   const onCompleteRef = React.useRef(onComplete);
@@ -755,7 +725,10 @@ export function StreamingText({
     <div
       aria-live="polite"
       aria-atomic="true"
-      className={cn("font-sans text-[14px] leading-[22px] text-foreground/90 select-text text-pretty", className)}
+      className={cn(
+        "font-sans text-[14px] leading-[22px] text-foreground/90 select-text text-pretty",
+        className
+      )}
       {...props}
     >
       <Markdown text={shown} />
@@ -763,16 +736,10 @@ export function StreamingText({
   );
 }
 
-/* ═══════════════ Markdown (render.rs port) ═══════════════
- * Body 14/22, 12px block gap; frameless hairline code blocks; bold headings;
- * • bullets / 1. numbers; underlined links. Enough grammar for agent prose:
- * paragraphs, #/##/###, `- ` / `1. ` lists, > quotes, ``` fences. */
+/* ═══════════════ Markdown (crates/ui/src/markdown/render.rs port) ═══════════════ */
 const INLINE_RE =
   /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*\n]+\*)|(~~[^~]+~~)|(\[[^\]]+\]\([^)\s]+\))/g;
 
-/** Shared inline formatter — code, bold, italic, strike, links.
- *  `small` tones it down for the thought body: smaller code chip, softer bold — so thinking never
- *  reads at the same weight as the reply. */
 function renderInline(text: string, small = false): React.ReactNode[] {
   const out: React.ReactNode[] = [];
   let last = 0;
@@ -788,7 +755,8 @@ function renderInline(text: string, small = false): React.ReactNode[] {
           key={key++}
           className={cn(
             "rounded-sm bg-muted px-1 py-px font-mono",
-            small ? "text-[11px] text-muted-foreground" : "text-[12.5px] text-foreground/90"
+            small ? "text-[11px]" : "text-[12.5px]",
+            small ? "text-muted-foreground" : "text-foreground/90"
           )}
         >
           {code.slice(1, -1)}
@@ -849,8 +817,13 @@ function parseBlocks(src: string): MdBlock[] {
   };
   let i = 0;
   while (i < lines.length) {
-    const line = lines[i] ?? "";
-    if (/^```[^`]*$/.test(line)) {
+    const line = lines[i];
+    if (!line) {
+      i++;
+      continue;
+    }
+    const fence = line.match(/^```[^`]*$/);
+    if (fence) {
       flush();
       const buf: string[] = [];
       i++;
@@ -858,14 +831,14 @@ function parseBlocks(src: string): MdBlock[] {
         buf.push(lines[i] ?? "");
         i++;
       }
-      i++; // closing fence (or EOF mid-stream)
+      i++;
       blocks.push({ kind: "code", text: buf.join("\n") });
       continue;
     }
     const h = line.match(/^(#{1,6})\s+(.*)$/);
-    if (h) {
+    if (h && h[1] && h[2]) {
       flush();
-      blocks.push({ kind: "h", level: (h[1] ?? "#").length, text: h[2] ?? "" });
+      blocks.push({ kind: "h", level: h[1].length, text: h[2] });
       i++;
       continue;
     }
@@ -886,9 +859,9 @@ function parseBlocks(src: string): MdBlock[] {
       const ordered = Boolean(ol);
       const items: string[] = [];
       while (i < lines.length) {
-        const found = (lines[i] ?? "").match(ordered ? /^\s*\d+[.)]\s+(.*)$/ : /^\s*[-*]\s+(.*)$/);
-        if (!found) break;
-        items.push(found[1] ?? "");
+        const m = (lines[i] ?? "").match(ordered ? /^\s*\d+[.)]\s+(.*)$/ : /^\s*[-*]\s+(.*)$/);
+        if (!m || !m[1]) break;
+        items.push(m[1]);
         i++;
       }
       blocks.push({ kind: ordered ? "ol" : "ul", items });
@@ -906,8 +879,7 @@ function parseBlocks(src: string): MdBlock[] {
   return blocks;
 }
 
-/** Message-body renderer — the markdown metrics a reply is read at. */
-export function Markdown({ text, className }: { text: string; className?: string }) {
+export function Markdown({ text, className }: { text: string; className?: string | undefined }) {
   const blocks = React.useMemo(() => parseBlocks(text), [text]);
   return (
     <div className={cn("flex flex-col gap-3 font-sans text-[14px] leading-[22px] text-foreground/90", className)}>
@@ -968,7 +940,6 @@ export function Markdown({ text, className }: { text: string; className?: string
   );
 }
 
-/* ═══════════════ Thought chip (rides the rail like any tool) ═══════════════ */
 const THOUGHT_MAX_H = 184;
 const THOUGHT_FADE = 18;
 
@@ -987,7 +958,7 @@ export function NestedReasoningBlock({
   isActive: boolean;
   isFinished: boolean;
   durationSeconds?: number | undefined;
-  onFinished?: () => void;
+  onFinished?: (() => void) | undefined;
   first: boolean;
   last: boolean;
 }) {
@@ -998,8 +969,6 @@ export function NestedReasoningBlock({
   const onFinishedRef = React.useRef(onFinished);
   onFinishedRef.current = onFinished;
 
-  // Measure the body's real height (sentences wrap, fonts load, lines reveal one at a time). Fixed
-  // per-sentence math reserved full default height even when the content needed half of it.
   const contentRef = React.useRef<HTMLDivElement>(null);
   const [contentH, setContentH] = React.useState(0);
   React.useEffect(() => {
@@ -1007,7 +976,6 @@ export function NestedReasoningBlock({
     if (!el) return;
     const measure = () => setContentH(el.offsetHeight);
     measure();
-    if (typeof ResizeObserver === "undefined") return;
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
@@ -1026,8 +994,6 @@ export function NestedReasoningBlock({
     return () => timers.forEach(clearTimeout);
   }, [isActive, isFinished, delays, sentences]);
 
-  // Live seconds while the thought streams — the duration only becomes the settled
-  // `durationSeconds` once the thought actually finishes.
   const [liveSecs, setLiveSecs] = React.useState(0);
   React.useEffect(() => {
     if (!isActive || isFinished) return;
@@ -1035,18 +1001,13 @@ export function NestedReasoningBlock({
     const t = setInterval(() => setLiveSecs((Date.now() - start) / 1000), 100);
     return () => clearInterval(t);
   }, [isActive, isFinished]);
-  // Freeze at the live elapsed when the thought finishes — never jump backwards to the prop.
-  const shownSecs = isFinished ? (liveSecs > 0 ? liveSecs : durationSeconds) : liveSecs;
 
-  // A live thought chip defaults open; settled → user toggle.
+  const shownSecs = isFinished ? (liveSecs > 0 ? liveSecs : durationSeconds) : liveSecs;
   const open = isFinished ? manualOpen : true;
   const count = isFinished ? sentences.length : revealed;
   const capped = contentH > THOUGHT_MAX_H;
-  // Short body: natural height. Tall body: clamp to the cap; while streaming keep the TAIL visible
-  // (the fresh thinking is the signal), settled + open turns the viewport scrollable.
   const scrollable = isFinished && manualOpen;
-  // On manual open, pin the viewport to the BOTTOM — the tail is where the thought ended; opening
-  // to the top reads as losing the thread.
+
   React.useEffect(() => {
     const el = viewportRef.current;
     if (!scrollable || !el) return;
@@ -1076,7 +1037,6 @@ export function NestedReasoningBlock({
       onToggle={() => isFinished && setManualOpen((v) => !v)}
       bodyPadLeft={ACTIVITY_ICON_LEFT + ACTIVITY_ICON_SIZE}
       body={
-        // No rail line — just the indent (padded to the icon's right edge).
         <div className="py-1 pl-3">
           <div
             ref={viewportRef}
@@ -1124,8 +1084,6 @@ export function NestedReasoningBlock({
   );
 }
 
-/* ═══════════════ The rail chip row ═══════════════
- * Chevron + counts sit directly after content — never pushed to the far edge. */
 function ToolChipRow({
   first,
   last,
@@ -1143,9 +1101,6 @@ function ToolChipRow({
   body,
   extraTrail,
   index,
-  /** Left padding of the expanded fold, measured from the row edge. Defaults to the content column
-   *  (gutter + text gap = 56). The thought chip passes the icon edge (32) so its nested border
-   *  hangs off the icon. */
   bodyPadLeft = ACTIVITY_GUTTER_WIDTH + ACTIVITY_TEXT_GAP,
   commandPill,
 }: {
@@ -1153,20 +1108,19 @@ function ToolChipRow({
   last: boolean;
   failed: boolean;
   label: string;
-  labelSuffix?: React.ReactNode;
+  labelSuffix?: React.ReactNode | undefined;
   icon: React.ReactNode;
   detail?: string | undefined;
   fileBadgeName?: string | undefined;
-  monoDetail?: boolean;
-  isActive?: boolean;
-  expandable?: boolean;
-  open?: boolean;
+  monoDetail?: boolean | undefined;
+  isActive?: boolean | undefined;
+  expandable?: boolean | undefined;
+  open?: boolean | undefined;
   onToggle?: (() => void) | undefined;
-  body?: React.ReactNode;
-  extraTrail?: React.ReactNode;
-  index?: number;
-  bodyPadLeft?: number;
-  /** Mono pill after the label — what a Run chip is executing (truncated). */
+  body?: React.ReactNode | undefined;
+  extraTrail?: React.ReactNode | undefined;
+  index?: number | undefined;
+  bodyPadLeft?: number | undefined;
   commandPill?: string | undefined;
 }) {
   const failedCls = failed ? "text-rose-600 dark:text-rose-400" : "text-muted-foreground";
@@ -1179,7 +1133,6 @@ function ToolChipRow({
       }}
     >
       <ActivityRail hasPredecessor={!first} continues={!last || !!open} failed={failed} />
-      {/* icon at the branch tip */}
       <span
         className={cn("absolute z-[1] flex items-center justify-center", failed && "text-rose-600 dark:text-rose-400")}
         style={{
@@ -1198,7 +1151,6 @@ function ToolChipRow({
           icon
         )}
       </span>
-      {/* card/content: gutter + text gap */}
       <div
         className="min-w-0 flex-1 flex flex-col"
         style={{ marginLeft: ACTIVITY_GUTTER_WIDTH + ACTIVITY_TEXT_GAP }}
@@ -1226,7 +1178,6 @@ function ToolChipRow({
             {labelSuffix && <span className="ml-1.5">{labelSuffix}</span>}
           </span>
           {fileBadgeName ? (
-            /* file badge: h22 r5, icon well + basename */
             <span className="flex h-[22px] min-w-0 max-w-[55%] shrink items-center gap-1.5 overflow-hidden rounded-[5px] bg-muted/70 pr-1.5 pl-px text-[12px] text-foreground/85 transition-colors group-hover/chip:bg-muted">
               <span className="flex size-5 shrink-0 items-center justify-center rounded-[4px] bg-background">
                 <FileText className="size-3.5 text-muted-foreground" aria-hidden="true" />
@@ -1234,7 +1185,6 @@ function ToolChipRow({
               <span className="truncate">{fileBadgeName}</span>
             </span>
           ) : commandPill ? (
-            /* Run pill: the command being executed, mono, truncated */
             <span className="inline-flex h-[22px] min-w-0 max-w-[55%] shrink items-center overflow-hidden rounded-[5px] bg-muted/70 px-2 font-mono text-[11.5px] text-foreground/85 transition-colors group-hover/chip:bg-muted">
               <span className="truncate">{commandPill}</span>
             </span>
@@ -1250,7 +1200,6 @@ function ToolChipRow({
           ) : null}
           {extraTrail}
           {expandable && (
-            /* trailing chevron directly after content — not far-right */
             <span className="flex size-[18px] shrink-0 items-center justify-center text-muted-foreground/80 opacity-0 transition-opacity duration-150 group-hover/chip:opacity-100">
               {open ? (
                 <ChevronDown className="size-3" aria-hidden="true" />
@@ -1270,8 +1219,6 @@ function ToolChipRow({
           )}
         >
           <div className="min-h-0 overflow-hidden">
-            {/* The fold lives at row level with positive padding — never a negative margin (those
-                overhang the clip container and lose their edge). */}
             <div style={{ paddingLeft: bodyPadLeft }}>
               <div className="h-px" />
               <div className="flex min-w-0 flex-col">{body}</div>
@@ -1283,7 +1230,6 @@ function ToolChipRow({
   );
 }
 
-/* ═══════════════ TracePillRow — one node → one rail chip ═══════════════ */
 function TracePillRow({
   node,
   isActive,
@@ -1296,7 +1242,7 @@ function TracePillRow({
   node: TraceNode;
   isActive: boolean;
   isFinished: boolean;
-  toolRegistry?: Record<string, ToolDefinition>;
+  toolRegistry?: Record<string, ToolDefinition> | undefined;
   first: boolean;
   last: boolean;
   index: number;
@@ -1308,13 +1254,11 @@ function TracePillRow({
   const isCmd = Boolean(node.command || node.type === "terminal" || node.type === "command");
   const failed = node.status === "failed" || (node.exitCode !== undefined && node.exitCode > 0);
   const filePath: string | undefined =
-    call.kind === "read" || call.kind === "write" || call.kind === "edit" || call.kind === "patch" || call.kind === "image"
+    call.kind === "read" || call.kind === "write" || call.kind === "edit" || call.kind === "patch"
       ? call.path
       : undefined;
   const detailText =
     node.secondary ?? (isCmd ? undefined : chipDetail || (typeof node.args === "string" ? node.args : undefined));
-  // Run pill: what is being executed — first line only, whitespace-flattened, truncated by the
-  // pill. Link/multiline commands collapse to their head.
   const commandPill = isCmd && node.command ? singleLine(node.command.split("\n")[0] ?? "") : undefined;
   const invocationLines = callBlockLines(node, call);
   const custom = node.renderContent
@@ -1357,7 +1301,7 @@ function TracePillRow({
       detail={filePath || commandPill ? undefined : detailText}
       fileBadgeName={filePath ? basename(filePath) : undefined}
       commandPill={commandPill}
-      monoDetail={Boolean(node.mono ?? isCmd ?? def?.monoChip)}
+      monoDetail={node.mono ?? (isCmd || def?.monoChip)}
       isActive={isActive}
       expandable={hasBody}
       open={open}
@@ -1373,18 +1317,14 @@ function TracePillRow({
       body={
         <>
           {custom}
-          {/* Read excerpt: the code the agent actually read, highlighted, numbered from the real
-              range, scroll-capped */}
           {!custom && node.code && !isCmd && (
             <div className="py-1">
               <CodeBlock code={node.code} lineStart={node.lineStart ?? 1} lang={node.lang} />
             </div>
           )}
-          {/* invocation hidden when a diff or excerpt exists — they carry it */}
           {!custom && !node.diffRows && !node.code && invocationLines.length > 0 && !isCmd && (
             <OutputDetail lines={invocationLines} />
           )}
-          {/* Run blocks get the real terminal, not verbatim lines */}
           {!custom && isCmd && node.command && (
             <div className="py-1">
               <TerminalCommand
@@ -1456,19 +1396,14 @@ export function formatElapsed(totalSeconds: number): string {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
-/* ═══════════════ ThinkingState — group header + rail tree ═══════════════
- * The header keeps the work summary before AND after the run — it never swaps to "Worked for N
- * seconds". */
 export interface ThinkingStateProps extends React.HTMLAttributes<HTMLDivElement> {
   nodes?: TraceNode[] | undefined;
   tools?: Record<string, ToolDefinition> | undefined;
   autoPlay?: boolean | undefined;
   defaultExpanded?: boolean | undefined;
   workingLabel?: string | undefined;
-  onSettled?: (() => void) | undefined;
-  /** Live mode (autoPlay off): whether this group is still in flight. That is what drives the
-   *  shimmer and the auto-collapse, since a live run has no scripted timing to play against. */
   running?: boolean | undefined;
+  onSettled?: (() => void) | undefined;
 }
 
 export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps>(
@@ -1479,8 +1414,8 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
       autoPlay = true,
       defaultExpanded,
       workingLabel,
-      onSettled,
       running,
+      onSettled,
       className,
       style,
       ...props
@@ -1492,6 +1427,8 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
     const [isWorking, setIsWorking] = React.useState(autoPlay);
     const [manualExpanded, setManualExpanded] = React.useState<boolean | null>(defaultExpanded ?? null);
     const startTimeRef = React.useRef(Date.now());
+    const isWorkingRef = React.useRef(isWorking);
+    isWorkingRef.current = isWorking;
     const onSettledRef = React.useRef(onSettled);
     onSettledRef.current = onSettled;
 
@@ -1524,14 +1461,7 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
       if (!isWorking && autoPlay) onSettledRef.current?.();
     }, [isWorking, autoPlay]);
 
-    // Live rows come from real tool calls, so nothing here is timed: every row the turn has produced
-    // is on the rail, and `running` is what says whether it is still working.
-    const live = autoPlay ? isWorking : Boolean(running);
-    const shown = autoPlay ? activeIndex : total;
-
-    // Summary covers revealed rows only — never the future. The header reads what the turn has
-    // actually done so far, matching the rows on screen.
-    const revealedCount = Math.min(shown + 1, total);
+    const revealedCount = Math.min(activeIndex + 1, total);
     const summary = React.useMemo(
       () =>
         toolGroupSummary(
@@ -1541,23 +1471,22 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
         ),
       [nodes, revealedCount]
     );
-    // While the summary is still empty (a thought, or the first command mid-flight) the header says
-    // what happened instead of going blank — both live AND settled.
-    const activeType = nodes[Math.min(shown, Math.max(total - 1, 0))]?.type;
+
+    const effectiveWorking = running !== undefined ? running : isWorking;
+    const activeType = nodes[Math.min(activeIndex, total - 1)]?.type;
     const hasThought = nodes.some((n) => n.type === "reasoning");
     const title =
       workingLabel ??
       (summary ||
-        (live
+        (effectiveWorking
           ? activeType === "reasoning"
             ? "Thinking…"
             : "Working…"
           : hasThought
             ? "Thought it through"
             : "Worked"));
-    // Open only while work is in flight; settled groups auto-collapse (the 140ms fold) so the
-    // streaming reply takes over. A user toggle always wins.
-    const expanded = manualExpanded !== null ? manualExpanded : live;
+
+    const expanded = manualExpanded !== null ? manualExpanded : effectiveWorking;
 
     return (
       <div
@@ -1567,16 +1496,16 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
         {...props}
       >
         <style>{`
+          @keyframes agent-pixel-on { 0%,100%{opacity:.15;transform:scale(.9)} 50%{opacity:.95;transform:scale(1.1)} }
           @keyframes agent-fade { from{opacity:0;transform:translateY(2px)} to{opacity:1;transform:translateY(0)} }
           @keyframes agent-row-in { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
           @keyframes agent-shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
         `}</style>
 
-        {/* ── group header ── */}
         <button
           type="button"
           aria-expanded={expanded}
-          onClick={() => setManualExpanded((prev) => !(prev !== null ? prev : live))}
+          onClick={() => setManualExpanded((prev) => !(prev !== null ? prev : effectiveWorking))}
           className={cn(
             "group flex w-full cursor-pointer items-center gap-1.5 pr-1 text-left text-[12px] leading-[18px]",
             "text-muted-foreground transition-colors duration-150 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none rounded-xs"
@@ -1591,8 +1520,7 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
             />
           </span>
           <span className="min-w-0 truncate">
-            {live ? (
-              /* the group title shimmers while the work is in flight */
+            {effectiveWorking ? (
               <span
                 className="bg-clip-text font-medium text-transparent motion-reduce:animate-none"
                 style={{
@@ -1605,13 +1533,11 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
                 {title}
               </span>
             ) : (
-              /* settled: same summary, shimmer off — never swaps to "Worked for" */
               <span className="font-normal">{title}</span>
             )}
           </span>
         </button>
 
-        {/* ── collapsible tree ── */}
         <div
           className={cn(
             "grid transition-[grid-template-rows,opacity] ease-out",
@@ -1621,11 +1547,9 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
         >
           <div className="min-h-0 overflow-hidden">
             <div className="flex flex-col" style={{ paddingTop: CHIPS_TOP_PAD }}>
-              {nodes.slice(0, revealedCount).map((node, idx) => {
-                // The last revealed row is the one in flight. That is the same row `activeIndex`
-                // points at when the group is scripted, and the newest real call when it is live.
-                const isNodeActive = idx === revealedCount - 1 && live;
-                const isNodeFinished = idx !== revealedCount - 1 || !live;
+              {nodes.slice(0, Math.min(activeIndex + 1, total)).map((node, idx) => {
+                const isNodeActive = idx === activeIndex && isWorking;
+                const isNodeFinished = idx < activeIndex || !isWorking;
                 if (node.type === "reasoning" && node.sentences) {
                   return (
                     <NestedReasoningBlock
@@ -1636,7 +1560,7 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
                       isFinished={isNodeFinished}
                       onFinished={advanceStep}
                       first={idx === 0}
-                      last={idx === revealedCount - 1}
+                      last={idx === total - 1}
                     />
                   );
                 }
@@ -1648,7 +1572,7 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
                     isFinished={isNodeFinished}
                     toolRegistry={tools}
                     first={idx === 0}
-                    last={idx === revealedCount - 1}
+                    last={idx === total - 1}
                     index={idx}
                   />
                 );
@@ -1662,7 +1586,6 @@ export const ThinkingState = React.forwardRef<HTMLDivElement, ThinkingStateProps
 );
 ThinkingState.displayName = "ThinkingState";
 
-/* ═══════════════ AgentWorkflow (multi-phase) ═══════════════ */
 export function AgentWorkflow({
   phases = [],
   tools,
@@ -1672,9 +1595,9 @@ export function AgentWorkflow({
   ...props
 }: React.HTMLAttributes<HTMLDivElement> & {
   phases: AgentPhase[];
-  tools?: Record<string, ToolDefinition>;
-  workingLabel?: string;
-  onComplete?: () => void;
+  tools?: Record<string, ToolDefinition> | undefined;
+  workingLabel?: string | undefined;
+  onComplete?: (() => void) | undefined;
 }) {
   const [currentPhase, setCurrentPhase] = React.useState(0);
   const [phaseStatus, setPhaseStatus] = React.useState<"trace" | "message">("trace");

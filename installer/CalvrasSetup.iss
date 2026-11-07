@@ -1,3 +1,4 @@
+
 ; Calvras for Windows — Inno Setup script.
 ; Build it with `npm run installer:build`, which regenerates the wizard art, packs the Electron
 ; payload, and compiles this file with ISCC. The version comes from package.json as /DMyAppVersion.
