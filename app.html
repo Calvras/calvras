@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kraken</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <div class="app-layout">
+    <!-- SIDEBAR -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="brand" id="brand-home-btn" title="Kraken Home">
+          <svg class="kraken-logo" width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+            <polygon points="2,2 22,2 14,12 22,22 2,22 10,12" />
+          </svg>
+          <span class="brand-name">Kraken</span>
+        </div>
+        <div class="header-actions">
+          <button class="icon-btn search-toggle" id="search-btn" title="Search">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+          </button>
+          <button class="icon-btn" id="sidebar-toggle-btn" title="Collapse sidebar">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+              <line x1="9" y1="3" x2="9" y2="21"></line>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Quick Search Bar -->
+      <div class="sidebar-search-box" id="sidebar-search-box" style="display: none;">
+        <input type="text" id="sidebar-search-input" placeholder="Search conversations...">
+      </div>
+
+      <!-- Primary Navigation -->
+      <nav class="primary-nav">
+        <a href="#" class="nav-item active" id="btn-new-chat">
+          <svg class="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 20h9"></path>
+            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+          </svg>
+          <span>New chat</span>
+        </a>
+        <a href="#" class="nav-item" id="btn-library">
+          <svg class="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+          </svg>
+          <span>Library</span>
+        </a>
+        <a href="#" class="nav-item" id="btn-projects">
+          <svg class="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+          </svg>
+          <span>Projects</span>
+        </a>
+        <a href="#" class="nav-item" id="btn-plugins">
+          <svg class="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+          </svg>
+          <span>Plugins</span>
+        </a>
+      </nav>
+
+      <!-- Chat History Lists -->
+      <div class="sidebar-scrollable" id="chat-history-list">
+        <!-- Dynamic Chat History Sections will be rendered here -->
+      </div>
+
+      <!-- User Profile / Footer -->
+      <div class="sidebar-footer">
+        <div class="user-profile" id="user-profile-btn">
+          <img src="avatar_milo.png" alt="Milo Erić" class="user-avatar">
+          <span class="user-name">Milo Erić</span>
+        </div>
+        <button class="icon-btn settings-btn" id="settings-btn" title="Settings">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+        </button>
+      </div>
+    </aside>
+
+    <!-- MAIN CHAT CONTAINER -->
+    <main class="main-content">
+      <!-- Top Action Bar -->
+      <header class="main-header">
+        <div class="header-left">
+          <button class="icon-btn uncollapse-btn" id="sidebar-uncollapse-btn" title="Expand sidebar" style="display: none;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+              <line x1="9" y1="3" x2="9" y2="21"></line>
+            </svg>
+          </button>
+          
+          <div class="active-chat-title-wrapper" id="active-chat-title-wrapper" style="display: none;">
+            <span class="active-chat-title" id="active-chat-title-text">Review Q3 Support Report</span>
+            <svg class="chevron-down" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </div>
+        </div>
+        <!-- Header right: Terminal toggle -->
+        <div class="header-right">
+          <!-- Auto-updater badge — hidden until update available -->
+          <button class="update-badge" id="update-badge" style="display:none;" title="A new version is ready — click to install">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="23 4 23 10 17 10"></polyline>
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+            </svg>
+            <span id="update-badge-label">Update ready</span>
+          </button>
+          <div class="update-progress-wrap" id="update-progress-wrap" style="display:none;">
+            <span class="update-progress-text" id="update-progress-text">Downloading…</span>
+            <div class="update-progress-track"><div class="update-progress-fill" id="update-progress-fill"></div></div>
+          </div>
+          <button class="icon-btn terminal-toggle-btn" id="terminal-toggle-btn" title="Open Terminal (Ctrl+`)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="4 17 10 11 4 5"></polyline>
+              <line x1="12" y1="19" x2="20" y2="19"></line>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- Real Terminal Panel — slides up from bottom of main-content -->
+      <div class="terminal-panel" id="terminal-panel" style="display:none;">
+        <div class="terminal-panel-header">
+          <div class="terminal-panel-title">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="4 17 10 11 4 5"></polyline>
+              <line x1="12" y1="19" x2="20" y2="19"></line>
+            </svg>
+            <span>Terminal</span>
+            <span class="terminal-cwd-label" id="terminal-cwd-label">~</span>
+          </div>
+          <div class="terminal-panel-actions">
+            <button class="icon-btn" id="terminal-clear-btn" title="Clear terminal">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path>
+              </svg>
+            </button>
+            <button class="icon-btn" id="terminal-close-btn" title="Close terminal">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="terminal-output" id="terminal-output"></div>
+        <div class="terminal-input-row">
+          <span class="terminal-prompt-symbol" id="terminal-prompt-symbol">$</span>
+          <input type="text" class="terminal-input" id="terminal-input" placeholder="Enter command…" autocomplete="off" spellcheck="false">
+        </div>
+      </div>
+
+      <!-- Center Greeting & Input Card State (EXACT REPLICA OF USER SCREENSHOT) -->
+      <div class="chat-viewport" id="chat-viewport">
+        <div class="welcome-container" id="welcome-container">
+          <h1 class="welcome-heading">Hello, Milo</h1>
+
+          <!-- The Exact Input Card from Screenshot media_1793953218078_bd4e8b27.png -->
+          <div class="antigravity-chat-card">
+            <!-- Top Context Tags -->
+            <div class="card-context-tags">
+              <div class="context-tag" id="tag-folder" title="Click to select workspace folder">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                </svg>
+                <span id="folder-name-label">Select Folder</span>
+                <svg class="chevron-small" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+              </div>
+              <input type="file" id="workspace-folder-picker" webkitdirectory directory style="display: none;">
+
+              <div class="context-tag" id="tag-checkout">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                  <line x1="8" y1="21" x2="16" y2="21"></line>
+                  <line x1="12" y1="17" x2="12" y2="21"></line>
+                </svg>
+                <span>Local Workspace</span>
+                <svg class="chevron-small" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+              </div>
+            </div>
+
+            <!-- Inner Nested Input Area -->
+            <div class="inner-prompt-box">
+              <!-- Attachment previews appear here when files are added -->
+              <div class="card-attachments" id="card-attachments" style="display:none;"></div>
+
+              <textarea 
+                id="prompt-input" 
+                class="prompt-textarea dark-textarea" 
+                placeholder="Ask anything, @ to mention, / for actions" 
+                rows="1"
+              ></textarea>
+
+              <div class="card-bottom-row">
+                <div class="card-left-actions">
+                  <!-- Just the clean '+' button (No Gemini!) -->
+                  <button class="plus-btn-dark" id="attach-btn" title="Add attachment">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                      <line x1="12" y1="5" x2="12" y2="19"></line>
+                      <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                  </button>
+                  <input type="file" id="file-input" style="display: none;" multiple>
+                </div>
+
+                <div class="card-right-actions">
+                  <!-- Turbo Dropdown Container -->
+                  <div class="mode-dropdown-container">
+                    <button class="mode-selector-btn dark-mode-btn" id="mode-selector-btn">
+                      <svg class="shield-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                        <line x1="12" y1="8" x2="12" y2="12"></line>
+                        <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                      </svg>
+                      <span class="selected-mode-name">Turbo</span>
+                      <svg class="chevron-icon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="18 15 12 9 6 15"></polyline>
+                      </svg>
+                    </button>
+
+                    <!-- Exact Turbo Menu from media_1793953276593_45fb13b6.png -->
+                    <div class="mode-dropdown-menu" id="mode-dropdown-menu">
+                      <!-- Request Review -->
+                      <div class="mode-option" data-mode="Request Review">
+                        <div class="mode-option-icon">
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                            <circle cx="12" cy="12" r="3"></circle>
+                          </svg>
+                        </div>
+                        <div class="mode-option-content">
+                          <div class="mode-option-title">Request Review</div>
+                          <div class="mode-option-desc">Every command requires approval.</div>
+                        </div>
+                      </div>
+
+                      <!-- Default -->
+                      <div class="mode-option" data-mode="Default">
+                        <div class="mode-option-icon">
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                          </svg>
+                        </div>
+                        <div class="mode-option-content">
+                          <div class="mode-option-title">Default</div>
+                          <div class="mode-option-desc">Ask before sensitive operations.</div>
+                        </div>
+                      </div>
+
+                      <!-- Auto (Preview) -->
+                      <div class="mode-option" data-mode="Auto (Preview)">
+                        <div class="mode-option-icon">
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                          </svg>
+                        </div>
+                        <div class="mode-option-content">
+                          <div class="mode-option-title">Auto (Preview)</div>
+                          <div class="mode-option-desc">Automatically decide if commands run.</div>
+                        </div>
+                      </div>
+
+                      <!-- Turbo (Active with checkmark) -->
+                      <div class="mode-option active" data-mode="Turbo">
+                        <div class="mode-option-icon">
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                            <line x1="12" y1="8" x2="12" y2="12"></line>
+                            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                          </svg>
+                        </div>
+                        <div class="mode-option-content">
+                          <div class="mode-option-title">Turbo</div>
+                          <div class="mode-option-desc">Run all commands without restrictions.</div>
+                        </div>
+                        <div class="mode-option-check">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                          </svg>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Voice Mic Button -->
+                  <button class="voice-btn-dark" id="voice-btn" title="Voice input">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                      <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                      <line x1="12" y1="19" x2="12" y2="23"></line>
+                      <line x1="8" y1="23" x2="16" y2="23"></line>
+                    </svg>
+                  </button>
+
+                  <!-- Sparkle Submit Button: White circle with black sparkles -->
+                  <button class="sparkle-btn-white" id="send-btn" title="Send message">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 2L14.2 7.8L20 10L14.2 12.2L12 18L9.8 12.2L4 10L9.8 7.8L12 2Z"></path>
+                      <circle cx="18" cy="18" r="2"></circle>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Active Conversation Thread -->
+        <div class="conversation-thread" id="conversation-thread" style="display: none;">
+          <div class="messages-container" id="messages-container"></div>
+          
+          <button class="scroll-bottom-btn" id="scroll-bottom-btn" title="Scroll to bottom" style="display: none;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </button>
+
+          <!-- Bottom Floating Input Capsule Bar -->
+          <div class="capsule-input-container">
+            <!-- Attachment previews above the input -->
+            <div class="capsule-attachments" id="capsule-attachments" style="display:none;"></div>
+            <div class="capsule-input-bar" id="capsule-input-bar">
+              <button class="circle-btn attach-btn-small" id="capsule-attach-btn" title="Attach file (or paste image)">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                  <line x1="12" y1="5" x2="12" y2="19"></line>
+                  <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+              </button>
+              <input type="file" id="capsule-file-input" style="display:none;" multiple accept="image/*,.pdf,.doc,.docx,.txt,.csv,.xlsx,.xls,.pptx,.ppt,.zip,.json,.md">
+
+              <textarea 
+                id="capsule-prompt-input" 
+                class="capsule-text-input" 
+                placeholder="Ask anything" 
+                rows="1"
+              ></textarea>
+
+              <div class="capsule-right-actions">
+                <!-- Turbo Mode Selector in Capsule Bar -->
+                <div class="mode-dropdown-container capsule-mode-container">
+                  <button class="capsule-model-btn" id="capsule-mode-btn">
+                    <svg class="shield-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #6b7280;">
+                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                      <line x1="12" y1="8" x2="12" y2="12"></line>
+                      <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                    </svg>
+                    <span class="capsule-model-name" id="capsule-mode-label">Turbo</span>
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color: #6b7280;">
+                      <polyline points="18 15 12 9 6 15"></polyline>
+                    </svg>
+                  </button>
+
+                  <!-- Turbo Menu in Capsule Bar -->
+                  <div class="mode-dropdown-menu" id="capsule-mode-menu" style="right: -20px;">
+                    <div class="mode-option" data-mode="Request Review">
+                      <div class="mode-option-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg></div>
+                      <div class="mode-option-content"><div class="mode-option-title">Request Review</div><div class="mode-option-desc">Every command requires approval.</div></div>
+                    </div>
+                    <div class="mode-option" data-mode="Default">
+                      <div class="mode-option-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></div>
+                      <div class="mode-option-content"><div class="mode-option-title">Default</div><div class="mode-option-desc">Ask before sensitive operations.</div></div>
+                    </div>
+                    <div class="mode-option" data-mode="Auto (Preview)">
+                      <div class="mode-option-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg></div>
+                      <div class="mode-option-content"><div class="mode-option-title">Auto (Preview)</div><div class="mode-option-desc">Automatically decide if commands run.</div></div>
+                    </div>
+                    <div class="mode-option active" data-mode="Turbo">
+                      <div class="mode-option-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg></div>
+                      <div class="mode-option-content"><div class="mode-option-title">Turbo</div><div class="mode-option-desc">Run all commands without restrictions.</div></div>
+                      <div class="mode-option-check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>
+                    </div>
+                  </div>
+                </div>
+
+                <button class="circle-btn voice-btn" id="capsule-voice-btn" title="Voice input">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                    <line x1="12" y1="19" x2="12" y2="23"></line>
+                    <line x1="8" y1="23" x2="16" y2="23"></line>
+                  </svg>
+                </button>
+
+                <!-- Send / Stop Button -->
+                <button class="capsule-send-btn" id="capsule-send-btn" title="Send message">
+                  <svg id="capsule-send-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="12" y1="19" x2="12" y2="5"></line>
+                    <polyline points="5 12 12 5 19 12"></polyline>
+                  </svg>
+                  <svg id="capsule-stop-icon" width="11" height="11" viewBox="0 0 24 24" fill="currentColor" style="display: none;">
+                    <rect x="5" y="5" width="14" height="14" rx="2"></rect>
+                  </svg>
+                </button>
+              </div>
+            </div>
+            
+            <div class="input-disclaimer">Kraken AI can make mistakes. Check important info.</div>
+          </div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- MODALS -->
+  <div class="modal-overlay" id="pro-modal" style="display: none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="modal-title">Upgrade to Kraken Pro</h2>
+        <button class="close-modal-btn" id="close-pro-modal">&times;</button>
+      </div>
+      <p class="modal-sub">Unlock unlimited Astra Max reasoning, priority compute, and full workspace integrations.</p>
+      <div class="pricing-plans">
+        <div class="plan-card">
+          <div class="plan-name">Pro Monthly</div>
+          <div class="plan-price">$20<span>/month</span></div>
+          <ul class="plan-features">
+            <li>Unlimited Astra Max reasoning</li>
+            <li>Extended context window (1M tokens)</li>
+            <li>Custom plugins & project workspaces</li>
+          </ul>
+          <button class="plan-cta-btn">Upgrade Now</button>
+        </div>
+        <div class="plan-card featured">
+          <div class="plan-badge">Best Value</div>
+          <div class="plan-name">Pro Annual</div>
+          <div class="plan-price">$16<span>/month, billed annually</span></div>
+          <ul class="plan-features">
+            <li>All Monthly features</li>
+            <li>20% savings</li>
+            <li>Priority access to future beta models</li>
+          </ul>
+          <button class="plan-cta-btn primary">Upgrade Yearly</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div class="modal-overlay" id="settings-modal" style="display: none;">
+    <div class="modal-card" style="max-width: 480px; width: 90%;">
+      <div class="modal-header">
+        <h2 style="font-size: 1.15rem; font-weight: 600;">Kraken Settings</h2>
+        <button class="close-modal-btn" id="close-settings-modal">&times;</button>
+      </div>
+      <div class="settings-content" style="padding-top: 12px; display: flex; flex-direction: column; gap: 18px;">
+        <!-- Engine Status Banner -->
+        <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 12px 14px; display: flex; align-items: center; justify-content: space-between;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #16a34a; box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.2);"></span>
+            <div>
+              <div style="font-size: 13px; font-weight: 600; color: #166534;">DeepSeek V4.1 Flash Active</div>
+              <div style="font-size: 11px; color: #15803d;">Ultra-low latency reasoning pipeline connected</div>
+            </div>
+          </div>
+          <span style="font-size: 11px; background: #dcfce7; color: #166534; font-weight: 600; padding: 3px 8px; border-radius: 12px;">Operational</span>
+        </div>
+
+        <div class="settings-row">
+          <div>
+            <label style="display: block; font-weight: 600;">Execution Mode</label>
+            <span style="font-size: 11px; color: #6b7280;">Agent action confirmation level</span>
+          </div>
+          <select id="settings-mode-select" style="padding: 7px 10px; border-radius: 6px; border: 1px solid #d1d5db; width: 210px; font-size: 13px;">
+            <option value="Turbo" selected>Turbo (Run all commands)</option>
+            <option value="Auto (Preview)">Auto (Preview)</option>
+            <option value="Default">Default (Ask before sensitive)</option>
+            <option value="Request Review">Request Review (Always ask)</option>
+          </select>
+        </div>
+
+        <div class="settings-row">
+          <div>
+            <label style="display: block; font-weight: 600;">Show Reasoning Steps</label>
+            <span style="font-size: 11px; color: #6b7280;">Display real-time thought processing</span>
+          </div>
+          <label style="position: relative; display: inline-block; width: 44px; height: 24px; cursor: pointer;">
+            <input type="checkbox" id="show-thoughts-toggle" checked style="opacity: 0; width: 0; height: 0;">
+            <span style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #111827; transition: .3s; border-radius: 24px;"></span>
+            <span style="position: absolute; content: ''; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; transform: translateX(20px);"></span>
+          </label>
+        </div>
+
+        <div class="settings-row">
+          <div>
+            <label style="display: block; font-weight: 600;">Appearance</label>
+            <span style="font-size: 11px; color: #6b7280;">Workspace color theme</span>
+          </div>
+          <select id="theme-select" style="padding: 7px 10px; border-radius: 6px; border: 1px solid #d1d5db; width: 210px; font-size: 13px;">
+            <option value="warm-porcelain" selected>Warm Milky Porcelain</option>
+            <option value="minimal-light">Clean Studio Light</option>
+          </select>
+        </div>
+
+        <div style="border-top: 1px solid #f3f4f6; padding-top: 14px; display: flex; align-items: center; justify-content: space-between;">
+          <button id="clear-chats-btn" style="background: none; border: 1px solid #fecaca; color: #dc2626; padding: 7px 14px; border-radius: 6px; font-size: 12px; cursor: pointer;">Clear Chat History</button>
+          <button id="save-settings-btn" style="background: #111827; color: white; border: none; padding: 8px 18px; border-radius: 6px; font-weight: 500; cursor: pointer; font-size: 13px;">Save & Apply</button>
+        </div>
+        <div id="settings-status-msg" style="margin-top: 4px; font-size: 12px; color: #16a34a; text-align: right; display: none;">Preferences saved!</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Live Preview — split-pane panel. Moved inside .app-layout by JS on init
+       so it becomes a flex sibling of .main-content. When .open is applied,
+       the chat column shrinks left and the preview fills the right side. -->
+  <aside class="preview-panel" id="preview-panel" aria-hidden="true" aria-label="Live preview">
+    <div class="preview-resize-handle" id="preview-resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize preview" tabindex="0"></div>
+    <div class="preview-panel-header">
+      <div class="preview-panel-title">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+          <line x1="8" y1="21" x2="16" y2="21"></line>
+          <line x1="12" y1="17" x2="12" y2="21"></line>
+        </svg>
+        <span>Live Preview</span>
+        <span class="preview-live-dot" title="Real-time execution active"></span>
+      </div>
+      <div class="preview-url-bar">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="2" y1="12" x2="22" y2="12"></line>
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1 4-10z"></path>
+        </svg>
+        <input type="text" id="preview-url-input" value="" placeholder="http://localhost:3000" spellcheck="false">
+      </div>
+      <div class="preview-panel-actions">
+        <button id="preview-refresh-btn" title="Reload preview">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+          </svg>
+        </button>
+        <button id="preview-open-tab-btn" title="Open in new browser tab">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+            <polyline points="15 3 21 3 21 9"></polyline>
+            <line x1="10" y1="14" x2="21" y2="3"></line>
+          </svg>
+        </button>
+        <button id="preview-close-btn" title="Close preview (Esc)" style="font-size: 20px; line-height: 1;">
+          &times;
+        </button>
+      </div>
+    </div>
+    <div class="preview-panel-body">
+      <iframe id="preview-iframe" src="about:blank" title="Live preview"></iframe>
+    </div>
+  </aside>
+
+  <script src="app.js"></script>
+</body>
+</html>
