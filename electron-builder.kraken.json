@@ -2,7 +2,8 @@
   "appId": "dev.getkraken.app",
   "productName": "Kraken",
   "extraMetadata": {
-    "main": "main.cjs"
+    "main": "main.cjs",
+    "version": "1.0.1"
   },
   "copyright": "Copyright © 2026 Calvras",
   "directories": {
