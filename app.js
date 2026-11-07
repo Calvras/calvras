@@ -1992,7 +1992,7 @@ function addAssistantActionButtons(assistantRow, rawText) {
 // ==========================================================================
 // AGENT ENGINE (real tool loop — see ai-agent-response.tsx for the UI format)
 // ==========================================================================
-const MAX_AGENT_STEPS = 10;
+const MAX_AGENT_STEPS = 40;
 const MAX_READ_EXCERPT_LINES = 400;
 const MAX_DIFF_ROWS = 600;
 
@@ -2185,7 +2185,12 @@ function stripToolBlocks(text) {
   parseDsmlInvokes(out).slice().reverse().forEach(inv => {
     out = out.slice(0, inv.index) + out.slice(inv.index + inv.length);
   });
+  // Strip all DSML tags including partial ones that leak through
   out = out.replace(new RegExp(DSML_TAG + '(calls?|invoke|parameter)\\s*>?', 'g'), '');
+  // Strip any remaining < | DSML | ... > fragments
+  out = out.replace(/<\s*\|\s*DSML\s*\|[^>]*>?/g, '');
+  // Strip full DSML blocks including content between open/close tags
+  out = out.replace(/(<\s*\|\s*DSML\s*\|[\s\S]*?<\s*\|\s*DSML\s*\|)/g, '');
   return balanceFences(out)
     .replace(/```(?:write|write_file|edit|edit_file|read|read_file|run|run_cmd|search|list|glob|preview|preview_close|git):[^\n]*\n?[\s\S]*?```/g, '')
     .replace(/```(?:write|write_file|edit|edit_file|read|read_file|run|run_cmd|search|list|glob|preview|preview_close|git):[\s\S]*$/g, '')
@@ -2233,7 +2238,7 @@ function buildAgentSystemPrompt(treeEntries) {
     'RULES:',
     '- Use paths relative to the workspace root. Never invent a path; list or read first when unsure.',
     '- SMART EDITING: When modifying an existing file, NEVER rewrite the entire file. Read the file first, identify the exact lines that need changing, and emit only the minimal diff. Use targeted edits. Only write a full file when creating a new file from scratch.',
-    '- Emit tool blocks ONLY in the exact fenced ```kind:arg``` syntax above. NEVER use DSML, <|DSML|>, <invoke>, XML tags, JSON tool-call objects, or any other function-call format. Plain fenced blocks only.',
+    '- Emit tool blocks ONLY in the exact fenced ```kind:arg``` syntax above. NEVER use DSML, <|DSML|>, <invoke>, XML tags, JSON tool-call objects, or any other function-call format. Plain fenced blocks only. If you emit DSML it will be stripped and ignored.',
     '- You receive real results. Never claim a command ran, a test passed, or a file changed unless the tool result shows it.',
     '- Read a file before rewriting it, unless you are creating a new file.',
     '- One command per run block. No chained scripts.',
