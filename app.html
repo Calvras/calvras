@@ -456,71 +456,456 @@
     </div>
   </div>
 
-  <!-- Settings Modal -->
+  <!-- Settings Modal (New Studio Design) -->
   <div class="modal-overlay" id="settings-modal" style="display: none;">
-    <div class="modal-card" style="max-width: 480px; width: 90%;">
-      <div class="modal-header">
-        <h2 style="font-size: 1.15rem; font-weight: 600;">Kraken Settings</h2>
-        <button class="close-modal-btn" id="close-settings-modal">&times;</button>
-      </div>
-      <div class="settings-content" style="padding-top: 12px; display: flex; flex-direction: column; gap: 18px;">
-        <!-- Engine Status Banner -->
-        <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 12px 14px; display: flex; align-items: center; justify-content: space-between;">
-          <div style="display: flex; align-items: center; gap: 10px;">
-            <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #16a34a; box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.2);"></span>
-            <div>
-              <div style="font-size: 13px; font-weight: 600; color: #166534;">DeepSeek V4.1 Flash Active</div>
-              <div style="font-size: 11px; color: #15803d;">Ultra-low latency reasoning pipeline connected</div>
+    <div class="settings-dialog-card">
+      <!-- Left Navigation Sidebar -->
+      <aside class="settings-sidebar">
+        <div class="settings-nav-section">
+          <div class="settings-nav-header">Settings</div>
+          <button class="settings-nav-item active" data-tab="general">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+            <span>General</span>
+          </button>
+          <button class="settings-nav-item" data-tab="application">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+            <span>Application</span>
+          </button>
+          <button class="settings-nav-item" data-tab="appearance">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+            <span>Appearance</span>
+          </button>
+          <button class="settings-nav-item" data-tab="shortcuts">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"></rect><line x1="6" y1="8" x2="6.01" y2="8"></line><line x1="10" y1="8" x2="10.01" y2="8"></line><line x1="14" y1="8" x2="14.01" y2="8"></line><line x1="18" y1="8" x2="18.01" y2="8"></line><line x1="8" y1="16" x2="16" y2="16"></line></svg>
+            <span>Shortcuts</span>
+          </button>
+          <button class="settings-nav-item" data-tab="notifications">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+            <span>Notifications</span>
+          </button>
+          <button class="settings-nav-item" data-tab="models">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+            <span>Models & API Keys</span>
+          </button>
+          <button class="settings-nav-item" data-tab="account">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+            <span>Account</span>
+          </button>
+        </div>
+
+        <div class="settings-nav-section">
+          <div class="settings-nav-header">Projects</div>
+          <button class="settings-nav-item active-project" id="settings-project-btn">
+            <span class="project-dot"></span>
+            <span id="settings-project-name">New Coding</span>
+          </button>
+          <button class="settings-nav-item">
+            <span class="project-dot muted"></span>
+            <span>Calvras</span>
+          </button>
+          <button class="settings-nav-item">
+            <span class="project-dot muted"></span>
+            <span>morgan</span>
+          </button>
+          <button class="settings-nav-item text-muted-link">
+            <span>Show All</span>
+          </button>
+        </div>
+
+        <div class="settings-nav-section">
+          <div class="settings-nav-header">Not in Project</div>
+          <button class="settings-nav-item">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+            <span>Conversations</span>
+          </button>
+        </div>
+
+        <div class="settings-sidebar-footer">
+          <button class="settings-nav-item" id="give-feedback-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+            <span>Give Feedback</span>
+          </button>
+          <div class="settings-user-profile" id="settings-profile-card">
+            <img class="settings-user-avatar" id="settings-avatar" src="avatar_milo.png" alt="User">
+            <div class="settings-user-info">
+              <span class="settings-user-name" id="settings-user-name">SHIKARI</span>
+              <span class="settings-user-email" id="settings-user-email">zenithzone18@gmail.com</span>
             </div>
           </div>
-          <span style="font-size: 11px; background: #dcfce7; color: #166534; font-weight: 600; padding: 3px 8px; border-radius: 12px;">Operational</span>
         </div>
+      </aside>
 
-        <div class="settings-row">
-          <div>
-            <label style="display: block; font-weight: 600;">Execution Mode</label>
-            <span style="font-size: 11px; color: #6b7280;">Agent action confirmation level</span>
+      <!-- Right Main Content Panel -->
+      <main class="settings-main-pane">
+        <button class="settings-close-x" id="close-settings-modal">&times;</button>
+
+        <!-- General Tab -->
+        <div class="settings-tab-panel active" id="tab-general">
+          <div class="settings-pane-header">
+            <h2>General</h2>
+            <p>Configure agent execution, queued message delivery, and permissions.</p>
           </div>
-          <select id="settings-mode-select" style="padding: 7px 10px; border-radius: 6px; border: 1px solid #d1d5db; width: 210px; font-size: 13px;">
-            <option value="Turbo" selected>Turbo (Run all commands)</option>
-            <option value="Auto (Preview)">Auto (Preview)</option>
-            <option value="Default">Default (Ask before sensitive)</option>
-            <option value="Request Review">Request Review (Always ask)</option>
-          </select>
-        </div>
 
-        <div class="settings-row">
-          <div>
-            <label style="display: block; font-weight: 600;">Show Reasoning Steps</label>
-            <span style="font-size: 11px; color: #6b7280;">Display real-time thought processing</span>
+          <div class="settings-card-group">
+            <div class="settings-section-title">Global Permissions</div>
+            <p class="settings-section-desc">Configure global allowed and denied resource permissions. <a href="#" class="settings-link">Learn more.</a></p>
+
+            <div class="settings-card-box">
+              <div class="settings-card-item">
+                <div class="settings-item-text">
+                  <div class="settings-item-title">Permission Preset</div>
+                  <div class="settings-item-desc">Controls the actions the agent can take.</div>
+                </div>
+                <select class="settings-select" id="settings-mode-select">
+                  <option value="Turbo" selected>Turbo</option>
+                  <option value="Auto (Preview)">Auto (Preview)</option>
+                  <option value="Default">Default</option>
+                  <option value="Request Review">Request Review</option>
+                </select>
+              </div>
+
+              <div class="settings-card-item">
+                <div class="settings-item-text">
+                  <div class="settings-item-title">
+                    Tool Permissions <span class="settings-badge">103</span>
+                  </div>
+                  <div class="settings-item-desc">Modify permissions for file, terminal, and MCP tools.</div>
+                </div>
+                <button class="settings-btn-outline" id="btn-open-tool-perms">Open</button>
+              </div>
+
+              <div class="settings-card-item">
+                <div class="settings-item-text">
+                  <div class="settings-item-title">
+                    Network Access Rules <span class="settings-badge">25</span>
+                  </div>
+                  <div class="settings-item-desc">Configure allowed and denied URLs for reading.</div>
+                </div>
+                <button class="settings-btn-outline" id="btn-open-network-rules">Open</button>
+              </div>
+            </div>
           </div>
-          <label style="position: relative; display: inline-block; width: 44px; height: 24px; cursor: pointer;">
-            <input type="checkbox" id="show-thoughts-toggle" checked style="opacity: 0; width: 0; height: 0;">
-            <span style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #111827; transition: .3s; border-radius: 24px;"></span>
-            <span style="position: absolute; content: ''; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; transform: translateX(20px);"></span>
-          </label>
-        </div>
 
-        <div class="settings-row">
-          <div>
-            <label style="display: block; font-weight: 600;">Appearance</label>
-            <span style="font-size: 11px; color: #6b7280;">Workspace color theme</span>
+          <div class="settings-card-group">
+            <div class="settings-section-title">Agent Behavior</div>
+            <div class="settings-card-box">
+              <div class="settings-card-item">
+                <div class="settings-item-text">
+                  <div class="settings-item-title">Plan Review Policy</div>
+                  <div class="settings-item-desc">Whether the agent asks you to review its documents. Type <code class="settings-inline-code">/</code> and select <code class="settings-inline-code">plan</code> to have the agent generate a plan.</div>
+                </div>
+                <select class="settings-select">
+                  <option value="Always Proceed" selected>Always Proceed</option>
+                  <option value="Ask on Step">Ask on Step</option>
+                  <option value="Strict">Strict Confirmation</option>
+                </select>
+              </div>
+            </div>
           </div>
-          <select id="theme-select" style="padding: 7px 10px; border-radius: 6px; border: 1px solid #d1d5db; width: 210px; font-size: 13px;">
-            <option value="warm-porcelain" selected>Warm Milky Porcelain</option>
-            <option value="minimal-light">Clean Studio Light</option>
-          </select>
+
+          <div class="settings-card-group">
+            <div class="settings-section-title">Execution</div>
+            <div class="settings-card-box">
+              <div class="settings-card-item">
+                <div class="settings-item-text">
+                  <div class="settings-item-title">Queued Messages</div>
+                  <div class="settings-item-desc">Configure when follow-up messages are sent. Keyboard shortcuts ⓘ</div>
+                </div>
+                <div class="settings-pill-toggle">
+                  <button class="pill-btn active" id="btn-queue-toggle">Queue</button>
+                  <button class="pill-btn" id="btn-send-now-toggle">Send Immediately</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-card-group">
+            <div class="settings-section-title">Built-in Browser</div>
+            <p class="settings-section-desc">Configure link opening and built-in browser preferences.</p>
+            <div class="settings-card-box">
+              <div class="settings-card-item">
+                <div class="settings-item-text">
+                  <div class="settings-item-title">Open Links In</div>
+                  <div class="settings-item-desc">Default window destination for web preview and documentation.</div>
+                </div>
+                <select class="settings-select" id="settings-browser-pref">
+                  <option value="builtin" selected>Built-in Browser</option>
+                  <option value="system">System Default Browser</option>
+                </select>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div style="border-top: 1px solid #f3f4f6; padding-top: 14px; display: flex; align-items: center; justify-content: space-between;">
-          <button id="clear-chats-btn" style="background: none; border: 1px solid #fecaca; color: #dc2626; padding: 7px 14px; border-radius: 6px; font-size: 12px; cursor: pointer;">Clear Chat History</button>
-          <button id="save-settings-btn" style="background: #111827; color: white; border: none; padding: 8px 18px; border-radius: 6px; font-weight: 500; cursor: pointer; font-size: 13px;">Save & Apply</button>
+        <!-- Account Tab -->
+        <div class="settings-tab-panel" id="tab-account">
+          <div class="settings-pane-header">
+            <h2>Account</h2>
+            <p>Manage your plan, credentials, and general preferences.</p>
+          </div>
+
+          <div class="settings-card-group">
+            <div class="settings-section-title">General</div>
+            <div class="settings-card-box">
+              <div class="settings-card-item">
+                <div class="settings-item-text">
+                  <div class="settings-item-title">Enable Telemetry</div>
+                  <div class="settings-item-desc">When toggled on, Kraken collects usage data to help enhance performance and features.</div>
+                </div>
+                <label class="settings-switch">
+                  <input type="checkbox" checked>
+                  <span class="slider"></span>
+                </label>
+              </div>
+
+              <div class="settings-card-item">
+                <div class="settings-item-text">
+                  <div class="settings-item-title">Marketing Emails</div>
+                  <div class="settings-item-desc">Receive product updates, tips, and promotions from Kraken via email.</div>
+                </div>
+                <label class="settings-switch">
+                  <input type="checkbox">
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-card-group">
+            <div class="settings-section-title">Account</div>
+            <div class="settings-card-box">
+              <div class="settings-card-item">
+                <div class="settings-item-text">
+                  <div class="settings-item-title" id="account-plan-name">Your Plan: Antigravity Starter Quota</div>
+                  <div class="settings-item-desc">Free users and Starter users receive the base limits on Kraken. Upgrade to Kraken Pro or Ultra for unlimited rate limits and priority fleet.</div>
+                </div>
+                <button class="settings-btn-primary" id="btn-upgrade-plan">Upgrade</button>
+              </div>
+
+              <div class="settings-card-item">
+                <div class="settings-item-text">
+                  <div class="settings-item-title">Email</div>
+                  <div class="settings-item-desc" id="account-email-display">zenithzone18@gmail.com</div>
+                </div>
+                <button class="settings-btn-outline" id="btn-settings-signout">Sign Out</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-footer-text">
+            By using this app, you agree to its <a href="#" class="settings-link">Terms of Service</a>
+          </div>
         </div>
-        <div id="settings-status-msg" style="margin-top: 4px; font-size: 12px; color: #16a34a; text-align: right; display: none;">Preferences saved!</div>
-      </div>
+
+        <!-- Models & API Keys Tab -->
+        <div class="settings-tab-panel" id="tab-models">
+          <div class="settings-pane-header">
+            <h2>Models & API Keys</h2>
+            <p>Connect and configure your AI model providers, API keys, and auto-fallback routing.</p>
+          </div>
+
+          <!-- Step-by-Step Teaching / Integration Guide -->
+          <div class="api-guide-banner">
+            <div class="api-guide-icon">⚡</div>
+            <div class="api-guide-body">
+              <div class="api-guide-title">How API Keys & Model Integration Work</div>
+              <p>Kraken connects directly from your local desktop app to model APIs using low-latency streaming. Your keys are stored <strong>only on your machine</strong> in encrypted local storage and are never uploaded to any third party. If a provider hits a rate limit, Kraken automatically falls back to your next active key.</p>
+            </div>
+          </div>
+
+          <div class="settings-card-group">
+            <div class="settings-section-title">Model Providers</div>
+            <div class="settings-card-box">
+              <!-- OpenAI -->
+              <div class="settings-card-item api-provider-item">
+                <div class="provider-info">
+                  <div class="provider-header-row">
+                    <span class="provider-name">OpenAI</span>
+                    <span class="provider-tag">GPT-4o, GPT-4 Turbo, o1</span>
+                    <span class="api-status-chip ready" id="status-openai">Ready</span>
+                  </div>
+                  <div class="provider-input-row">
+                    <input type="password" class="api-key-input" id="key-openai" placeholder="sk-proj-..." value="••••••••••••••••••••••••••••••••">
+                    <button class="settings-btn-outline" onclick="window.testApiKey('OpenAI')">Test</button>
+                    <button class="settings-btn-save" onclick="window.saveApiKey('OpenAI')">Save</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Anthropic Claude -->
+              <div class="settings-card-item api-provider-item">
+                <div class="provider-info">
+                  <div class="provider-header-row">
+                    <span class="provider-name">Anthropic Claude</span>
+                    <span class="provider-tag">Claude 3.5 Sonnet, Opus</span>
+                    <span class="api-status-chip ready" id="status-anthropic">Ready</span>
+                  </div>
+                  <div class="provider-input-row">
+                    <input type="password" class="api-key-input" id="key-anthropic" placeholder="sk-ant-..." value="••••••••••••••••••••••••••••••••">
+                    <button class="settings-btn-outline" onclick="window.testApiKey('Anthropic')">Test</button>
+                    <button class="settings-btn-save" onclick="window.saveApiKey('Anthropic')">Save</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Google Gemini -->
+              <div class="settings-card-item api-provider-item">
+                <div class="provider-info">
+                  <div class="provider-header-row">
+                    <span class="provider-name">Google Gemini</span>
+                    <span class="provider-tag">Gemini 1.5 Pro, Flash</span>
+                    <span class="api-status-chip ready" id="status-gemini">Ready</span>
+                  </div>
+                  <div class="provider-input-row">
+                    <input type="password" class="api-key-input" id="key-gemini" placeholder="AIzaSy..." value="••••••••••••••••••••••••••••••••">
+                    <button class="settings-btn-outline" onclick="window.testApiKey('Gemini')">Test</button>
+                    <button class="settings-btn-save" onclick="window.saveApiKey('Gemini')">Save</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- DeepSeek & Groq -->
+              <div class="settings-card-item api-provider-item">
+                <div class="provider-info">
+                  <div class="provider-header-row">
+                    <span class="provider-name">DeepSeek / Groq (Active Reasoning)</span>
+                    <span class="provider-tag">DeepSeek V3, R1, Llama 3.3</span>
+                    <span class="api-status-chip active-connected" id="status-deepseek">Active Fleet</span>
+                  </div>
+                  <div class="provider-input-row">
+                    <input type="password" class="api-key-input" id="key-deepseek" placeholder="gsk_... or custom key" value="••••••••••••••••••••••••••••••••">
+                    <button class="settings-btn-outline" onclick="window.testApiKey('DeepSeek')">Test</button>
+                    <button class="settings-btn-save" onclick="window.saveApiKey('DeepSeek')">Save</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Quick Integration Walkthrough -->
+          <div class="settings-card-group">
+            <div class="settings-section-title">Quick Key Integration Tutorial</div>
+            <div class="settings-tutorial-grid">
+              <div class="tutorial-card">
+                <div class="tut-step">1</div>
+                <div class="tut-title">Get your API Key</div>
+                <div class="tut-desc">Sign into your provider console (e.g. platform.openai.com, console.anthropic.com, or aistudio.google.com) and create an API key.</div>
+              </div>
+              <div class="tutorial-card">
+                <div class="tut-step">2</div>
+                <div class="tut-title">Paste & Save</div>
+                <div class="tut-desc">Paste the key above and click Save. It is immediately encrypted into your local machine keychain.</div>
+              </div>
+              <div class="tutorial-card">
+                <div class="tut-step">3</div>
+                <div class="tut-title">Automatic Fallback</div>
+                <div class="tut-desc">Kraken automatically tests latency and switches models seamlessly so tasks never pause or get stuck.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Application Tab -->
+        <div class="settings-tab-panel" id="tab-application">
+          <div class="settings-pane-header">
+            <h2>Application</h2>
+            <p>Startup behavior, performance, and updater settings.</p>
+          </div>
+          <div class="settings-card-group">
+            <div class="settings-card-box">
+              <div class="settings-card-item">
+                <div class="settings-item-text">
+                  <div class="settings-item-title">Launch on Startup</div>
+                  <div class="settings-item-desc">Start Kraken automatically when your computer turns on.</div>
+                </div>
+                <label class="settings-switch"><input type="checkbox"><span class="slider"></span></label>
+              </div>
+              <div class="settings-card-item">
+                <div class="settings-item-text">
+                  <div class="settings-item-title">Hardware Acceleration</div>
+                  <div class="settings-item-desc">Enable GPU acceleration for smoother terminal rendering and animations.</div>
+                </div>
+                <label class="settings-switch"><input type="checkbox" checked><span class="slider"></span></label>
+              </div>
+              <div class="settings-card-item">
+                <div class="settings-item-text">
+                  <div class="settings-item-title">Clear Workspace Cache</div>
+                  <div class="settings-item-desc">Reset temporary indexes and local chat conversation traces.</div>
+                </div>
+                <button class="settings-btn-danger" id="clear-chats-btn">Clear History</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Appearance Tab -->
+        <div class="settings-tab-panel" id="tab-appearance">
+          <div class="settings-pane-header">
+            <h2>Appearance</h2>
+            <p>Customize the workspace visual styling and themes.</p>
+          </div>
+          <div class="settings-card-group">
+            <div class="settings-card-box">
+              <div class="settings-card-item">
+                <div class="settings-item-text">
+                  <div class="settings-item-title">Workspace Theme</div>
+                  <div class="settings-item-desc">Select between studio light, warm porcelain, and dark modes.</div>
+                </div>
+                <select class="settings-select" id="theme-select">
+                  <option value="warm-porcelain" selected>Warm Milky Porcelain</option>
+                  <option value="minimal-light">Clean Studio Light</option>
+                  <option value="dark-velvet">Dark Obsidian</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Shortcuts Tab -->
+        <div class="settings-tab-panel" id="tab-shortcuts">
+          <div class="settings-pane-header">
+            <h2>Keyboard Shortcuts</h2>
+            <p>Speed up your workflow with global keyboard commands.</p>
+          </div>
+          <div class="settings-card-group">
+            <div class="settings-card-box">
+              <div class="settings-card-item"><span>Open / Close Terminal</span><kbd class="settings-kbd">Ctrl + `</kbd></div>
+              <div class="settings-card-item"><span>Toggle Settings</span><kbd class="settings-kbd">Ctrl + ,</kbd></div>
+              <div class="settings-card-item"><span>New Task</span><kbd class="settings-kbd">Ctrl + N</kbd></div>
+              <div class="settings-card-item"><span>Search Conversation History</span><kbd class="settings-kbd">Ctrl + F</kbd></div>
+              <div class="settings-card-item"><span>Open File Picker</span><kbd class="settings-kbd">Ctrl + O</kbd></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Notifications Tab -->
+        <div class="settings-tab-panel" id="tab-notifications">
+          <div class="settings-pane-header">
+            <h2>Notifications</h2>
+            <p>Control system desktop alerts and sound cues.</p>
+          </div>
+          <div class="settings-card-group">
+            <div class="settings-card-box">
+              <div class="settings-card-item">
+                <div class="settings-item-text">
+                  <div class="settings-item-title">Task Completion Sound</div>
+                  <div class="settings-item-desc">Play a subtle chime when the autonomous agent finishes a build.</div>
+                </div>
+                <label class="settings-switch"><input type="checkbox" checked><span class="slider"></span></label>
+              </div>
+              <div class="settings-card-item">
+                <div class="settings-item-text">
+                  <div class="settings-item-title">Desktop Notifications</div>
+                  <div class="settings-item-desc">Show Windows toast notifications when Kraken is running in background.</div>
+                </div>
+                <label class="settings-switch"><input type="checkbox" checked><span class="slider"></span></label>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
     </div>
   </div>
-
 
   <!-- Live Preview — split-pane panel. Moved inside .app-layout by JS on init
        so it becomes a flex sibling of .main-content. When .open is applied,
