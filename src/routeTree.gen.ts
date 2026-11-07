@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as AdminCalvrasRouteImport } from './routes/admin-calvras'
+import { Route as AdminKrakenRouteImport } from './routes/admin-kraken'
 import { Route as AppRouteImport } from './routes/app'
 import { Route as CapabilitiesRouteImport } from './routes/capabilities'
 import { Route as ChangelogRouteImport } from './routes/changelog'
@@ -38,6 +39,11 @@ const AboutRoute = AboutRouteImport.update({
 const AdminCalvrasRoute = AdminCalvrasRouteImport.update({
   id: '/admin-calvras',
   path: '/admin-calvras',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminKrakenRoute = AdminKrakenRouteImport.update({
+  id: '/admin-kraken',
+  path: '/admin-kraken',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppRoute = AppRouteImport.update({
@@ -105,6 +111,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/admin-calvras': typeof AdminCalvrasRoute
+  '/admin-kraken': typeof AdminKrakenRoute
   '/app': typeof AppRoute
   '/capabilities': typeof CapabilitiesRoute
   '/changelog': typeof ChangelogRoute
@@ -122,6 +129,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/admin-calvras': typeof AdminCalvrasRoute
+  '/admin-kraken': typeof AdminKrakenRoute
   '/app': typeof AppRoute
   '/capabilities': typeof CapabilitiesRoute
   '/changelog': typeof ChangelogRoute
@@ -140,6 +148,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/admin-calvras': typeof AdminCalvrasRoute
+  '/admin-kraken': typeof AdminKrakenRoute
   '/app': typeof AppRoute
   '/capabilities': typeof CapabilitiesRoute
   '/changelog': typeof ChangelogRoute
@@ -159,6 +168,7 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/admin-calvras'
+    | '/admin-kraken'
     | '/app'
     | '/capabilities'
     | '/changelog'
@@ -176,6 +186,7 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/admin-calvras'
+    | '/admin-kraken'
     | '/app'
     | '/capabilities'
     | '/changelog'
@@ -193,6 +204,7 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/admin-calvras'
+    | '/admin-kraken'
     | '/app'
     | '/capabilities'
     | '/changelog'
@@ -211,6 +223,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
   AdminCalvrasRoute: typeof AdminCalvrasRoute
+  AdminKrakenRoute: typeof AdminKrakenRoute
   AppRoute: typeof AppRoute
   CapabilitiesRoute: typeof CapabilitiesRoute
   ChangelogRoute: typeof ChangelogRoute
@@ -246,6 +259,13 @@ declare module '@tanstack/react-router' {
       path: '/admin-calvras'
       fullPath: '/admin-calvras'
       preLoaderRoute: typeof AdminCalvrasRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin-kraken': {
+      id: '/admin-kraken'
+      path: '/admin-kraken'
+      fullPath: '/admin-kraken'
+      preLoaderRoute: typeof AdminKrakenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/app': {
@@ -339,6 +359,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
   AdminCalvrasRoute: AdminCalvrasRoute,
+  AdminKrakenRoute: AdminKrakenRoute,
   AppRoute: AppRoute,
   CapabilitiesRoute: CapabilitiesRoute,
   ChangelogRoute: ChangelogRoute,

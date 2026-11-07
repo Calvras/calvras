@@ -69,12 +69,6 @@
           </svg>
           <span>Plugins</span>
         </a>
-        <a href="#" class="nav-item" id="btn-admin">
-          <svg class="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-          </svg>
-          <span>Admin</span>
-        </a>
       </nav>
 
       <!-- Chat History Lists -->
@@ -527,76 +521,6 @@
     </div>
   </div>
 
-  <!-- Admin Dashboard Modal -->
-  <div class="modal-overlay" id="admin-modal" style="display: none;">
-    <div class="modal-card" style="max-width: 720px; width: 92%; max-height: 85vh; display: flex; flex-direction: column;">
-      <div class="modal-header">
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-          <h2 style="font-size: 1.15rem; font-weight: 600;">Kraken Admin Dashboard <span style="font-size: 0.75rem; background: #2563eb; color: #fff; padding: 2px 7px; border-radius: 9999px; margin-left: 6px;">v4.0.0</span></h2>
-        </div>
-        <button class="close-modal-btn" id="close-admin-modal">&times;</button>
-      </div>
-      <div style="padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 20px;">
-        <!-- Live Connected Users -->
-        <div>
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-            <h3 style="font-size: 0.95rem; font-weight: 600; color: #111827;">Live Logged-in Users</h3>
-            <span style="font-size: 0.75rem; color: #16a34a; font-weight: 500; display: inline-flex; align-items: center; gap: 4px;">● Realtime Sync</span>
-          </div>
-          <div style="border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; background: #fff;">
-            <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left;">
-              <thead style="background: #f9fafb; border-bottom: 1px solid #e5e7eb; color: #6b7280;">
-                <tr>
-                  <th style="padding: 10px 14px;">User</th>
-                  <th style="padding: 10px 14px;">Email</th>
-                  <th style="padding: 10px 14px;">Auth Provider</th>
-                  <th style="padding: 10px 14px;">Last Login</th>
-                  <th style="padding: 10px 14px;">Status</th>
-                </tr>
-              </thead>
-              <tbody id="admin-users-table-body">
-                <!-- Dynamically populated -->
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <!-- Engine & Generation Fleet Status -->
-        <div>
-          <h3 style="font-size: 0.95rem; font-weight: 600; color: #111827; margin-bottom: 10px;">Engine & Multimodal Fleet</h3>
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
-            <div style="padding: 12px; border: 1px solid #e5e7eb; border-radius: 8px; background: #f9fafb;">
-              <div style="font-size: 0.75rem; color: #6b7280;">Coding & Reasoning</div>
-              <div style="font-size: 0.9rem; font-weight: 600; color: #111827; margin-top: 4px;">DeepSeek V3 / R1</div>
-              <div style="font-size: 0.75rem; color: #16a34a; margin-top: 6px;">● Online (Low Latency)</div>
-            </div>
-            <div style="padding: 12px; border: 1px solid #e5e7eb; border-radius: 8px; background: #f9fafb;">
-              <div style="font-size: 0.75rem; color: #6b7280;">Image Synthesis (Max 6/batch)</div>
-              <div style="font-size: 0.9rem; font-weight: 600; color: #111827; margin-top: 4px;">openai/gpt-image-1.5</div>
-              <div style="font-size: 0.75rem; color: #16a34a; margin-top: 6px;">● Ready (Auto Asset Import)</div>
-            </div>
-            <div style="padding: 12px; border: 1px solid #e5e7eb; border-radius: 8px; background: #f9fafb;">
-              <div style="font-size: 0.75rem; color: #6b7280;">Video Generation</div>
-              <div style="font-size: 0.9rem; font-weight: 600; color: #111827; margin-top: 4px;">pixverse/pixverse-v5</div>
-              <div style="font-size: 0.75rem; color: #16a34a; margin-top: 6px;">● Ready (On Demand)</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Defensive Security & Audit Capabilities -->
-        <div style="padding: 12px; border: 1px solid #bfdbfe; border-radius: 8px; background: #eff6ff;">
-          <div style="font-size: 0.85rem; font-weight: 600; color: #1e40af; display: flex; align-items: center; gap: 6px;">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-            Defensive Security Auditing & Code Hardening Active
-          </div>
-          <div style="font-size: 0.8rem; color: #1e3a8a; margin-top: 4px;">
-            Full static analysis, OWASP Top 10 vulnerability checks, dependency CVE verification, and defensive pen-test simulation enabled for workspace applications.
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
 
   <!-- Live Preview — split-pane panel. Moved inside .app-layout by JS on init
        so it becomes a flex sibling of .main-content. When .open is applied,

@@ -203,6 +203,7 @@ function RootComponent() {
     router.state.location.pathname === "/pricing" ||
     router.state.location.pathname === "/landing" ||
     router.state.location.pathname === "/admin-calvras" ||
+    router.state.location.pathname === "/admin-kraken" ||
     ["/terms", "/privacy", "/about", "/partner", "/changelog", "/docs", "/support", "/capabilities"].includes(router.state.location.pathname);
 
   // Detected after hydration so the server-rendered markup and the first client
