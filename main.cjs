@@ -1,6 +1,9 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, Menu, net } = require('electron');
 const path = require('path');
 const http = require('http');
+const https = require('https');
+const fs = require('fs');
+const { spawn } = require('child_process');
 const url = require('url');
 const crypto = require('crypto');
 
@@ -42,12 +45,170 @@ ipcMain.handle('kraken:pick-folder', async () => {
   return result.filePaths[0];
 });
 
-ipcMain.handle('updater:install', async () => {
+// ── In-App Auto-Update & Installer Runner ──────────────────────────────────
+let isDownloadingUpdate = false;
+let updateDownloadedPath = null;
+
+function downloadFileWithRedirects(fileUrl, destPath, onProgress) {
+  return new Promise((resolve, reject) => {
+    function get(currentUrl, redirectCount = 0) {
+      if (redirectCount > 10) {
+        return reject(new Error('Too many redirects while downloading update'));
+      }
+      const client = currentUrl.startsWith('https:') ? https : http;
+      let parsed;
+      try {
+        parsed = new URL(currentUrl);
+      } catch (err) {
+        return reject(err);
+      }
+      const req = client.get(parsed, {
+        headers: {
+          'User-Agent': 'Kraken-Updater/5.0.0',
+          'Accept': 'application/octet-stream, */*'
+        }
+      }, (res) => {
+        if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
+          const nextUrl = new URL(res.headers.location, currentUrl).toString();
+          res.resume();
+          return get(nextUrl, redirectCount + 1);
+        }
+
+        if (res.statusCode !== 200) {
+          res.resume();
+          return reject(new Error(`Download failed with status ${res.statusCode}`));
+        }
+
+        const totalBytes = parseInt(res.headers['content-length'] || '0', 10);
+        let receivedBytes = 0;
+        let lastReportedPercent = -1;
+
+        const fileStream = fs.createWriteStream(destPath);
+
+        res.on('data', (chunk) => {
+          receivedBytes += chunk.length;
+          if (totalBytes > 0) {
+            const percent = Math.min(100, Math.round((receivedBytes / totalBytes) * 100));
+            if (percent !== lastReportedPercent) {
+              lastReportedPercent = percent;
+              if (onProgress) onProgress(percent, receivedBytes, totalBytes);
+            }
+          }
+        });
+
+        res.on('error', (err) => {
+          try { fs.unlinkSync(destPath); } catch {}
+          reject(err);
+        });
+
+        fileStream.on('finish', () => {
+          fileStream.close(() => resolve(destPath));
+        });
+
+        fileStream.on('error', (err) => {
+          try { fs.unlinkSync(destPath); } catch {}
+          reject(err);
+        });
+      });
+
+      req.on('error', (err) => {
+        try { fs.unlinkSync(destPath); } catch {}
+        reject(err);
+      });
+    }
+
+    get(fileUrl);
+  });
+}
+
+function runInstallerAndExit(installerPath) {
+  try {
+    const child = spawn(installerPath, [], {
+      detached: true,
+      stdio: 'ignore'
+    });
+    child.unref();
+    setTimeout(() => {
+      app.quit();
+    }, 800);
+  } catch (err) {
+    console.error('Failed to spawn installer:', err);
+    throw err;
+  }
+}
+
+async function performDirectUpdate(targetUrl, targetVersion) {
+  if (isDownloadingUpdate) return { status: 'already_downloading' };
+  isDownloadingUpdate = true;
+
+  try {
+    let urlToDownload = targetUrl;
+    if (!urlToDownload || typeof urlToDownload !== 'string') {
+      try {
+        const res = await fetch('https://api.github.com/repos/Calvras/calvras/releases/latest');
+        if (res.ok) {
+          const release = await res.json();
+          const asset = (release.assets || []).find(a => a.name && a.name.endsWith('.exe'));
+          if (asset && asset.browser_download_url) {
+            urlToDownload = asset.browser_download_url;
+          }
+        }
+      } catch {}
+    }
+
+    if (!urlToDownload) {
+      urlToDownload = 'https://github.com/Calvras/calvras/releases/download/v5.0.0/Kraken.Setup.5.0.0.exe';
+    }
+
+    const tempInstaller = path.join(app.getPath('temp'), `Kraken-Setup-${targetVersion || '5.0.0'}-${Date.now()}.exe`);
+
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('updater:status', { status: 'downloading', version: targetVersion || '5.0.0' });
+    }
+
+    await downloadFileWithRedirects(urlToDownload, tempInstaller, (percent) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('updater:progress', { percent });
+      }
+    });
+
+    updateDownloadedPath = tempInstaller;
+
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('updater:status', { status: 'installing', version: targetVersion || '5.0.0' });
+    }
+
+    runInstallerAndExit(tempInstaller);
+    return { success: true };
+  } catch (err) {
+    isDownloadingUpdate = false;
+    console.error('Direct update error:', err);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('updater:status', { status: 'error', message: err.message });
+    }
+    throw err;
+  }
+}
+
+ipcMain.handle('updater:download-and-install', async (_event, payload) => {
+  const targetUrl = typeof payload === 'string' ? payload : (payload && payload.url);
+  const targetVer = typeof payload === 'object' ? payload.version : null;
+  return performDirectUpdate(targetUrl, targetVer);
+});
+
+ipcMain.handle('updater:install', async (_event, directUrl) => {
+  if (updateDownloadedPath && fs.existsSync(updateDownloadedPath)) {
+    runInstallerAndExit(updateDownloadedPath);
+    return { success: true };
+  }
+
   try {
     const { autoUpdater } = require('electron-updater');
     autoUpdater.quitAndInstall(false, true);
+    return { success: true };
   } catch (err) {
-    shell.openExternal('https://github.com/Calvras/calvras/releases/latest');
+    console.warn('autoUpdater.quitAndInstall threw, downloading directly:', err);
+    return performDirectUpdate(directUrl);
   }
 });
 

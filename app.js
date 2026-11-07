@@ -4404,6 +4404,7 @@ document.addEventListener('DOMContentLoaded', init);
   }
 
   let currentVer = '5.0.0';
+  let isDownloading = false;
   if (ipcRenderer) {
     ipcRenderer.invoke('app:get-version').then(ver => {
       if (ver) currentVer = ver;
@@ -4411,35 +4412,49 @@ document.addEventListener('DOMContentLoaded', init);
   }
 
   function showAvailable(ver, url) {
+    if (isDownloading) return;
     if (progressWrap) progressWrap.style.display = 'none';
     if (badge) {
       badge.style.display = 'inline-flex';
       if (badgeLabel) badgeLabel.textContent = 'Update to v' + ver;
-      badge.title = 'Click to install Kraken v' + ver;
-      badge.onclick = (e) => {
+      badge.title = 'Click to download and install Kraken v' + ver;
+      badge.onclick = async (e) => {
         e.stopPropagation();
+        if (isDownloading) return;
+        isDownloading = true;
+        showDownloading(ver);
         if (ipcRenderer) {
-          ipcRenderer.invoke('updater:install').catch(() => {
-            if (url) window.open(url, '_blank');
-          });
-        } else if (url) {
-          window.open(url, '_blank');
+          try {
+            await ipcRenderer.invoke('updater:download-and-install', { version: ver, url: url });
+          } catch (err) {
+            console.error('Update failed:', err);
+            isDownloading = false;
+            if (badge) badge.style.display = 'inline-flex';
+            if (badgeLabel) badgeLabel.textContent = 'Retry Update (v' + ver + ')';
+            if (progressWrap) progressWrap.style.display = 'none';
+          }
         }
       };
     }
   }
 
   function showDownloaded(ver) {
+    isDownloading = false;
     if (progressWrap) progressWrap.style.display = 'none';
     if (badge) {
       badge.style.display = 'inline-flex';
       if (badgeLabel) badgeLabel.textContent = 'v' + ver + ' ready - restart';
+      badge.onclick = (e) => {
+        e.stopPropagation();
+        if (ipcRenderer) ipcRenderer.invoke('updater:install');
+      };
     }
   }
 
   function showDownloading(ver) {
     if (progressWrap) progressWrap.style.display = 'flex';
     if (badge) badge.style.display = 'none';
+    if (progressFill) progressFill.style.width = '0%';
     if (progressText) progressText.textContent = 'Downloading v' + ver + '...';
   }
 
@@ -4451,12 +4466,21 @@ document.addEventListener('DOMContentLoaded', init);
           showAvailable(data.version, data.downloadUrl);
           break;
         case 'downloading':
-          showDownloading(data.version);
+          showDownloading(data.version || '5.0.0');
+          break;
+        case 'installing':
+          if (progressText) progressText.textContent = 'Installing v' + (data.version || '5.0.0') + '...';
           break;
         case 'downloaded':
           showDownloaded(data.version);
           break;
         case 'error':
+          isDownloading = false;
+          if (progressWrap) progressWrap.style.display = 'none';
+          if (badge) {
+            badge.style.display = 'inline-flex';
+            if (badgeLabel) badgeLabel.textContent = 'Retry Update';
+          }
           console.warn('Updater error:', data.message);
           break;
         default:
@@ -4478,20 +4502,12 @@ document.addEventListener('DOMContentLoaded', init);
       const rel = await res.json();
       const latestTag = (rel.tag_name || '').replace(/^v/, '');
       if (latestTag && isNewerVersion(latestTag, currentVer)) {
-        const asset = (rel.assets || []).find(a => a.name.endsWith('.exe'));
-        const targetUrl = asset ? asset.browser_download_url : rel.html_url;
+        const asset = (rel.assets || []).find(a => a.name && a.name.endsWith('.exe'));
+        const targetUrl = asset ? asset.browser_download_url : ('https://github.com/Calvras/calvras/releases/download/v' + latestTag + '/Kraken.Setup.' + latestTag + '.exe');
         showAvailable(latestTag, targetUrl);
       }
     } catch {}
   }
   checkGithubRelease();
   setInterval(checkGithubRelease, 60 * 1000);
-
-  if (badge) {
-    badge.addEventListener('click', () => {
-      if (ipcRenderer) {
-        ipcRenderer.invoke('updater:install').catch(() => {});
-      }
-    });
-  }
 })();
