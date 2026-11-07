@@ -1,0 +1,25 @@
+{
+  "id": "FEAT-001",
+  "type": "fix",
+  "description": "Fix phase accumulation: currently every tool call in the execute() callback does `const phase = { trace: [node] }; phases.push(phase)` creating a NEW AgentPhase per tool. Fix so ONE shared workingPhase is created before the for-loop, and each tool pushes its node into workingPhase.trace. Only onFeedback and outcome.message create new phases. Also fix localhost URL detection in markdown-content.tsx so bare localhost:PORT links are rendered as grey underlined links.",
+  "status": "completed",
+  "steps": [
+    "Read src/routes/index.tsx lines 700-770 to confirm exact current code before editing.",
+    "In src/routes/index.tsx, inside the execute: async (actions) => { ... } callback, locate lines 726-734 where the for-loop begins and the per-tool `const phase: AgentPhase = { trace: [node] }; phases.push(phase)` pattern appears.",
+    "Before the `for (const action of actions)` loop (after line 725 where `const feedback: ToolFeedback[] = []` is), add: `const workingPhase: AgentPhase = { trace: [] }; phases.push(workingPhase); publish();`",
+    "Inside the for-loop, remove the two lines `const phase: AgentPhase = { trace: [node] };` and `phases.push(phase);`, replacing them with `workingPhase.trace.push(node);`. Keep `publish()` call as-is after the push.",
+    "Read src/components/ui/markdown-content.tsx and in the renderInline() function, find the pattern regex. Add `localhost:\\d+[^\\s)>\\]\"']*` as an additional alternative in the bare-URL branch so `localhost:5173` and similar bare localhost URLs are detected and rendered as grey underlined anchor tags.",
+    "Run npm run build:electron and confirm exit code 0."
+  ],
+  "acceptance_criteria": [
+    "A single AI turn that executes 3+ tools shows exactly ONE collapsed trace block, not one per tool.",
+    "The final assistant text reply appears below the single trace block.",
+    "Bare localhost:PORT URLs in AI responses render as grey underlined clickable links.",
+    "npm run build:electron exits with code 0."
+  ],
+  "verification": [
+    "npm run build:electron"
+  ],
+  "blocked_reason": null,
+  "findings": "Both fixes applied cleanly. In index.tsx: moved workingPhase creation (with initial push+publish) before the for-loop and changed per-iteration code to workingPhase.trace.push(node). In markdown-content.tsx: added localhost:\\d+[^\\s)>\\]\"']* to the pattern regex and extended the bare-URL handler branch to cover localhost: prefixes (mapping them to http://localhost:... hrefs). Build exits with code 0, no TypeScript errors."
+}

@@ -1,0 +1,231 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  Outlet,
+  Link,
+  createRootRouteWithContext,
+  useRouter,
+  HeadContent,
+  Scripts,
+  type ErrorComponentProps,
+} from "@tanstack/react-router";
+import { useEffect, useState, type ReactNode } from "react";
+
+import appCss from "../styles.css?url";
+import { reportLovableError } from "../lib/lovable-error-reporting";
+import { CalvrasSidebar } from "../components/CalvrasSidebar";
+import { ProjectProvider, useProjects } from "../lib/project-context";
+import { TitleBar } from "../components/TitleBar";
+import { servesWorkspace } from "../lib/workspace-host";
+import { useLatestRelease } from "../components/DownloadDetails";
+import { ArrowUpRight, Download } from "lucide-react";
+
+const SITE_LINKS = [
+  { to: "/capabilities", label: "What it does" },
+  { to: "/docs", label: "Docs" },
+  { to: "/changelog", label: "Changelog" },
+  { to: "/about", label: "About" },
+  { to: "/support", label: "Support" },
+  { to: "/signin", label: "Sign in" },
+];
+
+/** The site has a dozen pages, so a 404 that only says "not found" wastes the visit: this one
+ * names the address that came back empty, points at the download, and lists the pages that exist. */
+function NotFoundComponent() {
+  const router = useRouter();
+  const path = router.state.location.pathname;
+  const installer = useLatestRelease().installer;
+  return (
+    <div className="nf-page">
+      <div className="nf-grain" aria-hidden="true" />
+      <main className="nf-inner">
+        <span className="landing-eyebrow">CALVRAS / 404</span>
+        <h1 className="nf-code">404</h1>
+        <p className="nf-head">Nothing lives at <code className="nf-path">{path}</code></p>
+        <p className="nf-copy">That address is not one of ours, and no page is hiding behind it. Calvras is a Windows app, so here is the download and everything the site does hold.</p>
+        <a href={installer} className="landing-download"><Download size={17} /> Download for Windows <ArrowUpRight size={17} /></a>
+        <nav className="nf-links" aria-label="Site pages">
+          {SITE_LINKS.map((link) => (
+            <Link key={link.to} to={link.to} className="nf-link">{link.label}</Link>
+          ))}
+        </nav>
+        <div className="nf-foot">
+          <Link to="/" className="landing-text-link">Back to the home page <ArrowUpRight size={17} /></Link>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+function ErrorComponent({ error, reset }: ErrorComponentProps) {
+  console.error(error);
+  const router = useRouter();
+  useEffect(() => {
+    reportLovableError(error, { boundary: "tanstack_root_error_component" });
+  }, [error]);
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+      <div className="max-w-md text-center">
+        <h1 className="text-xl font-semibold tracking-tight text-foreground">
+          This page didn't load
+        </h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Something went wrong on our end. You can try refreshing or head back home.
+        </p>
+        <div className="mt-6 flex flex-wrap justify-center gap-2">
+          <button
+            onClick={() => {
+              router.invalidate();
+              reset();
+            }}
+            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+          >
+            Try again
+          </button>
+          <a
+            href="/"
+            className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+          >
+            Go home
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
+  head: () => ({
+    meta: [
+      { charSet: "utf-8" },
+      { name: "viewport", content: "width=device-width, initial-scale=1" },
+      { title: "Calvras" },
+      { name: "description", content: "Your autonomous coding agent that builds and edits code." },
+      { property: "og:title", content: "Calvras" },
+      { property: "og:description", content: "Your autonomous coding agent." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
+    ],
+    links: [
+      {
+        rel: "stylesheet",
+        href: appCss,
+      },
+      { rel: "icon", href: "/calvras-logo.png", type: "image/png" },
+      { rel: "shortcut icon", href: "/calvras-logo.png", type: "image/png" },
+      { rel: "apple-touch-icon", href: "/calvras-logo.png" },
+    ],
+  }),
+  shellComponent: RootShell,
+  component: RootComponent,
+  notFoundComponent: NotFoundComponent,
+  errorComponent: ErrorComponent,
+});
+
+function RootShell({ children }: { children: ReactNode }) {
+  return (
+    <html lang="en" className="dark" data-theme="dark">
+      <head>
+        <HeadContent />
+      </head>
+      <body>
+        {children}
+        <Scripts />
+      </body>
+    </html>
+  );
+}
+
+
+function SidebarWithProjects() {
+  const { projects, triggerNewChat, setActiveProject, openChat, deleteRecent, deleteProject, renameRecent, renameProject, chats } = useProjects();
+  const router = useRouter();
+  // History is built from the transcript store rather than the parallel recents list: a row the
+  // user clicks is then a row that is guaranteed to have something to load back.
+  const recents = chats.filter((chat) => chat.messages.length > 0).map((chat) => ({
+    id: chat.id,
+    label: chat.label,
+    ...(chat.projectPath ? { projectPath: chat.projectPath } : {}),
+    ...(chat.projectName ? { projectName: chat.projectName } : {}),
+  }));
+
+  return (
+    <CalvrasSidebar
+      projects={projects.map((p) => ({ id: p.path, path: p.path, name: p.name, ...(p.tasks ? { tasks: p.tasks } : {}) }))}
+      recents={recents}
+      onNewChat={() => {
+        triggerNewChat();
+        if (router.state.location.pathname !== "/") {
+          router.navigate({ to: "/" });
+        }
+      }}
+      onSelectProject={(project) => {
+        if (project.path) {
+          setActiveProject({ name: project.name, path: project.path, ...(project.tasks ? { tasks: project.tasks } : {}) });
+        }
+        if (router.state.location.pathname !== "/") {
+          router.navigate({ to: "/" });
+        }
+      }}
+      onSelectRecent={(recent) => {
+        // Opening a conversation from History brings back its own transcript, not just its folder.
+        if (recent.id) openChat(recent.id);
+        else if (recent.projectPath && recent.projectName) setActiveProject({ name: recent.projectName, path: recent.projectPath });
+        if (router.state.location.pathname !== "/") {
+          router.navigate({ to: "/" });
+        }
+      }}
+      onDeleteRecent={(item) => {
+        if (item.id) deleteRecent(item.id);
+        if (item.label) deleteRecent(item.label);
+      }}
+      onDeleteProject={(project) => {
+        // Removing a project from the sidebar forgets it locally only. The workspace folder,
+        // its checkpoints and its history stay on disk — no endpoint here deletes user files.
+        deleteProject(project.path || project.name);
+      }}
+      onRenameRecent={(item, newLabel) => renameRecent(item.id || item.label, newLabel)}
+      onRenameProject={(project, newName) => renameProject(project.path || project.name, newName)}
+    />
+  );
+}
+
+function RootComponent() {
+  const { queryClient } = Route.useRouteContext();
+  const router = useRouter();
+  const [isElectron, setIsElectron] = useState(false);
+  // "/" is the workspace when the desktop runtime serves it and the marketing page everywhere
+  // else, so the sidebar only belongs to the home address on the machine running the app.
+  const workspaceRoot = router.state.location.pathname === "/" && typeof window !== "undefined" && servesWorkspace(window.location.hostname);
+  const isExcludedPage =
+    (router.state.location.pathname === "/" && !workspaceRoot) ||
+    router.state.location.pathname === "/signin" ||
+    router.state.location.pathname === "/pricing" ||
+    router.state.location.pathname === "/landing" ||
+    router.state.location.pathname === "/admin-calvras" ||
+    ["/terms", "/privacy", "/about", "/partner", "/changelog", "/docs", "/support", "/capabilities"].includes(router.state.location.pathname);
+
+  // Detected after hydration so the server-rendered markup and the first client
+  // render match; Electron-only chrome must not appear during hydration.
+  useEffect(() => {
+    setIsElectron(Boolean((window as any).__electron));
+  }, []);
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <ProjectProvider>
+        {isElectron && <TitleBar />}
+        {isElectron && (
+          <style dangerouslySetInnerHTML={{ __html: `
+            :root { --app-title-height: 34px; }
+            body { padding-top: 28px !important; }
+            .chat-page { padding-top: 0 !important; }
+          ` }} />
+        )}
+        {!isExcludedPage && <SidebarWithProjects />}
+        {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+        <Outlet />
+      </ProjectProvider>
+    </QueryClientProvider>
+  );
+}

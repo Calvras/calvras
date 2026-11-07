@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /app
+Disallow: /signin
+Sitemap: https://calvras.com/sitemap.xml

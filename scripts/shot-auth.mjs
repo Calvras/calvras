@@ -1,0 +1,15 @@
+import { _electron as electron } from "playwright";
+import path from "node:path";
+import fs from "node:fs/promises";
+import os from "node:os";
+const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE;
+const profile = await fs.mkdtemp(path.join(os.tmpdir(), "calvras-auth-"));
+const app = await electron.launch({ executablePath: path.resolve("node_modules/electron/dist/electron.exe"), args: [".", `--user-data-dir=${profile}`], env, timeout: 60000 });
+const page = await app.firstWindow();
+await page.waitForLoadState("domcontentloaded");
+await page.getByRole("button", { name: "Continue with Google" }).waitFor({ timeout: 45000 });
+await page.waitForTimeout(800);
+await fs.mkdir(".agents/artifacts", { recursive: true });
+await page.screenshot({ path: process.argv[2] || ".agents/artifacts/auth-before.png", animations: "disabled" });
+console.log("shot saved");
+await app.close();

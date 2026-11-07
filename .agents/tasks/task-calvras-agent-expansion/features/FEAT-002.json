@@ -1,0 +1,24 @@
+{
+  "id": "FEAT-002",
+  "type": "feat",
+  "description": "Add 27 new API routes to src/server.ts: 7 file-system routes (/api/fs/rename, /api/fs/delete, /api/fs/copy, /api/fs/stat, /api/fs/search, /api/fs/find-files, /api/fs/search-replace), 10 git routes (/api/git/status through /api/git/clone), and 5 build/test routes (/api/run/build, /api/run/test, /api/run/lint, /api/run/typecheck, /api/run/install). All follow the existing handleCommand pattern in server.ts.",
+  "status": "completed",
+  "steps": [
+    "Read src/server.ts to understand existing route pattern — specifically handleCommand() and the handleApi() function routing blocks. Note that existing routes 1-11 use the `if (url.pathname === ...) { try { ... } catch (e) { return new Response({ ok: false, error: e.message }) } }` pattern.",
+    "After the existing '/api/fs/list-dir' block (route 11), add the 7 new fs routes in handleApi(): POST /api/fs/rename (fs.renameSync both paths validated with safeProjectPath), POST /api/fs/delete (fs.rmSync recursive+force, validated with safeProjectPath), POST /api/fs/copy (fs.copyFileSync, both paths validated), POST /api/fs/stat (fs.statSync returns size/mtime/isDir/isFile), POST /api/fs/search (walk files, regex per line, max 200 results, skip node_modules/.git/.output/dist), POST /api/fs/find-files (walk filenames, substring match, max 100 results), POST /api/fs/search-replace (read file, replace string or regex, write back, return replacements count).",
+    "After the fs routes, add 10 git routes in handleApi(): POST /api/git/status, /api/git/diff (body.staged ? '--cached' : ''), /api/git/log, /api/git/add (body.path), /api/git/commit (body.message, escape quotes), /api/git/checkout (body.branch), /api/git/branch, /api/git/restore (body.path), /api/git/push (optional remote/branch args), /api/git/clone (security: dest must be under Desktop, use os.homedir()+'/Desktop'). All use child_process.execSync with timeout:15000, cwd:projectPath, encoding:'utf8'. Catch errors same as handleCommand().",
+    "After git routes, add 5 run routes in handleApi(): POST /api/run/build ('npm run build'), /api/run/test ('npm test -- --run'), /api/run/lint ('npm run lint'), /api/run/typecheck ('npx tsc --noEmit'), /api/run/install ('npm install'). Use timeout:60000 for all (builds can take time). Pattern identical to handleCommand() but with fixed commands.",
+    "Run npm run build:electron and confirm exit code 0. If TypeScript errors, fix them."
+  ],
+  "acceptance_criteria": [
+    "POST /api/fs/rename with valid body renames a file and returns { ok: true }.",
+    "POST /api/git/clone with a dest outside Desktop returns { ok: false, error: '...' }.",
+    "POST /api/run/build returns { ok: boolean, output: string }.",
+    "npm run build:electron exits with code 0 — no TypeScript errors from new server code."
+  ],
+  "verification": [
+    "npm run build:electron"
+  ],
+  "blocked_reason": null,
+  "findings": "Build exited 0 with no TypeScript errors. Added 22 routes in total (7 fs, 10 git, 5 run — routes 12-33 in handleApi). All follow the existing try/catch JSON Response pattern. The search-replace route correctly handles both plain-string and regex modes. The clone route enforces Desktop-only dest security. Run routes use 60s timeout vs 15s for fs/git. npm run build:electron: client + ssr + nitro all built successfully (2.67s + 1.20s + 1.58s)."
+}
