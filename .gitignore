@@ -4,6 +4,7 @@ release/
 *.log
 .DS_Store
 Thumbs.db
+oauth.config.json
 *.png
 !kraken_logo.png
 !avatar_milo.png

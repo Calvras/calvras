@@ -11,10 +11,12 @@
   },
   "files": [
     "app.html",
+    "signin.html",
     "app.css",
     "app.js",
     "main.js",
     "main.cjs",
+    "oauth.config.json",
     "avatar_milo.png",
     "kraken_logo.png",
     "build/icon.png",
