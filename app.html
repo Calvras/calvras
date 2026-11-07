@@ -174,16 +174,44 @@
           <div class="antigravity-chat-card">
             <!-- Top Context Tags -->
             <div class="card-context-tags">
-              <div class="context-tag" id="tag-folder" title="Click to select workspace folder">
+              <div class="context-tag" id="tag-folder" title="Click to choose workspace folder or work without one">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
                 </svg>
-                <span id="folder-name-label">Select Folder</span>
+                <span id="folder-name-label">No Folder</span>
                 <svg class="chevron-small" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <polyline points="6 9 12 15 18 9"></polyline>
                 </svg>
               </div>
               <input type="file" id="workspace-folder-picker" webkitdirectory directory style="display: none;">
+
+              <!-- Workspace Folder Selection Popover -->
+              <div class="folder-mode-popover" id="folder-mode-popover" style="display: none;">
+                <div class="folder-popover-header">
+                  <span>Workspace Folder Mode</span>
+                  <button type="button" class="folder-popover-close" id="folder-popover-close" title="Close">&times;</button>
+                </div>
+                <div class="folder-popover-status" id="folder-popover-status">
+                  <span class="status-indicator" id="folder-status-dot"></span>
+                  <span class="status-text" id="folder-popover-status-text">No folder selected (General Mode)</span>
+                </div>
+                <div class="folder-popover-actions">
+                  <button type="button" class="folder-popover-item" id="btn-mode-no-folder">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                    <div class="popover-item-text">
+                      <div class="popover-item-title">Work without a folder</div>
+                      <div class="popover-item-desc">General AI mode — chat, ask questions, explain code, and generate images or video.</div>
+                    </div>
+                  </button>
+                  <button type="button" class="folder-popover-item" id="btn-mode-pick-folder">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                    <div class="popover-item-text">
+                      <div class="popover-item-title">Choose Workspace Folder...</div>
+                      <div class="popover-item-desc">Select a folder on your computer to build projects, edit files, and run commands.</div>
+                    </div>
+                  </button>
+                </div>
+              </div>
 
               <div class="context-tag" id="tag-checkout">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

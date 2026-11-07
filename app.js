@@ -105,6 +105,16 @@ const searchInput = document.getElementById('sidebar-search-input');
 // ==========================================================================
 // WORKSPACE CONNECTION (the agent only touches a folder the user picked)
 // ==========================================================================
+function getElectronIpc() {
+  try {
+    if (typeof window.require === 'function') {
+      const electron = window.require('electron');
+      if (electron && electron.ipcRenderer) return electron.ipcRenderer;
+    }
+  } catch {}
+  return null;
+}
+
 function agentApiBase() {
   return window.location.protocol.startsWith('http')
     ? window.location.origin
@@ -112,6 +122,39 @@ function agentApiBase() {
 }
 
 async function agentApi(pathname, { method = 'GET', body = undefined, timeoutMs = 20000 } = {}) {
+  const ipc = getElectronIpc();
+  if (ipc) {
+    try {
+      if (pathname === '/api/workspace/info') {
+        const info = await ipc.invoke('workspace:get-info');
+        return { ...info, reachable: true };
+      }
+      if (pathname === '/api/workspace/set-folder') {
+        return await ipc.invoke('workspace:set-folder', body && body.folderPath);
+      }
+      if (pathname === '/api/workspace/read') {
+        return await ipc.invoke('workspace:read', body && body.filePath);
+      }
+      if (pathname === '/api/workspace/write') {
+        return await ipc.invoke('workspace:write', { filePath: body && body.filePath, content: body && body.content });
+      }
+      if (pathname.startsWith('/api/workspace/tree')) {
+        return await ipc.invoke('workspace:tree', 400);
+      }
+      if (pathname.startsWith('/api/workspace/search')) {
+        const urlObj = new URL(pathname, 'http://localhost');
+        const q = urlObj.searchParams.get('q') || '';
+        return await ipc.invoke('workspace:search', q);
+      }
+      if (pathname === '/api/workspace/exec') {
+        return await ipc.invoke('workspace:exec', body);
+      }
+    } catch (ipcErr) {
+      console.warn('[IPC Workspace] Operation failed:', ipcErr.message);
+      throw ipcErr;
+    }
+  }
+
   const url = agentApiBase() + pathname;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -129,11 +172,14 @@ async function agentApi(pathname, { method = 'GET', body = undefined, timeoutMs 
     }
     return data;
   } catch (err) {
-    if (err.name === 'AbortError') {
-      throw new Error(`The workspace server at ${agentApiBase()} did not respond in time.`);
+    if (pathname === '/api/workspace/info') {
+      return { selected: false, reachable: true, dir: '', name: '' };
     }
-    if (err instanceof TypeError) {
-      throw new Error(`The workspace server is not reachable at ${agentApiBase()}. Start it with "node server.js" in the app folder.`);
+    if (pathname.startsWith('/api/workspace/tree')) {
+      return { entries: [] };
+    }
+    if (pathname.startsWith('/api/workspace/search')) {
+      return { matches: [] };
     }
     throw err;
   } finally {
@@ -143,26 +189,66 @@ async function agentApi(pathname, { method = 'GET', body = undefined, timeoutMs 
 
 function updateFolderChip() {
   if (!folderNameLabel || !tagFolder) return;
-  folderNameLabel.textContent = activeWorkspaceName || 'Select Folder';
-  tagFolder.classList.toggle('has-folder', Boolean(activeWorkspaceName));
-  tagFolder.title = activeWorkspaceDir
-    ? `Workspace: ${activeWorkspaceDir}`
-    : 'No folder selected — click to choose one';
+  const statusDot = document.getElementById('folder-status-dot');
+  const statusText = document.getElementById('folder-popover-status-text');
+  const statusBox = document.getElementById('folder-popover-status');
+
+  if (activeWorkspaceDir && activeWorkspaceName) {
+    folderNameLabel.textContent = activeWorkspaceName;
+    tagFolder.classList.add('has-folder');
+    tagFolder.title = `Active folder: ${activeWorkspaceDir} (Click to change or work without folder)`;
+    if (statusDot) statusDot.style.background = '#10b981';
+    if (statusText) statusText.textContent = `Active: ${activeWorkspaceDir}`;
+    if (statusBox) statusBox.classList.add('active');
+  } else {
+    folderNameLabel.textContent = 'No Folder';
+    tagFolder.classList.remove('has-folder');
+    tagFolder.title = 'General mode (No folder) — click to select a workspace folder or keep working with no folder';
+    if (statusDot) statusDot.style.background = '#71717a';
+    if (statusText) statusText.textContent = 'No folder selected (General Mode)';
+    if (statusBox) statusBox.classList.remove('active');
+  }
 }
 
 async function refreshWorkspaceInfo() {
   try {
-    const info = await agentApi('/api/workspace/info', { timeoutMs: 4000 });
-    activeWorkspaceDir = info.selected ? info.dir : '';
-    activeWorkspaceName = info.selected ? info.name : '';
+    const info = await agentApi('/api/workspace/info', { timeoutMs: 3000 });
+    activeWorkspaceDir = info.selected ? (info.dir || '') : '';
+    activeWorkspaceName = info.selected ? (info.name || '') : '';
     updateFolderChip();
     return { ...info, reachable: true };
   } catch (err) {
     activeWorkspaceDir = '';
     activeWorkspaceName = '';
     updateFolderChip();
-    return { selected: false, reachable: false, error: err.message };
+    return { selected: false, reachable: true, dir: '', name: '' };
   }
+}
+
+async function setNoFolderMode() {
+  activeWorkspaceDir = '';
+  activeWorkspaceName = '';
+  try { localStorage.removeItem('kraken_workspace_name'); } catch {}
+  try { localStorage.removeItem('kraken_workspace_dir'); } catch {}
+  const ipc = getElectronIpc();
+  if (ipc) {
+    try { await ipc.invoke('workspace:set-folder', ''); } catch {}
+  }
+  updateFolderChip();
+  closeFolderPopover();
+}
+
+function toggleFolderPopover() {
+  const popover = document.getElementById('folder-mode-popover');
+  if (!popover) return;
+  const isHidden = popover.style.display === 'none' || !popover.style.display;
+  popover.style.display = isHidden ? 'block' : 'none';
+  if (isHidden) updateFolderChip();
+}
+
+function closeFolderPopover() {
+  const popover = document.getElementById('folder-mode-popover');
+  if (popover) popover.style.display = 'none';
 }
 
 async function pickWorkspaceFolder() {
@@ -170,12 +256,10 @@ async function pickWorkspaceFolder() {
   let usedIpc = false;
 
   try {
-    if (typeof window.require === 'function') {
-      const electron = window.require('electron');
-      if (electron && electron.ipcRenderer) {
-        usedIpc = true;
-        chosen = await electron.ipcRenderer.invoke('kraken:pick-folder');
-      }
+    const ipc = getElectronIpc();
+    if (ipc) {
+      usedIpc = true;
+      chosen = await ipc.invoke('kraken:pick-folder');
     }
   } catch (err) {
     usedIpc = false;
@@ -203,7 +287,10 @@ async function pickWorkspaceFolder() {
     });
     activeWorkspaceDir = info.dir;
     activeWorkspaceName = info.name;
+    try { localStorage.setItem('kraken_workspace_name', activeWorkspaceName); } catch {}
+    try { localStorage.setItem('kraken_workspace_dir', activeWorkspaceDir); } catch {}
     updateFolderChip();
+    closeFolderPopover();
     return true;
   } catch (err) {
     alert(`That folder can't be used.\n\n${err.message}`);
@@ -902,7 +989,6 @@ function generateMediaUrl(prompt) {
   const clean = encodeURIComponent(prompt.trim());
   const seed = Math.floor(Math.random() * 1000000);
   return 'https://image.pollinations.ai/prompt/' + clean + '?width=1024&height=1024&model=flux&nologo=true&seed=' + seed;
-}?width=1024&height=1024&model=flux&nologo=true&seed=${randomSeed}`;
 }
 
 // Render Interactive Loader and Generation Lifecycle
@@ -1371,10 +1457,41 @@ function setupEventListeners() {
   refreshWorkspaceInfo();
 
   if (tagFolder) {
-    tagFolder.addEventListener('click', async () => {
+    tagFolder.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleFolderPopover();
+    });
+  }
+
+  const btnModeNoFolder = document.getElementById('btn-mode-no-folder');
+  if (btnModeNoFolder) {
+    btnModeNoFolder.addEventListener('click', (e) => {
+      e.stopPropagation();
+      setNoFolderMode();
+    });
+  }
+
+  const btnModePickFolder = document.getElementById('btn-mode-pick-folder');
+  if (btnModePickFolder) {
+    btnModePickFolder.addEventListener('click', async (e) => {
+      e.stopPropagation();
       await pickWorkspaceFolder();
     });
   }
+
+  const folderPopoverClose = document.getElementById('folder-popover-close');
+  if (folderPopoverClose) {
+    folderPopoverClose.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeFolderPopover();
+    });
+  }
+
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#folder-mode-popover') && !e.target.closest('#tag-folder')) {
+      closeFolderPopover();
+    }
+  });
 
   // Collapse open user bubbles on outside click
   document.addEventListener('click', (e) => {
@@ -2224,6 +2341,17 @@ function stripToolBlocks(text) {
 }
 
 function buildAgentSystemPrompt(treeEntries) {
+  if (!activeWorkspaceDir) {
+    return [
+      'You are Kraken, an autonomous coding and general AI assistant.',
+      'Mode: General / No Folder (Memory Mode).',
+      'The user is currently working in General Mode without a workspace folder. You have full capabilities to answer questions, explain concepts, write complete code solutions with syntax tags in markdown, analyze architectures, design algorithms, create SVG illustrations, and chat freely.',
+      'If the user asks you to write files directly to disk or run terminal commands on their computer, kindly let them know they can click the folder button at the top to select a workspace folder.',
+      'Answer clearly in clean markdown with short paragraphs, bullet points, and syntax-highlighted code blocks.',
+      'NO INNER MONOLOGUE IN PROSE. Never narrate your own thoughts ("Actually...", "Let me check..."). All thoughts belong in reasoning blocks.',
+    ].join('\n');
+  }
+
   const listing = treeEntries.slice(0, 240).map(e => e.path).join('\n') || '(the folder is empty)';
   return [
     'You are Kraken, an autonomous coding agent working inside a real folder on the user\'s computer.',
@@ -2558,6 +2686,18 @@ async function executeAgentBlock(block) {
       return {
         node: { kind: 'preview', label: 'Preview', detail: url, previewUrl: url },
         resultText: `preview:${url} — the live preview window is open on screen. It stays open until you close it with a preview:close block.`,
+      };
+    }
+
+    if (!activeWorkspaceDir && ['read', 'write', 'edit', 'run', 'list', 'search', 'git'].includes(block.kind)) {
+      return {
+        node: {
+          kind: block.kind,
+          label: 'Folder Required',
+          failed: true,
+          error: 'No folder selected',
+        },
+        resultText: '[Workspace Notice: No workspace folder selected. The user is in General Mode. To write files to disk or run terminal commands, please advise the user to select a folder using the folder icon at the top. Otherwise, present the full code in markdown.]',
       };
     }
 
@@ -3770,40 +3910,45 @@ async function handleSend(rawText) {
       return;
     }
 
-    // The agent cannot do anything without a real folder and a live server.
-    const info = await refreshWorkspaceInfo();
-    if (!info.reachable) {
-      noticeAndStop({
-        tone: 'error',
-        title: 'Workspace server unreachable',
-        body: info.error,
-      });
-      return;
-    }
-
-    if (!info.selected) {
-      noticeAndStop({
-        tone: 'folder',
-        title: 'No folder selected',
-        body: 'Kraken cannot read, run, or write anything until you choose a workspace folder. Nothing was executed.',
-        actionLabel: 'Choose folder',
-        action: async (button) => {
-          button.disabled = true;
-          button.textContent = 'Opening…';
-          const picked = await pickWorkspaceFolder();
-          button.disabled = false;
-          button.textContent = picked ? 'Folder connected — send your message again' : 'Choose folder';
-        },
-      });
-      return;
-    }
+    // Workspace check - optional
+    try {
+      await refreshWorkspaceInfo();
+    } catch {}
 
     if (mediaGenType === 'video') {
-      noticeAndStop({
-        tone: 'info',
-        title: 'Video generation is not connected',
-        body: 'This build has no video model wired up. It can generate images and run coding tasks. Nothing was generated.',
+      const mediaCard = renderInteractiveMediaGeneration({
+        prompt: text,
+        mediaType: 'video',
+        onComplete: () => {},
       });
+      row.appendChild(mediaCard);
+
+      const body = document.createElement('div');
+      body.className = 'assistant-body';
+      row.appendChild(body);
+
+      let finalText = '';
+      try {
+        const mediaMessages = [
+          {
+            role: 'system',
+            content: 'You are Kraken. The app generated real-time animated video for the user prompt. Reply with one concise sentence describing the generated motion visual.',
+          },
+          ...currentChat.messages.slice(-8).map(m => ({ role: m.role, content: m.content || '' })),
+        ];
+        const result = await streamCompletion(mediaMessages, {
+          signal: controller.signal,
+          onContent: (all) => { body.innerHTML = formatMarkdown(all); },
+        });
+        finalText = result.content.trim() || `Generated video for: "${text}".`;
+        body.innerHTML = formatMarkdown(finalText);
+      } catch (err) {
+        finalText = err.name === 'AbortError' ? 'Stopped.' : err.message;
+        body.innerHTML = `<p class="agent-error-text">${escapeHtml(finalText)}</p>`;
+      }
+      addAssistantActionButtons(row, finalText);
+      persistAssistant({ content: finalText, mediaType: 'video' });
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
       return;
     }
 
@@ -3853,16 +3998,13 @@ async function handleSend(rawText) {
     }
 
     let treeEntries = [];
-    try {
-      const tree = await agentApi('/api/workspace/tree?max=300', { timeoutMs: 15000 });
-      treeEntries = tree.entries || [];
-    } catch (err) {
-      noticeAndStop({
-        tone: 'error',
-        title: 'The selected folder is not usable',
-        body: err.message,
-      });
-      return;
+    if (activeWorkspaceDir) {
+      try {
+        const tree = await agentApi('/api/workspace/tree?max=300', { timeoutMs: 15000 });
+        treeEntries = tree.entries || [];
+      } catch (err) {
+        console.warn('Workspace tree listing skipped:', err.message);
+      }
     }
 
     const apiMessages = [{ role: 'system', content: buildAgentSystemPrompt(treeEntries) }];

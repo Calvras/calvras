@@ -36,13 +36,167 @@ const Store = (() => {
 })();
 
 // ── IPC ───────────────────────────────────────────────────────────────────
+let currentWorkspaceDir = '';
+
 ipcMain.handle('kraken:pick-folder', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     title: 'Select the folder Kraken should work in',
     properties: ['openDirectory', 'createDirectory'],
   });
   if (result.canceled || !result.filePaths.length) return null;
-  return result.filePaths[0];
+  currentWorkspaceDir = result.filePaths[0];
+  return currentWorkspaceDir;
+});
+
+ipcMain.handle('workspace:get-info', async () => {
+  return {
+    selected: Boolean(currentWorkspaceDir),
+    dir: currentWorkspaceDir || '',
+    name: currentWorkspaceDir ? path.basename(currentWorkspaceDir) : '',
+    reachable: true,
+  };
+});
+
+ipcMain.handle('workspace:set-folder', async (_event, folderPath) => {
+  if (!folderPath) {
+    currentWorkspaceDir = '';
+    return { selected: false, dir: '', name: '', reachable: true };
+  }
+  if (!fs.existsSync(folderPath)) {
+    throw new Error(`Directory does not exist: ${folderPath}`);
+  }
+  currentWorkspaceDir = folderPath;
+  return {
+    selected: true,
+    dir: currentWorkspaceDir,
+    name: path.basename(currentWorkspaceDir),
+    reachable: true,
+  };
+});
+
+ipcMain.handle('workspace:read', async (_event, relativeOrFullPath) => {
+  if (!currentWorkspaceDir) throw new Error('No workspace folder is currently open.');
+  const fullPath = path.isAbsolute(relativeOrFullPath)
+    ? relativeOrFullPath
+    : path.join(currentWorkspaceDir, relativeOrFullPath);
+  if (!fs.existsSync(fullPath)) throw new Error(`File not found: ${relativeOrFullPath}`);
+  const content = fs.readFileSync(fullPath, 'utf8');
+  const stat = fs.statSync(fullPath);
+  return {
+    path: path.relative(currentWorkspaceDir, fullPath).replace(/\\/g, '/'),
+    content,
+    bytes: stat.size,
+  };
+});
+
+ipcMain.handle('workspace:write', async (_event, payload) => {
+  if (!currentWorkspaceDir) throw new Error('No workspace folder is currently open.');
+  const targetPath = typeof payload === 'string' ? payload : (payload && payload.filePath);
+  const content = typeof payload === 'object' && payload.content !== undefined ? payload.content : '';
+  const fullPath = path.isAbsolute(targetPath)
+    ? targetPath
+    : path.join(currentWorkspaceDir, targetPath);
+  fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+  fs.writeFileSync(fullPath, content, 'utf8');
+  return {
+    success: true,
+    path: path.relative(currentWorkspaceDir, fullPath).replace(/\\/g, '/'),
+    bytes: Buffer.byteLength(content, 'utf8'),
+  };
+});
+
+ipcMain.handle('workspace:tree', async (_event, max = 500) => {
+  if (!currentWorkspaceDir || !fs.existsSync(currentWorkspaceDir)) {
+    return { entries: [] };
+  }
+  const entries = [];
+  function scan(dir, rel = '') {
+    if (entries.length >= max) return;
+    try {
+      const items = fs.readdirSync(dir, { withFileTypes: true });
+      for (const item of items) {
+        if (entries.length >= max) break;
+        if (['node_modules', '.git', 'dist', 'build', '.cache', '.turbo'].includes(item.name)) continue;
+        const itemRel = rel ? `${rel}/${item.name}` : item.name;
+        if (item.isDirectory()) {
+          entries.push({ path: itemRel + '/', isDir: true });
+          scan(path.join(dir, item.name), itemRel);
+        } else {
+          entries.push({ path: itemRel, isDir: false });
+        }
+      }
+    } catch {}
+  }
+  scan(currentWorkspaceDir);
+  return { entries };
+});
+
+ipcMain.handle('workspace:search', async (_event, query) => {
+  if (!currentWorkspaceDir || !query) return { matches: [] };
+  const matches = [];
+  const qLower = String(query).toLowerCase();
+  function searchDir(dir, rel = '') {
+    if (matches.length >= 100) return;
+    try {
+      const items = fs.readdirSync(dir, { withFileTypes: true });
+      for (const item of items) {
+        if (matches.length >= 100) break;
+        if (['node_modules', '.git', 'dist', 'build', '.cache'].includes(item.name)) continue;
+        const full = path.join(dir, item.name);
+        const itemRel = rel ? `${rel}/${item.name}` : item.name;
+        if (item.isDirectory()) {
+          searchDir(full, itemRel);
+        } else {
+          try {
+            const text = fs.readFileSync(full, 'utf8');
+            const lines = text.split('\n');
+            lines.forEach((l, idx) => {
+              if (matches.length >= 100) return;
+              if (l.toLowerCase().includes(qLower)) {
+                matches.push({ file: itemRel, line: idx + 1, text: l.trim().slice(0, 200) });
+              }
+            });
+          } catch {}
+        }
+      }
+    } catch {}
+  }
+  searchDir(currentWorkspaceDir);
+  return { matches };
+});
+
+ipcMain.handle('workspace:exec', async (_event, payload) => {
+  return new Promise((resolve) => {
+    const cmd = typeof payload === 'string' ? payload : (payload && payload.command);
+    const cwd = (payload && payload.cwd) || currentWorkspaceDir || process.cwd();
+    const startTime = Date.now();
+    const isWin = process.platform === 'win32';
+    const shellCmd = isWin ? 'powershell.exe' : '/bin/sh';
+    const shellArgs = isWin ? ['-NoProfile', '-Command', cmd] : ['-c', cmd];
+    const proc = spawn(shellCmd, shellArgs, { cwd });
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', d => { stdout += d.toString(); });
+    proc.stderr.on('data', d => { stderr += d.toString(); });
+    proc.on('close', code => {
+      resolve({
+        stdout,
+        stderr,
+        exitCode: code || 0,
+        success: code === 0,
+        durationMs: Date.now() - startTime,
+      });
+    });
+    proc.on('error', err => {
+      resolve({
+        stdout,
+        stderr: err.message,
+        exitCode: 1,
+        success: false,
+        durationMs: Date.now() - startTime,
+      });
+    });
+  });
 });
 
 // ── In-App Auto-Update & Installer Runner ──────────────────────────────────
