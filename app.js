@@ -866,10 +866,43 @@ function buildSmallTalkPrompt() {
 }
 
 // Real on-the-fly image generation via the Pollinations flux endpoint
+async function generateTogetherImage(prompt) {
+  try {
+    const res = await fetch('https://api.together.xyz/v1/images/generations', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + TOGETHER_API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'stabilityai/stable-diffusion-xl-base-1.0',
+        prompt: prompt.trim(),
+        width: 1024,
+        height: 1024,
+        steps: 20,
+        n: 1,
+        response_format: 'b64_json'
+      })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.data && data.data[0] && data.data[0].b64_json) {
+        return 'data:image/jpeg;base64,' + data.data[0].b64_json;
+      }
+    }
+  } catch (err) {
+    console.warn('Together AI image error, using flux fallback:', err);
+  }
+  const clean = encodeURIComponent(prompt.trim());
+  const seed = Math.floor(Math.random() * 1000000);
+  return 'https://image.pollinations.ai/prompt/' + clean + '?width=1024&height=1024&model=flux&nologo=true&seed=' + seed;
+}
+
 function generateMediaUrl(prompt) {
-  const cleanPrompt = encodeURIComponent(prompt.trim());
-  const randomSeed = Math.floor(Math.random() * 1000000);
-  return `https://image.pollinations.ai/prompt/${cleanPrompt}?width=1024&height=1024&model=flux&nologo=true&seed=${randomSeed}`;
+  const clean = encodeURIComponent(prompt.trim());
+  const seed = Math.floor(Math.random() * 1000000);
+  return 'https://image.pollinations.ai/prompt/' + clean + '?width=1024&height=1024&model=flux&nologo=true&seed=' + seed;
+}?width=1024&height=1024&model=flux&nologo=true&seed=${randomSeed}`;
 }
 
 // Render Interactive Loader and Generation Lifecycle
