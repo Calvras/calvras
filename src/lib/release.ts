@@ -9,7 +9,7 @@ export const REPO = "Calvras/calvras";
 export const RELEASE_VERSION = "10.1.3";
 
 /** Override this only when a build is published somewhere other than the tag's GitHub release. */
-export const RELEASE_INSTALLER = "https://github.com/Calvras/calvras/releases/latest";
+export const RELEASE_INSTALLER = "https://github.com/Calvras/calvras/releases/download/v6.0.0/Kraken.Setup.6.0.0.exe";
 export const RELEASE_PORTABLE = "";
 
 export const UPDATE_FEED_PATH = "/update.json";
