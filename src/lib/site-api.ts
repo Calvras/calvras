@@ -268,15 +268,57 @@ export async function handleSiteApi(request: Request, env: SiteEnv): Promise<Res
     const payload = await body(request);
     const idToken = String(payload["idToken"] || "");
     const githubToken = String(payload["githubToken"] || "");
-    if (!idToken && !githubToken) return json({ ok: false, error: "A sign-in token is required." }, 400);
-    if (idToken && !env.GOOGLE_CLIENT_ID) return json({ ok: false, error: "The site cannot check Google sign-ins yet: no client id is configured." }, 503);
+    const accessToken = String(payload["accessToken"] || "");
+    // Kraken's desktop OAuth client is fixed; the site's own env client may differ,
+    // so tokens minted by either app must verify.
+    const krakenClientId = "83662494822-odr981k7f1qs7ga63kht7a8bcv31s45v.apps.googleusercontent.com";
+    const googleClientIds = [...new Set([String(env.GOOGLE_CLIENT_ID || ""), krakenClientId].filter(Boolean))];
+
+    if (!idToken && !githubToken && !accessToken) {
+      return json({ ok: false, error: "A sign-in token is required." }, 400);
+    }
+
+    // Identity must come from the provider, never from a claimed email — otherwise
+    // anyone could register any address and attach paid subscriptions to it.
+    const verifyAccessToken = async (token: string) => {
+      const uiRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+        headers: { Authorization: "Bearer " + token, Accept: "application/json" },
+      });
+      if (!uiRes.ok) return null;
+      const u = await uiRes.json();
+      if (!u.email) return null;
+      return { email: String(u.email).toLowerCase(), subject: u.sub || "", name: u.name || String(u.email).split("@")[0], picture: u.picture || "" };
+    };
+
     try {
-      // Google's proof is a signed token checked against its keys; GitHub's is an access token
-      // checked against GitHub's own API. Either way the identity comes from the provider.
-      const identity = githubToken ? await verifyGitHubIdentity(githubToken) : await verifyGoogleIdentity(idToken, env.GOOGLE_CLIENT_ID!);
+      let identity = null;
+
+      if (githubToken) {
+        identity = await verifyGitHubIdentity(githubToken);
+      } else if (idToken) {
+        let idErr: unknown = null;
+        for (const clientId of googleClientIds) {
+          try {
+            identity = await verifyGoogleIdentity(idToken, clientId);
+            break;
+          } catch (error) {
+            idErr = error;
+          }
+        }
+        if (!identity) {
+          if (accessToken) identity = await verifyAccessToken(accessToken);
+          if (!identity) throw idErr;
+        }
+      } else if (accessToken) {
+        identity = await verifyAccessToken(accessToken);
+      }
+
+      if (!identity || !identity.email) {
+        return json({ ok: false, error: "Could not verify identity." }, 401);
+      }
+
       const blocked = await findByEmail(db, identity.email);
       if (blocked?.blocked) {
-        // Record the attempt, refuse the sign-in, and say why in the console rather than silently.
         await note(db, blocked.email, "blocked_signin", "refused: the owner blocked this account", Date.now());
         return json({ ok: false, blocked: true, error: "This account has been blocked by the owner." }, 403);
       }
@@ -286,13 +328,9 @@ export async function handleSiteApi(request: Request, env: SiteEnv): Promise<Res
         platform: String(payload["platform"] || "").slice(0, 40), version: String(payload["version"] || "").slice(0, 40),
         ...signInLocation(request), at,
       });
-      // A subscription paid for before this person ever signed in becomes their plan right here.
       const account = await syncPlanFromSubscriptions(db, signed.email, at) ?? signed;
-      // The app keeps this and comes back with it on boot and after every turn. Without it the site
-      // would have no way to reach a person who signed in yesterday — and no way to switch them off.
       return json({ ok: true, email: account.email, plan: account.plan, firstSeen: account.first_seen, lastSeen: account.last_seen, signins: account.signins, session: await issueSession(await signingKey(db), account.email, at) });
     } catch (error) {
-      // The reason is about this token, not the ledger, so it is safe to say out loud.
       return json({ ok: false, error: error instanceof Error ? error.message : "That sign-in could not be verified." }, 401);
     }
   }

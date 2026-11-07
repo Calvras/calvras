@@ -35,6 +35,106 @@ const Store = (() => {
   };
 })();
 
+
+// ── Sync signed-in account with calvras.com ledger ────────────────────────
+function idTokenExpired(idToken) {
+  try {
+    const payload = JSON.parse(Buffer.from(idToken.split('.')[1], 'base64url').toString('utf8'));
+    return !payload.exp || payload.exp * 1000 < Date.now() + 60000;
+  } catch { return true; }
+}
+
+async function refreshGoogleTokens(authData) {
+  if (!authData.refreshToken) return false;
+  try {
+    const body = new URLSearchParams({
+      client_id: GOOGLE_CLIENT_ID,
+      client_secret: GOOGLE_CLIENT_SECRET,
+      refresh_token: authData.refreshToken,
+      grant_type: 'refresh_token',
+    });
+    const res = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.access_token) return false;
+    authData.accessToken = data.access_token;
+    if (data.id_token) authData.idToken = data.id_token;
+    Store.set(authData);
+    return true;
+  } catch { return false; }
+}
+
+function postSession(payload) {
+  return new Promise((resolve, reject) => {
+    const req = https.request('https://calvras.com/api/site/session', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload),
+        'User-Agent': 'Kraken/8.0.0',
+      },
+      timeout: 12000,
+    }, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        let body = null;
+        try { body = JSON.parse(data); } catch {}
+        if (res.statusCode >= 200 && res.statusCode < 300 && body && body.ok) resolve(body);
+        else reject(new Error((body && body.error) || `HTTP ${res.statusCode}`));
+      });
+    });
+    req.on('timeout', () => req.destroy(new Error('timeout')));
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
+async function syncAccountWithCalvras(authData) {
+  if (!authData || !authData.email) return;
+  // Ensure the idToken is fresh before trying to record the sign-in
+  if (idTokenExpired(authData.idToken)) {
+    const refreshed = await refreshGoogleTokens(authData);
+    if (!refreshed && !authData.accessToken) {
+      console.warn('[Kraken] Cannot sync: token expired and refresh failed');
+      return;
+    }
+  }
+  const payload = JSON.stringify({
+    idToken: authData.idToken || '',
+    accessToken: authData.accessToken || '',
+    email: authData.email,
+    name: authData.name || authData.email.split('@')[0],
+    picture: authData.picture || '',
+    platform: process.platform || 'win32',
+    version: '8.0.0',
+  });
+  const delays = [0, 1500, 5000];
+  for (let attempt = 0; attempt < delays.length; attempt += 1) {
+    if (delays[attempt]) await new Promise(r => setTimeout(r, delays[attempt]));
+    try {
+      const body = await postSession(payload);
+      if (body.session && authData.session !== body.session) {
+        authData.session = body.session;
+        Store.set(authData);
+      }
+      console.log(`[Kraken] Account synced: ${authData.email} (plan: ${body.plan || 'free'})`);
+      return;
+    } catch (err) {
+      console.warn(`[Kraken] Account sync attempt ${attempt + 1} failed: ${err.message}`);
+      // On token error, try refreshing and retry
+      if (attempt === 0 && /401|token|expired|invalid/i.test(err.message)) {
+        await refreshGoogleTokens(authData);
+      }
+    }
+  }
+  console.error('[Kraken] Account sync failed after 3 attempts — the admin ledger will not show this sign-in yet.');
+}
+
 // ── IPC ───────────────────────────────────────────────────────────────────
 let currentWorkspaceDir = '';
 
@@ -218,7 +318,7 @@ function downloadFileWithRedirects(fileUrl, destPath, onProgress) {
       }
       const req = client.get(parsed, {
         headers: {
-          'User-Agent': 'Kraken-Updater/7.0.0',
+          'User-Agent': 'Kraken-Updater/8.0.0',
           'Accept': 'application/octet-stream, */*'
         }
       }, (res) => {
@@ -311,13 +411,13 @@ async function performDirectUpdate(targetUrl, targetVersion) {
     }
 
     if (!urlToDownload) {
-      urlToDownload = 'https://github.com/Calvras/calvras/releases/download/v7.0.0/Kraken.Setup.7.0.0.exe';
+      urlToDownload = 'https://github.com/Calvras/calvras/releases/download/v8.0.0/Kraken.Setup.8.0.0.exe';
     }
 
-    const tempInstaller = path.join(app.getPath('temp'), `Kraken-Setup-${targetVersion || '7.0.0'}-${Date.now()}.exe`);
+    const tempInstaller = path.join(app.getPath('temp'), `Kraken-Setup-${targetVersion || '8.0.0'}-${Date.now()}.exe`);
 
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('updater:status', { status: 'downloading', version: targetVersion || '7.0.0' });
+      mainWindow.webContents.send('updater:status', { status: 'downloading', version: targetVersion || '8.0.0' });
     }
 
     await downloadFileWithRedirects(urlToDownload, tempInstaller, (percent) => {
@@ -329,7 +429,7 @@ async function performDirectUpdate(targetUrl, targetVersion) {
     updateDownloadedPath = tempInstaller;
 
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('updater:status', { status: 'installing', version: targetVersion || '7.0.0' });
+      mainWindow.webContents.send('updater:status', { status: 'installing', version: targetVersion || '8.0.0' });
     }
 
     runInstallerAndExit(tempInstaller);
@@ -435,8 +535,9 @@ function startGoogleOAuth() {
       try {
         const tokens = await exchangeCode(code, codeVerifier);
         const user = await fetchUserInfo(tokens.access_token);
-        const authData = { ...user, accessToken: tokens.access_token, refreshToken: tokens.refresh_token };
+        const authData = { ...user, accessToken: tokens.access_token, refreshToken: tokens.refresh_token, idToken: tokens.id_token || '' };
         Store.set(authData);
+        syncAccountWithCalvras(authData);
 
         if (mainWindow) mainWindow.webContents.send('auth:success', authData);
         loadMainApp(authData);
@@ -589,7 +690,11 @@ function createWindow() {
 
   const saved = Store.get();
   if (saved && saved.email) {
-    // Already signed in — go straight to app
+    // Already signed in — refresh stale tokens, sync to calvras.com, go straight to app
+    (async () => {
+      if (idTokenExpired(saved.idToken)) await refreshGoogleTokens(saved);
+      await syncAccountWithCalvras(saved);
+    })();
     loadMainApp(saved);
   } else {
     // Not signed in — show sign-in page
