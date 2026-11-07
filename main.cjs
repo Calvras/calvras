@@ -218,7 +218,7 @@ function downloadFileWithRedirects(fileUrl, destPath, onProgress) {
       }
       const req = client.get(parsed, {
         headers: {
-          'User-Agent': 'Kraken-Updater/5.0.0',
+          'User-Agent': 'Kraken-Updater/6.0.0',
           'Accept': 'application/octet-stream, */*'
         }
       }, (res) => {
@@ -311,13 +311,13 @@ async function performDirectUpdate(targetUrl, targetVersion) {
     }
 
     if (!urlToDownload) {
-      urlToDownload = 'https://github.com/Calvras/calvras/releases/download/v5.0.0/Kraken.Setup.5.0.0.exe';
+      urlToDownload = 'https://github.com/Calvras/calvras/releases/download/v6.0.0/Kraken.Setup.6.0.0.exe';
     }
 
-    const tempInstaller = path.join(app.getPath('temp'), `Kraken-Setup-${targetVersion || '5.0.0'}-${Date.now()}.exe`);
+    const tempInstaller = path.join(app.getPath('temp'), `Kraken-Setup-${targetVersion || '6.0.0'}-${Date.now()}.exe`);
 
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('updater:status', { status: 'downloading', version: targetVersion || '5.0.0' });
+      mainWindow.webContents.send('updater:status', { status: 'downloading', version: targetVersion || '6.0.0' });
     }
 
     await downloadFileWithRedirects(urlToDownload, tempInstaller, (percent) => {
@@ -329,7 +329,7 @@ async function performDirectUpdate(targetUrl, targetVersion) {
     updateDownloadedPath = tempInstaller;
 
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('updater:status', { status: 'installing', version: targetVersion || '5.0.0' });
+      mainWindow.webContents.send('updater:status', { status: 'installing', version: targetVersion || '6.0.0' });
     }
 
     runInstallerAndExit(tempInstaller);

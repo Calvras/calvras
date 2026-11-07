@@ -4554,7 +4554,7 @@ document.addEventListener('DOMContentLoaded', init);
     return false;
   }
 
-  let currentVer = '5.0.0';
+  let currentVer = '6.0.0';
   let isDownloading = false;
   if (ipcRenderer) {
     ipcRenderer.invoke('app:get-version').then(ver => {
@@ -4617,10 +4617,10 @@ document.addEventListener('DOMContentLoaded', init);
           showAvailable(data.version, data.downloadUrl);
           break;
         case 'downloading':
-          showDownloading(data.version || '5.0.0');
+          showDownloading(data.version || '6.0.0');
           break;
         case 'installing':
-          if (progressText) progressText.textContent = 'Installing v' + (data.version || '5.0.0') + '...';
+          if (progressText) progressText.textContent = 'Installing v' + (data.version || '6.0.0') + '...';
           break;
         case 'downloaded':
           showDownloaded(data.version);
