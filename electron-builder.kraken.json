@@ -1,0 +1,55 @@
+{
+  "appId": "dev.getkraken.app",
+  "productName": "Kraken",
+  "extraMetadata": {
+    "main": "main.cjs"
+  },
+  "copyright": "Copyright © 2026 Calvras",
+  "directories": {
+    "output": "dist/kraken"
+  },
+  "files": [
+    "app.html",
+    "app.css",
+    "app.js",
+    "main.js",
+    "main.cjs",
+    "avatar_milo.png",
+    "kraken_logo.png",
+    "build/icon.png",
+    "node_modules/**/*",
+    "!node_modules/.cache",
+    "!node_modules/electron-builder/**/*",
+    "!node_modules/electron/dist/**/*",
+    "!**/*.map",
+    "!**/test*",
+    "!**/spec*",
+    "!src/**/*",
+    "!dist/**/*",
+    "!installer/**/*",
+    "!electron-dist/**/*",
+    "!public/**/*",
+    "!scripts/**/*",
+    "!migrations/**/*",
+    "!.build-*/**/*"
+  ],
+  "win": {
+    "target": "nsis",
+    "icon": "build/icon.ico"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "installerIcon": "build/icon.ico",
+    "uninstallerIcon": "build/icon.ico",
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Kraken"
+  },
+  "publish": {
+    "provider": "github",
+    "owner": "Calvras",
+    "repo": "calvras",
+    "releaseType": "release"
+  }
+}
