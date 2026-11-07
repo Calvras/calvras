@@ -292,7 +292,7 @@ export function AdminConsole() {
           onSubmit={(event) => { event.preventDefault(); if (token.trim()) void load(); }}
           className="admin-gate-card"
         >
-          <span className="admin-eyebrow">KRAKEN ADMIN CONSOLE · v5.0.0</span>
+          <span className="admin-eyebrow">KRAKEN ADMIN CONSOLE · v7.0.0</span>
           <h1>Sign in as the owner</h1>
           <p>This page lists the accounts that have signed in to Calvras, what they have asked the agent to do, the plans they carry and what they paid. It opens only with the owner token set on the site.</p>
           <input className="admin-field" type="password" autoComplete="off" placeholder="Admin password (Shikari1.@$)" value={token} onChange={(event) => setToken(event.target.value)} aria-label="Admin password" />
@@ -310,7 +310,7 @@ export function AdminConsole() {
     <div className="admin-shell">
       <header className="admin-bar">
         <div>
-          <span className="admin-eyebrow">KRAKEN ADMIN CONSOLE · v5.0.0</span>
+          <span className="admin-eyebrow">KRAKEN ADMIN CONSOLE · v7.0.0</span>
           <h1>Accounts</h1>
           <p className="admin-live"><i className={error ? "is-off" : ""} aria-hidden="true" />live — checked <Since at={checkedAt} />. New sign-ins, tasks and grants arrive on their own.</p>
         </div>

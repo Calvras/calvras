@@ -3,7 +3,7 @@
   "productName": "Kraken",
   "extraMetadata": {
     "main": "main.cjs",
-    "version": "6.0.0"
+    "version": "7.0.0"
   },
   "copyright": "Copyright © 2026 Calvras",
   "directories": {

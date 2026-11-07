@@ -2195,7 +2195,9 @@ function normalizeBlockKind(kind) {
  * <|DSML|>parameter …> children. Parse those into the same {kind,arg,body}
  * blocks so they execute for real and render as chips, and strip the raw
  * markup out of the prose so it never leaks into the transcript. */
-const DSML_TAG = '<\\s*\\|\\s*DSML\\s*\\|\\s*';
+const DSML_BAR = '[\\|\\uFF5C\\u2502\\u00A6]';
+const DSML_TAG = '<\\s*' + DSML_BAR + '?\\s*DSML\\s*' + DSML_BAR + '?\\s*';
+const DSML_CLOSE = '<\\s*\\/\\s*' + DSML_BAR + '?\\s*DSML\\s*' + DSML_BAR + '?\\s*';
 const DSML_KIND_MAP = {
   run: 'run', exec: 'run', execute_command: 'run', terminal: 'run', bash: 'run', shell: 'run', command: 'run', powershell: 'run',
   read: 'read', read_file: 'read', view: 'read', cat: 'read', open: 'read',
@@ -2208,28 +2210,49 @@ const DSML_KIND_MAP = {
 function parseDsmlInvokes(src) {
   const text = String(src || '');
   const invokes = [];
-  const invokeRe = new RegExp(DSML_TAG + 'invoke\\s+name\\s*=\\s*"([^"]*)"\\s*>', 'g');
+  const invokeRe = new RegExp(DSML_TAG + 'invoke\\s+name\\s*=\\s*([\\s\\S]*?)(?:>|$)', 'gi');
   let m;
   while ((m = invokeRe.exec(text)) !== null) {
-    invokes.push({ name: (m[1] || '').trim(), start: m.index, bodyStart: m.index + m[0].length });
+    let rawAttr = (m[1] || '').trim();
+    let name = rawAttr.replace(/^["']|["']$/g, '').trim();
+    let inlineArg = '';
+    if (name.includes(':')) {
+      const idx = name.indexOf(':');
+      inlineArg = name.slice(idx + 1).trim();
+      name = name.slice(0, idx).trim();
+    }
+    invokes.push({
+      name,
+      inlineArg,
+      start: m.index,
+      bodyStart: m.index + m[0].length
+    });
   }
   if (!invokes.length) return [];
 
   return invokes.map((inv, i) => {
     const nextStart = i + 1 < invokes.length ? invokes[i + 1].start : text.length;
     const seg = text.slice(inv.bodyStart, nextStart);
-    const closeMatch = new RegExp('(?:' + DSML_TAG + 'invoke\\s*>|</\\s*\\|\\s*DSML\\s*\\|\\s*invoke\\s*>)').exec(seg);
+    const closeRe = new RegExp('(?:' + DSML_CLOSE + 'invoke\\s*>|<\\s*\\/\\s*invoke\\s*>|' + DSML_TAG + 'invoke\\s*>)', 'i');
+    const closeMatch = closeRe.exec(seg);
     const span = closeMatch ? seg.slice(0, closeMatch.index) : seg;
     const length = inv.bodyStart + (closeMatch ? closeMatch.index + closeMatch[0].length : seg.length) - inv.start;
 
     const params = {};
-    const paramRe = new RegExp(DSML_TAG + 'parameter\\s+name\\s*=\\s*"([^"]*)"[^>]*>([\\s\\S]*?)(?=' + DSML_TAG + '|$)', 'g');
+    const paramRe = new RegExp('(?:' + DSML_TAG + '|<\\s*)parameter\\s+name\\s*=\\s*["\']?([^"\'\\s>]+)["\']?[^>]*>([\\s\\S]*?)(?=(?:' + DSML_TAG + '|<\\s*\\/?[\\s\\S]*?parameter)|$)', 'gi');
     let pm;
     while ((pm = paramRe.exec(span)) !== null) {
       params[(pm[1] || '').trim().toLowerCase()] = (pm[2] || '').trim();
     }
-    const cleanSpan = span.replace(new RegExp(DSML_TAG + '[^>]*>', 'g'), '').trim();
-    return { name: inv.name, index: inv.start, length, params, rawBody: cleanSpan };
+    const cleanSpan = span.replace(/<[^>]*>/g, '').trim();
+    return {
+      name: inv.name,
+      inlineArg: inv.inlineArg,
+      index: inv.start,
+      length,
+      params,
+      rawBody: cleanSpan
+    };
   });
 }
 
@@ -2241,12 +2264,12 @@ function dsmlToBlock(inv) {
   const command = p.command || p.cmd || p.script || p.code || '';
   const content = p.content || p.text || p.new_content || p.file_content || p.contents || '';
   const query = p.query || p.pattern || p.q || p.text || '';
-  let arg = '';
+  let arg = inv.inlineArg || '';
   let body = '';
-  if (kind === 'run') arg = command || query || path || (inv.rawBody || '').trim();
-  else if (kind === 'read') arg = path || query || (inv.rawBody || '').trim();
+  if (kind === 'run') arg = arg || command || query || path || (inv.rawBody || '').trim();
+  else if (kind === 'read') arg = arg || path || query || (inv.rawBody || '').trim();
   else if (kind === 'write' || kind === 'edit') {
-    arg = path;
+    arg = arg || path;
     body = content || (inv.rawBody || '').trim();
     if (!arg && body) {
       const lines = body.split('\n');
@@ -2256,8 +2279,8 @@ function dsmlToBlock(inv) {
       }
     }
   }
-  else if (kind === 'search') arg = query || path || (inv.rawBody || '').trim();
-  else if (kind === 'list') arg = path || (inv.rawBody || '').trim() || '.';
+  else if (kind === 'search') arg = arg || query || path || (inv.rawBody || '').trim();
+  else if (kind === 'list') arg = arg || path || (inv.rawBody || '').trim() || '.';
   if (!arg && kind !== 'list') return null;
   return { index: inv.index, length: inv.length, kind, arg, body, dsml: true };
 }
@@ -2325,19 +2348,33 @@ function parseAgentBlocks(text) {
 
 // What the transcript can show while the model is still writing: prose only.
 function stripToolBlocks(text) {
-  let out = String(text || "");
-  out = out.replace(/<\s*\|?\s*DSML\s*\|?[^>]*>?/gi, "");
-  out = out.replace(/<\s*\|?\s*DSML\s*\|?\s*calls\s*>?/gi, "");
-  out = out.replace(/<\s*\|?\s*DSML\s*\|?\s*invoke[^>\n]*>?/gi, "");
-  out = out.replace(/<\s*\/?\s*parameter[^>\n]*>?/gi, "");
-  out = out.replace(/<\s*\/?\s*invoke\s*>?/gi, "");
-  out = out.replace(/<\s*\|\s*DSML\s*\|\s*invoke[^\n]*/gi, "");
-  out = out.replace(/<\s*\|\s*DSML\s*\|[^\n]*/gi, "");
+  let out = String(text || '');
+
+  // 1. Strip entire DSML calls container: <...DSML...calls> ... </...DSML...calls>
+  const dsmlCallsRe = new RegExp('<\\s*' + DSML_BAR + '?\\s*DSML\\s*' + DSML_BAR + '?\\s*calls\\s*>[\\s\\S]*?(?:<\\s*\\/\\s*' + DSML_BAR + '?\\s*DSML\\s*' + DSML_BAR + '?\\s*calls\\s*>|$)', 'gi');
+  out = out.replace(dsmlCallsRe, '');
+
+  // 2. Strip standalone DSML invoke container: <...DSML...invoke...> ... </...DSML...invoke>
+  const dsmlInvokeRe = new RegExp('<\\s*' + DSML_BAR + '?\\s*DSML\\s*' + DSML_BAR + '?\\s*invoke[^>]*>[\\s\\S]*?(?:<\\s*\\/\\s*' + DSML_BAR + '?\\s*DSML\\s*' + DSML_BAR + '?\\s*invoke\\s*>|$)', 'gi');
+  out = out.replace(dsmlInvokeRe, '');
+
+  // 3. Strip any leftover DSML tags (open, close, or self-closing)
+  const dsmlAnyTagRe = new RegExp('<\\s*\\/?\\s*' + DSML_BAR + '?\\s*DSML\\s*' + DSML_BAR + '?[^>]*>', 'gi');
+  out = out.replace(dsmlAnyTagRe, '');
+
+  out = out.replace(/<\s*\/?\s*parameter[^>]*>/gi, '');
+  out = out.replace(/<\s*\/?\s*invoke[^>]*>/gi, '');
+  out = out.replace(/<\s*\/?\s*calls\s*>/gi, '');
+
+  // 4. Strip any lines starting with a stray DSML marker
+  const strayDsmlLineRe = new RegExp('^\\s*<\\s*\\/?\\s*' + DSML_BAR + '?\\s*DSML[^\\n]*$', 'gim');
+  out = out.replace(strayDsmlLineRe, '');
+
   return balanceFences(out)
-    .replace(/```(?:write|write_file|edit|edit_file|read|read_file|run|run_cmd|search|list|glob|preview|preview_close|git|browse|web|image|video):[^\n]*\n?[\s\S]*?```/g, "")
-    .replace(/```(?:write|write_file|edit|edit_file|read|read_file|run|run_cmd|search|list|glob|preview|preview_close|git|browse|web|image|video):[\s\S]*$/g, "")
-    .replace(/```(?:run|read|search|list|glob|preview|preview_close|git|browse|web|image|video)\s*\n[\s\S]*?```/g, "")
-    .replace(/```(?:run|read|search|list|glob|preview|preview_close|git|browse|web|image|video)\s*\n[\s\S]*$/g, "");
+    .replace(/```(?:write|write_file|edit|edit_file|read|read_file|run|run_cmd|search|list|glob|preview|preview_close|git|browse|web|image|video):[^\n]*\n?[\s\S]*?```/g, '')
+    .replace(/```(?:write|write_file|edit|edit_file|read|read_file|run|run_cmd|search|list|glob|preview|preview_close|git|browse|web|image|video):[\s\S]*$/g, '')
+    .replace(/```(?:run|read|search|list|glob|preview|preview_close|git|browse|web|image|video)\s*\n[\s\S]*?```/g, '')
+    .replace(/```(?:run|read|search|list|glob|preview|preview_close|git|browse|web|image|video)\s*\n[\s\S]*$/g, '');
 }
 
 function buildAgentSystemPrompt(treeEntries) {
@@ -4554,7 +4591,7 @@ document.addEventListener('DOMContentLoaded', init);
     return false;
   }
 
-  let currentVer = '6.0.0';
+  let currentVer = '7.0.0';
   let isDownloading = false;
   if (ipcRenderer) {
     ipcRenderer.invoke('app:get-version').then(ver => {
@@ -4617,10 +4654,10 @@ document.addEventListener('DOMContentLoaded', init);
           showAvailable(data.version, data.downloadUrl);
           break;
         case 'downloading':
-          showDownloading(data.version || '6.0.0');
+          showDownloading(data.version || '7.0.0');
           break;
         case 'installing':
-          if (progressText) progressText.textContent = 'Installing v' + (data.version || '6.0.0') + '...';
+          if (progressText) progressText.textContent = 'Installing v' + (data.version || '7.0.0') + '...';
           break;
         case 'downloaded':
           showDownloaded(data.version);
