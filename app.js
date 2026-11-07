@@ -4403,7 +4403,7 @@ document.addEventListener('DOMContentLoaded', init);
     return false;
   }
 
-  let currentVer = '4.0.0';
+  let currentVer = '5.0.0';
   if (ipcRenderer) {
     ipcRenderer.invoke('app:get-version').then(ver => {
       if (ver) currentVer = ver;
