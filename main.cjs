@@ -74,7 +74,7 @@ function postSession(payload) {
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(payload),
-        'User-Agent': 'Kraken/9.0.0',
+        'User-Agent': 'Kraken/9.1.0',
       },
       timeout: 12000,
     }, (res) => {
@@ -318,7 +318,7 @@ function downloadFileWithRedirects(fileUrl, destPath, onProgress) {
       }
       const req = client.get(parsed, {
         headers: {
-          'User-Agent': 'Kraken-Updater/9.0.0',
+          'User-Agent': 'Kraken-Updater/9.1.0',
           'Accept': 'application/octet-stream, */*'
         }
       }, (res) => {
@@ -433,13 +433,13 @@ async function performDirectUpdate(targetUrl, targetVersion) {
     }
 
     if (!urlToDownload) {
-      urlToDownload = 'https://github.com/Calvras/calvras/releases/download/v9.0.0/Kraken.Setup.9.0.0.exe';
+      urlToDownload = 'https://github.com/Calvras/calvras/releases/download/v9.1.0/Kraken.Setup.9.1.0.exe';
     }
 
-    const tempInstaller = path.join(app.getPath('temp'), `Kraken-Setup-${targetVersion || '9.0.0'}-${Date.now()}.exe`);
+    const tempInstaller = path.join(app.getPath('temp'), `Kraken-Setup-${targetVersion || '9.1.0'}-${Date.now()}.exe`);
 
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('updater:status', { status: 'downloading', version: targetVersion || '9.0.0' });
+      mainWindow.webContents.send('updater:status', { status: 'downloading', version: targetVersion || '9.1.0' });
     }
 
     await downloadFileWithRedirects(urlToDownload, tempInstaller, (percent) => {
@@ -451,7 +451,7 @@ async function performDirectUpdate(targetUrl, targetVersion) {
     updateDownloadedPath = tempInstaller;
 
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('updater:status', { status: 'installing', version: targetVersion || '9.0.0' });
+      mainWindow.webContents.send('updater:status', { status: 'installing', version: targetVersion || '9.1.0' });
     }
 
     // Don't wrap in try/catch here — runInstallerAndExit handles its own fallbacks

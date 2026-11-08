@@ -3958,11 +3958,170 @@ function renderArchivedPhase(container, phase) {
   refreshRails(treeEl);
 }
 
+// ==========================================================================
+// CONTEXT COMPRESSION — keeps the agent loop from exceeding token limits.
+// Fires automatically when:
+//   • The in-loop apiMessages grow past COMPRESS_CHAR_LIMIT characters, OR
+//   • The agent has run for COMPRESS_ROUND_TRIGGER rounds in a single task.
+// The middle of the message array is replaced by a concise system summary
+// so the model retains awareness of what happened without seeing every byte.
+// ==========================================================================
+const COMPRESS_CHAR_LIMIT  = 48_000;  // ~12k tokens
+const COMPRESS_ROUND_TRIGGER = 8;     // compress every N rounds during a task
+const COMPRESS_KEEP_TAIL   = 6;       // always keep the last N messages verbatim
+const CROSS_TURN_CHAR_LIMIT = 60_000; // compress cross-turn history if over this
+
+/**
+ * Count the total characters across all messages in an array.
+ * String content counts directly; array content (vision) counts only text parts.
+ */
+function messageCharCount(msgs) {
+  return msgs.reduce((sum, m) => {
+    if (typeof m.content === 'string') return sum + m.content.length;
+    if (Array.isArray(m.content)) {
+      return sum + m.content.reduce((s, p) => s + (p.type === 'text' ? (p.text || '').length : 0), 0);
+    }
+    return sum;
+  }, 0);
+}
+
+/**
+ * Compress the middle of apiMessages into a brief summary.
+ * Keeps apiMessages[0] (system prompt) and the last COMPRESS_KEEP_TAIL messages.
+ * Replaces everything in between with a single injected system summary.
+ * Returns a new (shorter) apiMessages array.
+ */
+async function compressApiMessages(msgs, signal) {
+  // Nothing to compress if there are too few messages
+  if (msgs.length <= COMPRESS_KEEP_TAIL + 2) return msgs;
+
+  const systemPrompt = msgs[0];
+  const tail = msgs.slice(-COMPRESS_KEEP_TAIL);
+  const middle = msgs.slice(1, -COMPRESS_KEEP_TAIL);
+
+  if (!middle.length) return msgs;
+
+  // Build a text dump of the middle for the summariser
+  const dump = middle.map(m => {
+    const role = m.role === 'user' ? 'USER' : 'ASSISTANT';
+    const body = typeof m.content === 'string'
+      ? m.content.slice(0, 6000)
+      : Array.isArray(m.content)
+        ? m.content.filter(p => p.type === 'text').map(p => p.text).join('\n').slice(0, 6000)
+        : '';
+    return `[${role}]\n${body}`;
+  }).join('\n\n---\n\n');
+
+  const compressPrompt = [
+    'You are a context compressor. Summarise the following conversation history into a compact factual memo.',
+    'Preserve: every file written or edited (with paths), every command run and its exit code, every key decision made, the current state of the workspace, and what still needs to be done.',
+    'Discard: pleasantries, repeated instructions, verbose tool output, raw file contents.',
+    'Output a single concise paragraph followed by a bullet list of key facts. Max 400 words.',
+    '',
+    'CONVERSATION TO COMPRESS:',
+    dump,
+  ].join('\n');
+
+  try {
+    const resp = await streamCompletion([
+      { role: 'system', content: compressPrompt },
+    ], { signal, onContent: () => {} });
+
+    const summary = (resp.content || '').trim();
+    if (!summary) return msgs; // compression failed silently — keep original
+
+    const injected = {
+      role: 'system',
+      content: `[COMPRESSED CONTEXT — earlier steps summarised to save space]\n\n${summary}\n\n[END COMPRESSED CONTEXT]`,
+    };
+
+    return [systemPrompt, injected, ...tail];
+  } catch (err) {
+    // Network error or abort — return original untouched
+    console.warn('[Kraken] Context compression failed:', err.message);
+    return msgs;
+  }
+}
+
+/**
+ * Build the initial apiMessages array from chat history.
+ * If the raw history is very long, compress the older half so the model
+ * starts with a summary + recent messages rather than a truncated slice.
+ */
+async function buildApiMessagesWithCompression(currentChat, treeEntries, signal) {
+  const sysMsg = { role: 'system', content: buildAgentSystemPrompt(treeEntries) };
+
+  // Collect the full history (up to last 40 turns)
+  const rawHistory = currentChat.messages
+    .filter(m => m.role === 'user' || m.role === 'assistant')
+    .slice(-40);
+
+  // Convert to API format
+  const toApi = (message) => {
+    if (message.role === 'user' && message.imageDataUrls && message.imageDataUrls.length > 0) {
+      return {
+        role: 'user',
+        content: [
+          { type: 'text', text: message.content || '' },
+          ...message.imageDataUrls.map(u => ({ type: 'image_url', image_url: { url: u, detail: 'high' } })),
+        ],
+      };
+    }
+    return { role: message.role, content: message.content || '' };
+  };
+
+  const allMsgs = rawHistory.map(toApi);
+  const totalChars = messageCharCount(allMsgs);
+
+  // If within budget, just use the last 24 directly (existing behaviour)
+  if (totalChars <= CROSS_TURN_CHAR_LIMIT || allMsgs.length <= 12) {
+    return [sysMsg, ...allMsgs.slice(-24)];
+  }
+
+  // Over budget: keep the last 12 verbatim, compress the rest
+  const tail = allMsgs.slice(-12);
+  const older = allMsgs.slice(0, -12);
+
+  const dump = older.map(m => {
+    const role = m.role === 'user' ? 'USER' : 'ASSISTANT';
+    const body = typeof m.content === 'string'
+      ? m.content.slice(0, 4000)
+      : Array.isArray(m.content)
+        ? m.content.filter(p => p.type === 'text').map(p => p.text).join('\n').slice(0, 4000)
+        : '';
+    return `[${role}]\n${body}`;
+  }).join('\n\n---\n\n');
+
+  const compressPrompt = [
+    'Summarise this conversation history into a compact memo. Preserve: files changed (paths), commands run and results, key decisions, current workspace state. Discard: verbose tool output, pleasantries. Max 350 words.',
+    '',
+    dump,
+  ].join('\n');
+
+  try {
+    const resp = await streamCompletion([{ role: 'system', content: compressPrompt }], { signal, onContent: () => {} });
+    const summary = (resp.content || '').trim();
+    if (summary) {
+      const injected = {
+        role: 'system',
+        content: `[EARLIER CONTEXT — ${older.length} messages summarised]\n\n${summary}\n\n[END EARLIER CONTEXT]`,
+      };
+      return [sysMsg, injected, ...tail];
+    }
+  } catch (err) {
+    console.warn('[Kraken] Cross-turn compression failed:', err.message);
+  }
+
+  // Fallback: just slice
+  return [sysMsg, ...allMsgs.slice(-24)];
+}
+
 // Send message. The model plans, the app executes real tools, the model sees
 // the real results and keeps going until it reports done or asks a question.
 async function handleSend(rawText) {
   const text = (rawText || '').trim();
   if (!text && pendingAttachments.length === 0) return;
+
 
   promptInput.value = '';
   capsulePromptInput.value = '';
@@ -4200,25 +4359,7 @@ async function handleSend(rawText) {
       }
     }
 
-    const apiMessages = [{ role: 'system', content: buildAgentSystemPrompt(treeEntries) }];
-    currentChat.messages
-      .filter(message => message.role === 'user' || message.role === 'assistant')
-      .slice(-24)
-      .forEach(message => {
-        // If user message has image data URLs, build a vision content array
-        if (message.role === 'user' && message.imageDataUrls && message.imageDataUrls.length > 0) {
-          const content = [
-            { type: 'text', text: message.content || '' },
-            ...message.imageDataUrls.map(url => ({
-              type: 'image_url',
-              image_url: { url, detail: 'high' }
-            }))
-          ];
-          apiMessages.push({ role: 'user', content });
-        } else {
-          apiMessages.push({ role: message.role, content: message.content || '' });
-        }
-      });
+    const apiMessages = await buildApiMessagesWithCompression(currentChat, treeEntries, controller.signal);
 
     const workflow = document.createElement('div');
     workflow.className = 'agent-workflow-container';
@@ -4303,6 +4444,21 @@ async function handleSend(rawText) {
 
         apiMessages.push({ role: 'assistant', content: raw });
         apiMessages.push({ role: 'user', content: buildToolResultsMessage(results) });
+
+        // Compress context if we're getting long — fire every COMPRESS_ROUND_TRIGGER
+        // rounds, or whenever the raw char count exceeds the budget.
+        const shouldCompress =
+          (round > 0 && round % COMPRESS_ROUND_TRIGGER === 0) ||
+          messageCharCount(apiMessages) > COMPRESS_CHAR_LIMIT;
+
+        if (shouldCompress && !controller.signal.aborted) {
+          const compressed = await compressApiMessages(apiMessages, controller.signal);
+          // Only swap in the shorter version — never make it longer
+          if (compressed.length < apiMessages.length) {
+            apiMessages.length = 0;
+            compressed.forEach(m => apiMessages.push(m));
+          }
+        }
       } catch (err) {
         if (err.name === 'AbortError' || controller.signal.aborted) {
           stopped = 'aborted';
@@ -4785,7 +4941,7 @@ document.addEventListener('DOMContentLoaded', init);
     return false;
   }
 
-  let currentVer = '9.0.0';
+  let currentVer = '9.1.0';
   let isDownloading = false;
   if (ipcRenderer) {
     ipcRenderer.invoke('app:get-version').then(ver => {
