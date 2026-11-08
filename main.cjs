@@ -74,7 +74,7 @@ function postSession(payload) {
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(payload),
-        'User-Agent': 'Kraken/9.3.0',
+        'User-Agent': 'Kraken/9.3.1',
       },
       timeout: 12000,
     }, (res) => {
@@ -111,7 +111,7 @@ async function syncAccountWithCalvras(authData) {
     name: authData.name || authData.email.split('@')[0],
     picture: authData.picture || '',
     platform: process.platform || 'win32',
-    version: '9.0.0',
+    version: '9.3.1',
   });
   const delays = [0, 1500, 5000];
   for (let attempt = 0; attempt < delays.length; attempt += 1) {
@@ -137,6 +137,40 @@ async function syncAccountWithCalvras(authData) {
 
 // ── IPC ───────────────────────────────────────────────────────────────────
 let currentWorkspaceDir = '';
+
+// ── Workspace preview server ──────────────────────────────────────────────
+// Serves the active workspace over loopback so preview:index.html works even
+// when the user has no dev server running.
+const PREVIEW_MIME = {
+  '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
+  '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png',
+  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp',
+  '.ico': 'image/x-icon', '.woff': 'font/woff', '.woff2': 'font/woff2',
+  '.txt': 'text/plain; charset=utf-8',
+};
+const previewServer = http.createServer((req, res) => {
+  if (!currentWorkspaceDir) { res.writeHead(404); res.end('No workspace open'); return; }
+  let pathname;
+  try { pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname); }
+  catch { res.writeHead(400); res.end(); return; }
+  const root = path.resolve(currentWorkspaceDir);
+  let fullPath = path.resolve(root, '.' + pathname);
+  if (fullPath !== root && !fullPath.startsWith(root + path.sep)) { res.writeHead(403); res.end(); return; }
+  try {
+    if (fs.statSync(fullPath).isDirectory()) fullPath = path.join(fullPath, 'index.html');
+    const body = fs.readFileSync(fullPath);
+    res.writeHead(200, { 'Content-Type': PREVIEW_MIME[path.extname(fullPath).toLowerCase()] || 'application/octet-stream', 'Cache-Control': 'no-store' });
+    res.end(body);
+  } catch {
+    res.writeHead(404); res.end('Not found');
+  }
+});
+previewServer.listen(0, '127.0.0.1');
+const previewOriginReady = new Promise((resolve) => {
+  previewServer.once('listening', () => resolve(`http://127.0.0.1:${previewServer.address().port}`));
+});
+ipcMain.handle('workspace:preview-origin', () => previewOriginReady);
 
 ipcMain.handle('kraken:pick-folder', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
@@ -341,7 +375,7 @@ function downloadFileWithRedirects(fileUrl, destPath, onProgress) {
       }
       const req = client.get(parsed, {
         headers: {
-          'User-Agent': 'Kraken-Updater/9.3.0',
+          'User-Agent': 'Kraken-Updater/9.3.1',
           'Accept': 'application/octet-stream, */*'
         }
       }, (res) => {
@@ -456,13 +490,13 @@ async function performDirectUpdate(targetUrl, targetVersion) {
     }
 
     if (!urlToDownload) {
-      urlToDownload = 'https://github.com/Calvras/calvras/releases/download/v9.3.0/Kraken.Setup.9.3.0.exe';
+      urlToDownload = 'https://github.com/Calvras/calvras/releases/download/v9.3.1/Kraken.Setup.9.3.1.exe';
     }
 
-    const tempInstaller = path.join(app.getPath('temp'), `Kraken-Setup-${targetVersion || '9.3.0'}-${Date.now()}.exe`);
+    const tempInstaller = path.join(app.getPath('temp'), `Kraken-Setup-${targetVersion || '9.3.1'}-${Date.now()}.exe`);
 
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('updater:status', { status: 'downloading', version: targetVersion || '9.3.0' });
+      mainWindow.webContents.send('updater:status', { status: 'downloading', version: targetVersion || '9.3.1' });
     }
 
     await downloadFileWithRedirects(urlToDownload, tempInstaller, (percent) => {
@@ -474,7 +508,7 @@ async function performDirectUpdate(targetUrl, targetVersion) {
     updateDownloadedPath = tempInstaller;
 
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('updater:status', { status: 'installing', version: targetVersion || '9.3.0' });
+      mainWindow.webContents.send('updater:status', { status: 'installing', version: targetVersion || '9.3.1' });
     }
 
     // Don't wrap in try/catch here — runInstallerAndExit handles its own fallbacks

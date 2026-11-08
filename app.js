@@ -489,6 +489,14 @@ function initPreviewResize() {
   }
 }
 
+let workspacePreviewBase = '';
+const previewOriginIpc = getElectronIpc();
+if (previewOriginIpc) {
+  previewOriginIpc.invoke('workspace:preview-origin')
+    .then(base => { if (base) workspacePreviewBase = base; })
+    .catch(() => {});
+}
+
 function normalizePreviewUrl(raw) {
   const value = String(raw || '').trim().replace(/^["'`]+|["'`]+$/g, '');
   if (!value) return '';
@@ -496,8 +504,8 @@ function normalizePreviewUrl(raw) {
   if (/^(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?/i.test(value)) {
     return 'http://' + value.replace(/^0\.0\.0\.0/, 'localhost');
   }
-  // A workspace-relative page is served by the workspace server.
-  return agentApiBase() + '/' + value.replace(/^\/+/, '');
+  // A workspace-relative page is served by the workspace preview server.
+  return (workspacePreviewBase || agentApiBase()) + '/' + value.replace(/^\/+/, '');
 }
 
 function isLivePreviewOpen() {
@@ -523,11 +531,11 @@ function probePreview(url, attempts = 10) {
       return;
     }
     try {
-      const res = await fetch(url, { method: 'GET', cache: 'no-store' });
-      if (res.ok || res.status === 304) {
-        stopPreviewProbe();
-        if (previewIframe && livePreviewUrl === url) previewIframe.src = url;
-      }
+      // no-cors: an opaque response still proves the port answers, and works
+      // from the file:// app origin where normal fetch would be CORS-blocked.
+      await fetch(url, { method: 'GET', cache: 'no-store', mode: 'no-cors' });
+      stopPreviewProbe();
+      if (previewIframe && livePreviewUrl === url) previewIframe.src = url;
     } catch (err) { /* not listening yet */ }
   }, 800);
 }
@@ -2493,12 +2501,23 @@ function stripToolBlocks(text) {
     .replace(/```(?:run|read|search|list|glob|preview|preview_close|git|browse|web|image|video)\s*\n[\s\S]*?```/g, '')
     .replace(/```(?:run|read|search|list|glob|preview|preview_close|git|browse|web|image|video)\s*\n[\s\S]*$/g, '');
 
+  // Protect real code blocks so the orphan-fence cleanup below cannot shred
+  // them — otherwise code leaks into prose instead of rendering as a block.
+  const keptBlocks = [];
+  out = out.replace(/```[a-zA-Z0-9_+\-]*\n[\s\S]*?```/g, (match) => {
+    keptBlocks.push(match);
+    return `\u0000CODE${keptBlocks.length - 1}\u0000`;
+  });
+
   // Strip un-fenced or leaking tool commands (Image 5)
   out = out.replace(/(?:^|\n)\s*(?:run|run_cmd|write|write_file|edit|edit_file|read|read_file|search|list|glob|preview|preview_close|git|browse|web|image|video):[^\n]*(?:\n[\s\S]*?(?:```|$)|$)/gi, '\n');
   out = out.replace(/(?:^|\n)\s*(?:run|run_cmd|write|write_file|edit|edit_file|read|read_file|search|list|glob|preview|preview_close|git|browse|web|image|video):[^\n]*/gi, '');
+  // Tool-result JSON the model echoes into prose is noise, not an update.
+  out = out.replace(/^\s*\{"(?:files|ok|output|error|result|matches|entries|paths|content)"\s*:[^\n]*\}\s*$/gm, '');
   out = out.replace(/```+\s*$/g, '');
   out = out.replace(/^\s*```+[^\n]*$/gm, '');
   out = out.replace(/`{1,3}\s*$/g, '');
+  out = out.replace(/\u0000CODE(\d+)\u0000/g, (_, index) => keptBlocks[Number(index)]);
   return out.trim();
 }
 
@@ -4953,7 +4972,7 @@ document.addEventListener('DOMContentLoaded', init);
     return false;
   }
 
-  let currentVer = '9.3.0';
+  let currentVer = '9.3.1';
   let isDownloading = false;
   if (ipcRenderer) {
     ipcRenderer.invoke('app:get-version').then(ver => {
@@ -5016,14 +5035,14 @@ document.addEventListener('DOMContentLoaded', init);
           showAvailable(data.version, data.downloadUrl);
           break;
         case 'downloading':
-          showDownloading(data.version || '8.0.0');
+          showDownloading(data.version || '9.3.1');
           break;
         case 'installing':
           // Installer is launching — show a clear "Restarting…" message.
           // The app should quit in ~1s; if it doesn't, at least the user sees the right state.
           if (progressWrap) progressWrap.style.display = 'flex';
           if (badge) badge.style.display = 'none';
-          if (progressText) progressText.textContent = 'Installing v' + (data.version || '8.0.0') + ' — restarting…';
+          if (progressText) progressText.textContent = 'Installing v' + (data.version || '9.3.1') + ' — restarting…';
           if (progressFill) progressFill.style.width = '100%';
           break;
         case 'downloaded':

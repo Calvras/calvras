@@ -165,7 +165,7 @@ html, body {
 }
 
 .sidebar-scrollable::-webkit-scrollbar-thumb {
-  background-color: #e5e7eb;
+  background-color: #3a3835;
   border-radius: 4px;
 }
 
@@ -2246,6 +2246,7 @@ body.preview-dragging .preview-panel-body iframe {
 
 .capsule-text-input {
   flex: 1;
+  min-width: 0;
   border: none;
   outline: none;
   background: transparent;
@@ -2257,6 +2258,29 @@ body.preview-dragging .preview-panel-body iframe {
   max-height: 140px;
   padding: 6px 0;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #3a3835 transparent;
+}
+
+.capsule-text-input::-webkit-scrollbar,
+.prompt-textarea::-webkit-scrollbar {
+  width: 4px;
+}
+
+.capsule-text-input::-webkit-scrollbar-thumb,
+.prompt-textarea::-webkit-scrollbar-thumb {
+  background: #3a3835;
+  border-radius: 4px;
+}
+
+.capsule-text-input::-webkit-scrollbar-track,
+.prompt-textarea::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.prompt-textarea {
+  scrollbar-width: thin;
+  scrollbar-color: #3a3835 transparent;
 }
 
 .capsule-text-input::placeholder {
@@ -2798,9 +2822,6 @@ body.preview-dragging .preview-panel-body iframe {
   color: #9ca3af;
 }
 
-/* ==========================================================================
-   AGENT RESPONSE FORMAT — activity rail, thought process, tool cards
-   ========================================================================== */
 .agent-workflow-container {
   margin: 0;
 }
@@ -4214,6 +4235,21 @@ body.preview-dragging .preview-panel-body iframe {
   gap: 1px;
   max-height: 180px;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #3a3835 transparent;
+}
+
+.project-recent-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.project-recent-list::-webkit-scrollbar-thumb {
+  background-color: #3a3835;
+  border-radius: 4px;
+}
+
+.project-recent-list::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .project-recent-item {
