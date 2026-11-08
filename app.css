@@ -1860,14 +1860,14 @@ body.preview-dragging .preview-panel-body iframe {
   font-size: 15px;
   font-weight: 600;
   color: #111827;
-  margin: 4px 0 2px 0;
+  margin: 0;
 }
 
 .assistant-body h4 {
   font-size: 14px;
   font-weight: 600;
   color: #111827;
-  margin: 4px 0 1px 0;
+  margin: 0;
 }
 
 /* ==========================================================================
@@ -2078,7 +2078,76 @@ body.preview-dragging .preview-panel-body iframe {
   margin-top: 1px;
 }
 
-/* ASSISTANT HOVER ACTIONS (Copy, Thumbs Up, Thumbs Down) */
+/* ── New markdown block elements ─────────────────────────────────────── */
+
+.md-h1 { font-size: 18px; font-weight: 700; color: #111827; line-height: 1.35; }
+.md-h2 { font-size: 16px; font-weight: 650; color: #111827; line-height: 1.35; }
+.md-h3 { font-size: 15px; font-weight: 600; color: #111827; line-height: 1.35; }
+.md-h4 { font-size: 14px; font-weight: 600; color: #111827; }
+.md-p  { margin: 0; line-height: 22px; color: #111827; }
+
+.md-hr {
+  border: none;
+  border-top: 1px solid #e5e7eb;
+  margin: 2px 0;
+}
+
+.md-blockquote {
+  border-left: 3px solid #d1d5db;
+  padding: 2px 0 2px 12px;
+  color: #6b7280;
+  font-style: italic;
+  margin: 0;
+}
+
+.md-ul {
+  list-style: none;
+  padding-left: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.md-ul li {
+  position: relative;
+  padding-left: 16px;
+  line-height: 22px;
+  color: #111827;
+}
+.md-ul li::before { content: "•"; position: absolute; left: 0; color: #6b7280; }
+.md-ul li.md-li-nested { padding-left: 28px; }
+.md-ul li.md-li-nested::before { left: 14px; content: "◦"; }
+
+.md-ol {
+  list-style: decimal;
+  padding-left: 22px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.md-ol li { line-height: 22px; color: #111827; padding-left: 4px; }
+
+.inline-code {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 12.5px;
+  background: rgba(17, 24, 39, 0.06);
+  border: 1px solid rgba(17, 24, 39, 0.1);
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: #111827;
+  white-space: nowrap;
+}
+
+.md-link { color: #2563eb; text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1px; }
+.md-link:hover { color: #1d4ed8; }
+.md-mark { background: rgba(250, 204, 21, 0.3); padding: 0 2px; border-radius: 2px; }
+
+/* ── assistant-body gap between block children ───────────────────────── */
+/* The assistant-body already uses flex+gap:12px; all direct children (p, ul,
+   ol, h1-h6, blockquote, hr, code-block-container, table-wrapper) get the
+   gap automatically. No extra margin needed on individual elements. */
+
 .assistant-actions {
   display: flex;
   align-items: center;

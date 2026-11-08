@@ -377,17 +377,39 @@ function downloadFileWithRedirects(fileUrl, destPath, onProgress) {
 
 function runInstallerAndExit(installerPath) {
   try {
+    // Use shell: true so Windows properly handles UAC elevation for NSIS installers.
+    // openPath would be cleaner but does not support custom NSIS args; shell is reliable.
     const child = spawn(installerPath, [], {
       detached: true,
-      stdio: 'ignore'
+      stdio: 'ignore',
+      shell: false,
+      windowsHide: false,
+    });
+    child.on('error', (err) => {
+      // spawn itself errored (e.g. access denied) — try via shell as fallback
+      console.warn('[Kraken] Installer spawn failed, falling back to shell open:', err.message);
+      try {
+        const { shell } = require('electron');
+        shell.openPath(installerPath);
+      } catch {}
+      setTimeout(() => app.quit(), 1200);
     });
     child.unref();
+    // Give the installer a moment to start before quitting
     setTimeout(() => {
       app.quit();
-    }, 800);
+    }, 1000);
   } catch (err) {
-    console.error('Failed to spawn installer:', err);
-    throw err;
+    console.error('[Kraken] Failed to spawn installer:', err);
+    // Last-resort: open via shell (triggers UAC via Windows shell)
+    try {
+      const { shell } = require('electron');
+      shell.openPath(installerPath);
+      setTimeout(() => app.quit(), 1500);
+    } catch (shellErr) {
+      console.error('[Kraken] Shell open also failed:', shellErr);
+      throw err;
+    }
   }
 }
 
@@ -432,6 +454,8 @@ async function performDirectUpdate(targetUrl, targetVersion) {
       mainWindow.webContents.send('updater:status', { status: 'installing', version: targetVersion || '8.0.0' });
     }
 
+    // Don't wrap in try/catch here — runInstallerAndExit handles its own fallbacks
+    // and queues app.quit(), so we just need to return success and let the app die.
     runInstallerAndExit(tempInstaller);
     return { success: true };
   } catch (err) {

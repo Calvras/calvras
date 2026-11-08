@@ -4398,178 +4398,210 @@ function formatMarkdown(text) {
 
   let processed = balanceFences(text);
 
-  // 1. Extract remaining code blocks
+  // ── 1. Extract fenced code blocks ──────────────────────────────────────
   const codeBlocks = [];
   processed = processed.replace(/```([a-zA-Z0-9_\-\+]*)\n?([\s\S]*?)```/g, (match, lang, code) => {
-    const placeholder = `__CODE_BLOCK_${codeBlocks.length}__`;
+    const placeholder = `\x00CODE${codeBlocks.length}\x00`;
     const cleanLang = (lang || 'code').trim().toLowerCase();
     const trimmedCode = code.replace(/^\n+|\n+$/g, '');
     const escapedCode = escapeHtml(trimmedCode);
     const codeId = 'code_' + Math.random().toString(36).substring(2, 9);
-    const isBash = ['bash', 'sh', 'shell', 'terminal', 'cmd', 'powershell', 'zsh'].includes(cleanLang);
-
-    const runBtn = isBash ? `
-      <button class="code-copy-btn run-cmd-btn" onclick="executeWorkspaceCommand('${codeId}', this)" title="Execute in workspace terminal">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
-          <polygon points="5 3 19 12 5 21 5 3"></polygon>
-        </svg>
-        <span>Run</span>
-      </button>
-    ` : '';
-
-    const html = `
-      <div class="code-block-container">
-        <div class="code-block-header">
-          <span class="code-lang-label">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="16 18 22 12 16 6"></polyline>
-              <polyline points="8 6 2 12 8 18"></polyline>
-            </svg>
-            ${cleanLang}
-          </span>
-          <div style="display: flex; align-items: center; gap: 4px;">
-            ${runBtn}
-            <button class="code-copy-btn" onclick="copyCodeBlock('${codeId}', this)" title="Copy snippet">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-              </svg>
-              <span>Copy</span>
-            </button>
-          </div>
-        </div>
-        <pre class="code-block-body"><code id="${codeId}">${escapedCode}</code></pre>
-      </div>
-    `;
-    codeBlocks.push(html);
+    const isBash = ['bash', 'sh', 'shell', 'terminal', 'cmd', 'powershell', 'zsh', 'ps1'].includes(cleanLang);
+    const runBtn = isBash ? `<button class="code-copy-btn run-cmd-btn" onclick="executeWorkspaceCommand('${codeId}', this)" title="Execute in workspace terminal"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg><span>Run</span></button>` : '';
+    codeBlocks.push(`<div class="code-block-container"><div class="code-block-header"><span class="code-lang-label"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>${escapeHtml(cleanLang)}</span><div style="display:flex;align-items:center;gap:4px">${runBtn}<button class="code-copy-btn" onclick="copyCodeBlock('${codeId}', this)" title="Copy snippet"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg><span>Copy</span></button></div></div><pre class="code-block-body"><code id="${codeId}">${escapedCode}</code></pre></div>`);
     return placeholder;
   });
 
-  // 2. Extract and format markdown tables
+  // ── 2. Extract indented code blocks (4 spaces / 1 tab) ─────────────────
+  processed = processed.replace(/(?:^|\n)((?:(?:    |\t)[^\n]*(?:\n|$))+)/g, (match, block) => {
+    const placeholder = `\x00CODE${codeBlocks.length}\x00`;
+    const code = block.replace(/^(?:    |\t)/gm, '').replace(/\n+$/, '');
+    const codeId = 'code_' + Math.random().toString(36).substring(2, 9);
+    codeBlocks.push(`<div class="code-block-container"><div class="code-block-header"><span class="code-lang-label"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>code</span><div style="display:flex;align-items:center;gap:4px"><button class="code-copy-btn" onclick="copyCodeBlock('${codeId}', this)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg><span>Copy</span></button></div></div><pre class="code-block-body"><code id="${codeId}">${escapeHtml(code)}</code></pre></div>`);
+    return '\n' + placeholder + '\n';
+  });
+
+  // ── 3. Extract tables ───────────────────────────────────────────────────
   const tableBlocks = [];
   processed = processed.replace(/((?:^[ \t]*\|[^\n]+\|[ \t]*\n){2,})/gm, (match) => {
     const rawLines = match.trim().split('\n').map(l => l.trim()).filter(Boolean);
     if (rawLines.length < 2) return match;
-
-    // Check if second line is markdown table separator (|---|---|)
-    const isSeparator = /^\|?(\s*:?-+:?\s*\|?)+$/.test(rawLines[1]);
-    if (!isSeparator) return match;
-
+    if (!/^\|?(\s*:?-+:?\s*\|?)+$/.test(rawLines[1])) return match;
     const parseCells = (line) => {
-      let trimmed = line;
-      if (trimmed.startsWith('|')) trimmed = trimmed.substring(1);
-      if (trimmed.endsWith('|')) trimmed = trimmed.slice(0, -1);
-      return trimmed.split('|').map(c => c.trim());
+      let t = line.startsWith('|') ? line.slice(1) : line;
+      t = t.endsWith('|') ? t.slice(0, -1) : t;
+      return t.split('|').map(c => c.trim());
     };
-
-    const headerCells = parseCells(rawLines[0]);
-    const bodyLines = rawLines.slice(2);
-
-    let tableHtml = `<div class="table-wrapper"><table class="chat-table"><thead><tr>`;
-    headerCells.forEach(cell => {
-      tableHtml += `<th>${inlineFormat(cell)}</th>`;
+    // Parse alignment from separator row
+    const sepCells = parseCells(rawLines[1]);
+    const aligns = sepCells.map(c => {
+      if (/^:-+:$/.test(c)) return 'center';
+      if (/^-+:$/.test(c)) return 'right';
+      return 'left';
     });
-    tableHtml += `</tr></thead><tbody>`;
-
-    bodyLines.forEach(row => {
-      const cells = parseCells(row);
-      tableHtml += `<tr>`;
-      cells.forEach(cell => {
-        tableHtml += `<td>${inlineFormat(cell)}</td>`;
+    const placeholder = `\x00TABLE${tableBlocks.length}\x00`;
+    let html = `<div class="table-wrapper"><table class="chat-table"><thead><tr>`;
+    parseCells(rawLines[0]).forEach((cell, i) => {
+      html += `<th style="text-align:${aligns[i] || 'left'}">${inlineFormat(cell)}</th>`;
+    });
+    html += `</tr></thead><tbody>`;
+    rawLines.slice(2).forEach(row => {
+      html += `<tr>`;
+      parseCells(row).forEach((cell, i) => {
+        html += `<td style="text-align:${aligns[i] || 'left'}">${inlineFormat(cell)}</td>`;
       });
-      tableHtml += `</tr>`;
+      html += `</tr>`;
     });
-
-    tableHtml += `</tbody></table></div>`;
-    const placeholder = `__TABLE_BLOCK_${tableBlocks.length}__`;
-    tableBlocks.push(tableHtml);
-    return placeholder;
+    html += `</tbody></table></div>`;
+    tableBlocks.push(html);
+    return placeholder + '\n';
   });
 
-  // 2.5 Render markdown image embeds as-is. No URL rewriting and no substitute image.
-  processed = processed.replace(/!\[(.*?)\]\((https?:\/\/[^\s\)]+)\)/g, (match, alt, url) => {
-    return `
-      <div class="media-gen-card">
-        <div class="media-gen-viewport">
-          <div class="media-gen-completed-container">
-            <img class="media-gen-image" src="${escapeHtml(url)}" alt="${escapeHtml(alt || 'Image')}" onerror="this.style.display='none'; if (this.nextElementSibling) this.nextElementSibling.style.display='block';" />
-            <div class="media-gen-error" style="display:none;">The image could not be loaded from its URL.</div>
-            <div class="media-gen-overlay">
-              <button class="media-gen-action-btn" onclick="window.open('${escapeHtml(url)}', '_blank')">Open Full</button>
-              <button class="media-gen-action-btn" onclick="navigator.clipboard.writeText('${escapeHtml(url)}'); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy URL', 1500)">Copy URL</button>
-            </div>
-          </div>
-        </div>
-        <div class="media-gen-footer-text">
-          <span>${escapeHtml(alt ? (alt.length > 40 ? alt.slice(0, 40) + '…' : alt) : 'Image')}</span>
-        </div>
-      </div>
-    `;
+  // ── 4. Normalise line endings ───────────────────────────────────────────
+  processed = processed.replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n');
+
+  // ── 5. Render markdown image embeds ────────────────────────────────────
+  processed = processed.replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, (_, alt, url) => {
+    return `\x00IMG${escapeHtml(url)}|${escapeHtml(alt || 'Image')}\x00`;
   });
 
-  // 3. Process common markdown headers and cleanup
-  processed = processed
-    .replace(/\r\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .replace(/^### (.*$)/gim, '<h3>$1</h3>')
-    .replace(/^## (.*$)/gim, '<h3>$1</h3>')
-    .replace(/^# (.*$)/gim, '<h3>$1</h3>');
-
-  // 4. Line by line parsing for lists & paragraphs
+  // ── 6. Line-by-line block parser ────────────────────────────────────────
   const lines = processed.split('\n');
-  let result = [];
-  let inList = false;
+  const blocks = []; // each entry is an HTML string
+  let i = 0;
 
-  for (let line of lines) {
+  while (i < lines.length) {
+    const line = lines[i];
     const trimmed = line.trim();
 
-    // Check placeholders for code or tables
-    if (trimmed.startsWith('__CODE_BLOCK_') || trimmed.startsWith('__TABLE_BLOCK_')) {
-      if (inList) {
-        result.push('</ul>');
-        inList = false;
-      }
-      result.push(trimmed);
+    // Placeholder passthrough
+    if (/^\x00(CODE|TABLE)\d+\x00$/.test(trimmed)) {
+      blocks.push(trimmed);
+      i++;
       continue;
     }
 
-    if (trimmed.startsWith('- ') || trimmed.startsWith('• ') || trimmed.startsWith('* ')) {
-      if (!inList) {
-        result.push('<ul>');
-        inList = true;
+    // Image placeholder
+    if (/^\x00IMG/.test(trimmed)) {
+      const m = trimmed.match(/^\x00IMG(.+)\|(.+)\x00$/);
+      if (m) {
+        blocks.push(`<div class="media-gen-card"><div class="media-gen-viewport"><div class="media-gen-completed-container"><img class="media-gen-image" src="${m[1]}" alt="${m[2]}" onerror="this.style.display='none'"/><div class="media-gen-overlay"><button class="media-gen-action-btn" onclick="window.open('${m[1]}','_blank')">Open Full</button></div></div></div><div class="media-gen-footer-text"><span>${m[2]}</span></div></div>`);
       }
-      const itemText = trimmed.replace(/^[-•*]\s+/, '');
-      result.push(`<li>${inlineFormat(itemText)}</li>`);
-    } else {
-      if (inList) {
-        result.push('</ul>');
-        inList = false;
+      i++;
+      continue;
+    }
+
+    // Blank line — separator, no output
+    if (!trimmed) { i++; continue; }
+
+    // Setext headings (=== / --- under text)
+    if (i + 1 < lines.length) {
+      const next = lines[i + 1].trim();
+      if (/^=+$/.test(next) && trimmed) {
+        blocks.push(`<h1 class="md-h1">${inlineFormat(trimmed)}</h1>`);
+        i += 2; continue;
       }
-      if (trimmed) {
-        if (!trimmed.startsWith('<h3') && !trimmed.startsWith('<h2') && !trimmed.startsWith('<h1')) {
-          result.push(`<p>${inlineFormat(trimmed)}</p>`);
-        } else {
-          result.push(trimmed);
-        }
+      if (/^-+$/.test(next) && trimmed && !/^[-*+]\s/.test(trimmed) && !/^\d+[.)]\s/.test(trimmed)) {
+        blocks.push(`<h2 class="md-h2">${inlineFormat(trimmed)}</h2>`);
+        i += 2; continue;
       }
+    }
+
+    // ATX headings
+    const hm = trimmed.match(/^(#{1,6})\s+(.*)$/);
+    if (hm) {
+      const lvl = hm[1].length;
+      const cls = lvl <= 1 ? 'md-h1' : lvl === 2 ? 'md-h2' : lvl === 3 ? 'md-h3' : 'md-h4';
+      blocks.push(`<h${lvl} class="${cls}">${inlineFormat(hm[2])}</h${lvl}>`);
+      i++; continue;
+    }
+
+    // Horizontal rule
+    if (/^(\*{3,}|-{3,}|_{3,})$/.test(trimmed)) {
+      blocks.push(`<hr class="md-hr"/>`);
+      i++; continue;
+    }
+
+    // Blockquote
+    if (trimmed.startsWith('> ') || trimmed === '>') {
+      const quoteLines = [];
+      while (i < lines.length && (lines[i].trim().startsWith('> ') || lines[i].trim() === '>')) {
+        quoteLines.push(lines[i].trim().replace(/^>\s?/, ''));
+        i++;
+      }
+      blocks.push(`<blockquote class="md-blockquote">${inlineFormat(quoteLines.join(' '))}</blockquote>`);
+      continue;
+    }
+
+    // Unordered list
+    if (/^[-*+]\s/.test(trimmed)) {
+      const items = [];
+      let depth = 0;
+      while (i < lines.length) {
+        const l = lines[i];
+        const lt = l.trim();
+        if (/^[-*+]\s/.test(lt)) {
+          items.push(`<li>${inlineFormat(lt.replace(/^[-*+]\s+/, ''))}</li>`);
+          i++;
+        } else if (/^\s{2,}[-*+]\s/.test(l)) {
+          // nested — flatten for now
+          items.push(`<li class="md-li-nested">${inlineFormat(lt.replace(/^[-*+]\s+/, ''))}</li>`);
+          i++;
+        } else { break; }
+      }
+      blocks.push(`<ul class="md-ul">${items.join('')}</ul>`);
+      continue;
+    }
+
+    // Ordered list
+    if (/^\d+[.)]\s/.test(trimmed)) {
+      const items = [];
+      let counter = 1;
+      while (i < lines.length) {
+        const lt = lines[i].trim();
+        const om = lt.match(/^(\d+)[.)]\s+(.*)/);
+        if (om) {
+          items.push(`<li value="${om[1]}">${inlineFormat(om[2])}</li>`);
+          i++;
+        } else if (/^\s{3,}/.test(lines[i]) && lines[i].trim()) {
+          // continuation line — append to last li
+          if (items.length) items[items.length - 1] = items[items.length - 1].replace(/<\/li>$/, ' ' + inlineFormat(lines[i].trim()) + '</li>');
+          i++;
+        } else { break; }
+      }
+      blocks.push(`<ol class="md-ol">${items.join('')}</ol>`);
+      continue;
+    }
+
+    // Paragraph — collect consecutive non-empty, non-block lines
+    const paraLines = [];
+    while (i < lines.length) {
+      const lt = lines[i].trim();
+      if (!lt) { i++; break; }
+      if (/^(#{1,6}\s|>\s?|[-*+]\s|\d+[.)]\s|=+$|-+$|\*{3,}|-{3,}|_{3,})/.test(lt)) break;
+      if (/^\x00(CODE|TABLE|IMG)/.test(lt)) break;
+      // trailing two-spaces or backslash = hard line break
+      if (lines[i].endsWith('  ') || lines[i].endsWith('\\')) {
+        paraLines.push(inlineFormat(lt.replace(/\\$/, '')) + '<br>');
+      } else {
+        paraLines.push(inlineFormat(lt));
+      }
+      i++;
+    }
+    if (paraLines.length) {
+      blocks.push(`<p class="md-p">${paraLines.join(' ')}</p>`);
     }
   }
 
-  if (inList) {
-    result.push('</ul>');
-  }
+  // ── 7. Assemble ──────────────────────────────────────────────────────────
+  let finalHtml = blocks.join('');
 
-  let finalHtml = result.join('');
-
-  // 5. Restore code blocks & table blocks
-  codeBlocks.forEach((codeHtml, idx) => {
-    finalHtml = finalHtml.replace(`__CODE_BLOCK_${idx}__`, codeHtml);
-    finalHtml = finalHtml.replace(`<p>__CODE_BLOCK_${idx}__</p>`, codeHtml);
+  // Restore code/table placeholders
+  codeBlocks.forEach((html, idx) => {
+    finalHtml = finalHtml.split(`\x00CODE${idx}\x00`).join(html);
   });
-
-  tableBlocks.forEach((tblHtml, idx) => {
-    finalHtml = finalHtml.replace(`__TABLE_BLOCK_${idx}__`, tblHtml);
-    finalHtml = finalHtml.replace(`<p>__TABLE_BLOCK_${idx}__</p>`, tblHtml);
+  tableBlocks.forEach((html, idx) => {
+    finalHtml = finalHtml.split(`\x00TABLE${idx}\x00`).join(html);
   });
 
   return finalHtml;
@@ -4585,14 +4617,70 @@ function escapeHtml(str) {
 }
 
 function inlineFormat(text) {
-  return text
-    // Only wrap in code style if it looks like actual code (has dots, slashes, parens, brackets, or is camelCase/snake_case)
-    .replace(/`([^`]+)`/g, (match, inner) => {
-      return `<code class="inline-code">${inner}</code>`;
-    })
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.*?)\*/g, '<em>$1</em>');
+  if (!text) return '';
+  let s = String(text);
+
+  // Escape HTML first (will be re-applied below only to literal text)
+  // We work on already-escaped output, so don't double-escape here.
+  // Process in order: most specific patterns first.
+
+  // ── Links: [text](url) ──────────────────────────────────────────────────
+  s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+    (_, t, u) => `<a href="${escapeHtml(u)}" target="_blank" rel="noopener" class="md-link">${escapeHtml(t)}</a>`);
+
+  // ── Autolinks: <url> ────────────────────────────────────────────────────
+  s = s.replace(/<(https?:\/\/[^\s>]+)>/g,
+    (_, u) => `<a href="${escapeHtml(u)}" target="_blank" rel="noopener" class="md-link">${escapeHtml(u)}</a>`);
+
+  // ── Inline code (backtick) ───────────────────────────────────────────────
+  s = s.replace(/`([^`]+)`/g, (_, inner) => `<code class="inline-code">${escapeHtml(inner)}</code>`);
+
+  // ── Bold italic: ***text*** or ___text___ ────────────────────────────────
+  s = s.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+  s = s.replace(/___(.+?)___/g, '<strong><em>$1</em></strong>');
+
+  // ── Bold: **text** or __text__ ───────────────────────────────────────────
+  s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/__(.+?)__/g, '<strong>$1</strong>');
+
+  // ── Italic: *text* or _text_ ─────────────────────────────────────────────
+  s = s.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+  s = s.replace(/_([^_\n]+)_/g, '<em>$1</em>');
+
+  // ── Strikethrough: ~~text~~ ──────────────────────────────────────────────
+  s = s.replace(/~~(.+?)~~/g, '<del>$1</del>');
+
+  // ── Inserted / underline: ++text++ ──────────────────────────────────────
+  s = s.replace(/\+\+(.+?)\+\+/g, '<ins>$1</ins>');
+
+  // ── Highlight / mark: ==text== ───────────────────────────────────────────
+  s = s.replace(/==(.+?)==/g, '<mark class="md-mark">$1</mark>');
+
+  // ── Superscript: ^text^ ─────────────────────────────────────────────────
+  s = s.replace(/\^([^\^\n]+)\^/g, '<sup>$1</sup>');
+
+  // ── Subscript: ~text~ (single tilde, not ~~) ────────────────────────────
+  s = s.replace(/(?<!~)~([^~\n]+)~(?!~)/g, '<sub>$1</sub>');
+
+  // ── Emoji shortcodes: :smile: → use a simple map for common ones ─────────
+  s = s.replace(/:([a-z0-9_+-]+):/g, (match, name) => EMOJI_MAP[name] || match);
+
+  // ── Escape sequences: \* \_ etc → literal character ─────────────────────
+  s = s.replace(/\\([*_`~+=#\-\[\]()\\|])/g, (_, c) => escapeHtml(c));
+
+  return s;
 }
+
+// Common emoji shortcodes
+const EMOJI_MAP = {
+  smile: '😊', grin: '😁', laugh: '😄', wink: '😉', heart: '❤️', thumbsup: '👍',
+  thumbsdown: '👎', check: '✅', x: '❌', warning: '⚠️', info: 'ℹ️', fire: '🔥',
+  rocket: '🚀', star: '⭐', bug: '🐛', zap: '⚡', lock: '🔒', key: '🔑',
+  tada: '🎉', eyes: '👀', wave: '👋', muscle: '💪', brain: '🧠', bulb: '💡',
+  hammer: '🔨', wrench: '🔧', gear: '⚙️', shield: '🛡️', bomb: '💣',
+  ghost: '👻', robot: '🤖', skull: '💀', computer: '💻', phone: '📱',
+  white_check_mark: '✅', heavy_check_mark: '✔️', cross_mark: '❌',
+};
 
 // Global helper for code block copy button
 window.copyCodeBlock = function(elementId, btn) {
@@ -4760,10 +4848,15 @@ document.addEventListener('DOMContentLoaded', init);
           showAvailable(data.version, data.downloadUrl);
           break;
         case 'downloading':
-          showDownloading(data.version || '7.0.0');
+          showDownloading(data.version || '8.0.0');
           break;
         case 'installing':
-          if (progressText) progressText.textContent = 'Installing v' + (data.version || '7.0.0') + '...';
+          // Installer is launching — show a clear "Restarting…" message.
+          // The app should quit in ~1s; if it doesn't, at least the user sees the right state.
+          if (progressWrap) progressWrap.style.display = 'flex';
+          if (badge) badge.style.display = 'none';
+          if (progressText) progressText.textContent = 'Installing v' + (data.version || '8.0.0') + ' — restarting…';
+          if (progressFill) progressFill.style.width = '100%';
           break;
         case 'downloaded':
           showDownloaded(data.version);
@@ -4773,7 +4866,7 @@ document.addEventListener('DOMContentLoaded', init);
           if (progressWrap) progressWrap.style.display = 'none';
           if (badge) {
             badge.style.display = 'inline-flex';
-            if (badgeLabel) badgeLabel.textContent = 'Retry Update';
+            if (badgeLabel) badgeLabel.textContent = 'Retry Update (v' + (data.version || currentVer) + ')';
           }
           console.warn('Updater error:', data.message);
           break;
