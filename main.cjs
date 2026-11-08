@@ -74,7 +74,7 @@ function postSession(payload) {
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(payload),
-        'User-Agent': 'Kraken/9.2.0',
+        'User-Agent': 'Kraken/9.3.0',
       },
       timeout: 12000,
     }, (res) => {
@@ -273,21 +273,38 @@ ipcMain.handle('workspace:exec', async (_event, payload) => {
     const isWin = process.platform === 'win32';
     const shellCmd = isWin ? 'powershell.exe' : '/bin/sh';
     const shellArgs = isWin ? ['-NoProfile', '-Command', cmd] : ['-c', cmd];
-    const proc = spawn(shellCmd, shellArgs, { cwd });
+
+    // Detect commands that start long-running servers and never exit.
+    // For these we spawn, drain output for up to 5 seconds, then resolve
+    // so the agent can continue (the server keeps running in the background).
+    const SERVER_RE = /\b(bun\s+run\s+dev|bun\s+dev|npm\s+(run\s+)?(dev|start|serve)|npx\s+(vite|serve|http-server|next|ts-node|nodemon)|yarn\s+(dev|start)|pnpm\s+(dev|start)|node\s+[\w./\\-]+\.(?:js|ts|cjs|mjs)|python\d?\s+(-m\s+http\.server|[\w./\\-]+\.py)|vite|next\s+dev|http-server|live-server|php\s+-S|uvicorn|flask\s+run|rails\s+s|cargo\s+run|go\s+run|dotnet\s+run)\b/i;
+    const isServer = SERVER_RE.test(String(cmd || ''));
+
+    const proc = spawn(shellCmd, shellArgs, { cwd, detached: isServer });
     let stdout = '';
     let stderr = '';
+    let settled = false;
+
     proc.stdout.on('data', d => { stdout += d.toString(); });
     proc.stderr.on('data', d => { stderr += d.toString(); });
-    proc.on('close', code => {
+
+    const settle = (code) => {
+      if (settled) return;
+      settled = true;
       resolve({
         stdout,
         stderr,
-        exitCode: code || 0,
-        success: code === 0,
+        exitCode: code == null ? 0 : code,
+        success: code == null || code === 0,
         durationMs: Date.now() - startTime,
+        background: code == null, // true = still running, we just stopped waiting
       });
-    });
+    };
+
+    proc.on('close', settle);
     proc.on('error', err => {
+      if (settled) return;
+      settled = true;
       resolve({
         stdout,
         stderr: err.message,
@@ -296,6 +313,12 @@ ipcMain.handle('workspace:exec', async (_event, payload) => {
         durationMs: Date.now() - startTime,
       });
     });
+
+    // For server commands: stop waiting after 5 s and let the process keep running.
+    if (isServer) {
+      proc.unref();
+      setTimeout(() => settle(null), 5000);
+    }
   });
 });
 
@@ -318,7 +341,7 @@ function downloadFileWithRedirects(fileUrl, destPath, onProgress) {
       }
       const req = client.get(parsed, {
         headers: {
-          'User-Agent': 'Kraken-Updater/9.2.0',
+          'User-Agent': 'Kraken-Updater/9.3.0',
           'Accept': 'application/octet-stream, */*'
         }
       }, (res) => {
@@ -433,13 +456,13 @@ async function performDirectUpdate(targetUrl, targetVersion) {
     }
 
     if (!urlToDownload) {
-      urlToDownload = 'https://github.com/Calvras/calvras/releases/download/v9.2.0/Kraken.Setup.9.2.0.exe';
+      urlToDownload = 'https://github.com/Calvras/calvras/releases/download/v9.3.0/Kraken.Setup.9.3.0.exe';
     }
 
-    const tempInstaller = path.join(app.getPath('temp'), `Kraken-Setup-${targetVersion || '9.2.0'}-${Date.now()}.exe`);
+    const tempInstaller = path.join(app.getPath('temp'), `Kraken-Setup-${targetVersion || '9.3.0'}-${Date.now()}.exe`);
 
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('updater:status', { status: 'downloading', version: targetVersion || '9.2.0' });
+      mainWindow.webContents.send('updater:status', { status: 'downloading', version: targetVersion || '9.3.0' });
     }
 
     await downloadFileWithRedirects(urlToDownload, tempInstaller, (percent) => {
@@ -451,7 +474,7 @@ async function performDirectUpdate(targetUrl, targetVersion) {
     updateDownloadedPath = tempInstaller;
 
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('updater:status', { status: 'installing', version: targetVersion || '9.2.0' });
+      mainWindow.webContents.send('updater:status', { status: 'installing', version: targetVersion || '9.3.0' });
     }
 
     // Don't wrap in try/catch here — runInstallerAndExit handles its own fallbacks

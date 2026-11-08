@@ -572,7 +572,7 @@ window.getLivePreviewUrl = function() {
 };
 
 // A run block that starts a server: the command itself, or the port it prints.
-const SERVER_START_RE = /\b(npm\s+(run\s+)?(start|dev|serve)|npx\s+(vite|serve|http-server|next)|yarn\s+(dev|start)|pnpm\s+(dev|start)|node\s+[\w./\\-]+|python\d?\s+(-m\s+http\.server|[\w./\\-]+\.py)|vite|next\s+dev|http-server|live-server|php\s+-S)\b/i;
+const SERVER_START_RE = /\b(bun\s+(run\s+)?(dev|start|serve)|npm\s+(run\s+)?(start|dev|serve)|npx\s+(vite|serve|http-server|next)|yarn\s+(dev|start)|pnpm\s+(dev|start)|node\s+[\w./\\-]+|python\d?\s+(-m\s+http\.server|[\w./\\-]+\.py)|vite|next\s+dev|http-server|live-server|php\s+-S)\b/i;
 
 function detectServerUrl(command, output) {
   const text = String(output || '');
@@ -2952,33 +2952,44 @@ async function executeAgentBlock(block) {
     }
 
     if (block.kind === 'run') {
+      // For server-start commands, use a short timeout — main.cjs will drain
+      // output for 5 s then resolve with background:true. Other commands get
+      // the full 90 s.
+      const isServerCmd = SERVER_START_RE.test(block.arg || '');
       const data = await agentApi('/api/workspace/exec', {
         method: 'POST',
         body: { command: block.arg },
-        timeoutMs: 90000,
+        timeoutMs: isServerCmd ? 8000 : 90000,
       });
       const parts = [];
       if (data.stdout && data.stdout.trim()) parts.push(data.stdout.trimEnd());
       if (data.stderr && data.stderr.trim()) parts.push(data.stderr.trimEnd());
       const output = parts.join('\n');
-      // The server is up: bring the preview out on its own.
+
+      // Open the preview when a server started
       const serverUrl = detectServerUrl(block.arg, output);
       let previewNote = '';
       if (serverUrl) {
         window.openLivePreview(serverUrl);
         previewNote = `\nThe live preview window is open on ${serverUrl}. Close it with a preview:close block when the work no longer needs it on screen.`;
       }
+
+      // Tell the model this is running in the background so it doesn't wait for it
+      const backgroundNote = data.background
+        ? `\n[Server is running in the background — it will stay up until you stop it. Open the preview to see it.]`
+        : '';
+
       return {
         node: {
           kind: 'run',
           label: 'Run',
           command: block.arg,
-          output: output || '(no output)',
+          output: output || (data.background ? '(server started — running in background)' : '(no output)'),
           exitCode: data.exitCode,
           durationMs: data.durationMs,
-          failed: !data.success,
+          failed: !data.success && !data.background,
         },
-        resultText: `run:${block.arg} — exit ${data.exitCode} in ${data.durationMs}ms\n${output ? truncateForModel(output, 12000) : '(no stdout or stderr)'}${previewNote}`,
+        resultText: `run:${block.arg} — exit ${data.exitCode} in ${data.durationMs}ms\n${output ? truncateForModel(output, 12000) : '(no stdout or stderr)'}${previewNote}${backgroundNote}`,
       };
     }
 
@@ -4942,7 +4953,7 @@ document.addEventListener('DOMContentLoaded', init);
     return false;
   }
 
-  let currentVer = '9.2.0';
+  let currentVer = '9.3.0';
   let isDownloading = false;
   if (ipcRenderer) {
     ipcRenderer.invoke('app:get-version').then(ver => {
