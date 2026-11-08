@@ -4785,7 +4785,7 @@ document.addEventListener('DOMContentLoaded', init);
     return false;
   }
 
-  let currentVer = '8.0.0';
+  let currentVer = '9.0.0';
   let isDownloading = false;
   if (ipcRenderer) {
     ipcRenderer.invoke('app:get-version').then(ver => {
