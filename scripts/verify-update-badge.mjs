@@ -12,7 +12,12 @@ const out = path.resolve('.agents/artifacts/update-badge');
 await fs.mkdir(out, { recursive: true });
 const env = { ...process.env };
 delete env.ELECTRON_RUN_AS_NODE;
-const app = await electron.launch({ executablePath: path.resolve('node_modules/electron/dist/electron.exe'), args: ['main.cjs', '--user-data-dir=' + profile], env, timeout: 60000 });
+const packagedExe = process.env.CALVRAS_TEST_EXE;
+if (packagedExe) {
+  // Token-less fixture identity: skips the sign-in screen; account sync aborts locally without tokens.
+  await fs.writeFile(path.join(profile, 'calvras-auth.json'), JSON.stringify({ email: 'badge-smoke@example.test', name: 'Badge Smoke' }));
+}
+const app = await electron.launch({ executablePath: packagedExe || path.resolve('node_modules/electron/dist/electron.exe'), args: packagedExe ? ['--user-data-dir=' + profile] : ['main.cjs', '--user-data-dir=' + profile], env, timeout: 60000 });
 const checks = [];
 function check(name, ok) { checks.push({ name, ok: Boolean(ok) }); console.log(`${ok ? 'PASS' : 'FAIL'} ${name}`); }
 const feed = { tag: 'v99.1.0' };
@@ -24,7 +29,11 @@ try {
     contentType: 'application/json',
     body: JSON.stringify({ tag_name: feed.tag, assets: [{ name: `Calvras.Setup.${feed.tag.replace(/^v/, '')}.exe`, browser_download_url: `https://github.com/Calvras/calvras/releases/download/${feed.tag}/Calvras.Setup.${feed.tag.replace(/^v/, '')}.exe` }] }),
   }));
-  await page.goto(pathToFileURL(path.resolve('app.html')).href);
+  if (packagedExe) {
+    check('packaged build reports the published version', await app.evaluate(({ app: electronApp }) => electronApp.getVersion()) === '9.4.0');
+  } else {
+    await page.goto(pathToFileURL(path.resolve('app.html')).href);
+  }
   await page.waitForSelector('#prompt-input');
 
   await page.locator('#update-badge').waitFor({ state: 'visible', timeout: 15000 });
