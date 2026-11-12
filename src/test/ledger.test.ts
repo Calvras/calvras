@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { LEDGER_SCHEMA, accountEmail, deleteAccount, findByEmail, grantPlan, listAccounts, normalizePlan, recentEvents, recordSignIn, saveSubscription, summarize, type D1Database } from "../lib/runtime/ledger";
+import { LEDGER_SCHEMA, accountEmail, deleteAccount, findByEmail, grantPlan, listAccounts, normalizePlan, recentEvents, recordSignIn, saveSubscription, summarize, quotaStatus, debitTokens, setDailyTokens, DEFAULT_DAILY_TOKENS, type D1Database } from "../lib/runtime/ledger";
 import { PRODUCT_IDS } from "../lib/billing";
 import { handleSiteApi, platformBindings } from "../lib/site-api";
 import { d1Shim } from "./sqlite-d1";
@@ -24,7 +24,7 @@ describe("ledger schema", () => {
   it("is the SQL the deployed migrations apply", () => {
     const read = (name: string) => readFileSync(resolve(process.cwd(), "migrations", name), "utf8");
     const deployed = new DatabaseSync(":memory:");
-    for (const file of ["0001_ledger.sql", "0002_account_location.sql", "0003_block_and_usage.sql", "0004_account_places.sql", "0005_subscriptions.sql", "0006_subscription_expiry.sql"]) deployed.exec(read(file));
+    for (const file of ["0001_ledger.sql", "0002_account_location.sql", "0003_block_and_usage.sql", "0004_account_places.sql", "0005_subscriptions.sql", "0006_subscription_expiry.sql", "0007_daily_quota.sql"]) deployed.exec(read(file));
     const shape = (handle: DatabaseSync) =>
       [
         ...["accounts", "events", "usage", "meta", "subscriptions"].flatMap((table) => (handle.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((column) => `${table}.${column["name"]}`)),
@@ -234,5 +234,61 @@ describe("the bindings the deployed Worker actually hands over", () => {
     const response = await handleSiteApi(request, platformBindings(request, undefined));
     expect(response?.status).toBe(503);
     expect((await response?.json())?.error).toMatch(/not attached/);
+  });
+});
+
+describe("daily token quota", () => {
+  it("starts at zero and allows inference", async () => {
+    await recordSignIn(db, { email: "dev@calvras.com", at: 1_000 });
+    const status = await quotaStatus(db, "dev@calvras.com", 2_000);
+    expect(status.allowed).toBe(true);
+    expect(status.used).toBe(0);
+    expect(status.limit).toBe(DEFAULT_DAILY_TOKENS);
+    expect(status.percent).toBe(0);
+  });
+
+  it("debits tokens and reports percentage", async () => {
+    await recordSignIn(db, { email: "dev@calvras.com", at: 1_000 });
+    const after = await debitTokens(db, "dev@calvras.com", 500_000, 2_000);
+    expect(after.used).toBe(500_000);
+    expect(after.percent).toBe(25);
+    expect(after.allowed).toBe(true);
+    expect(after.exhausted).toBe(false);
+  });
+
+  it("locks at 100% and reports a 24h reset", async () => {
+    await recordSignIn(db, { email: "dev@calvras.com", at: 1_000 });
+    await debitTokens(db, "dev@calvras.com", DEFAULT_DAILY_TOKENS, 5_000);
+    const status = await quotaStatus(db, "dev@calvras.com", 6_000);
+    expect(status.allowed).toBe(false);
+    expect(status.exhausted).toBe(true);
+    expect(status.percent).toBe(100);
+    expect(status.resetAt).toBe(5_000 + 24 * 60 * 60 * 1000);
+  });
+
+  it("resets after 24 hours", async () => {
+    await recordSignIn(db, { email: "dev@calvras.com", at: 1_000 });
+    await debitTokens(db, "dev@calvras.com", DEFAULT_DAILY_TOKENS, 5_000);
+    const later = 5_000 + 24 * 60 * 60 * 1000 + 1;
+    const status = await quotaStatus(db, "dev@calvras.com", later);
+    expect(status.allowed).toBe(true);
+    expect(status.used).toBe(0);
+    expect(status.exhausted).toBe(false);
+  });
+
+  it("respects a per-account override", async () => {
+    await recordSignIn(db, { email: "dev@calvras.com", at: 1_000 });
+    await setDailyTokens(db, "dev@calvras.com", 1000);
+    const after = await debitTokens(db, "dev@calvras.com", 1000, 2_000);
+    expect(after.limit).toBe(1000);
+    expect(after.exhausted).toBe(true);
+  });
+
+  it("accumulates across multiple debits in the same window", async () => {
+    await recordSignIn(db, { email: "dev@calvras.com", at: 1_000 });
+    await debitTokens(db, "dev@calvras.com", 100, 2_000);
+    await debitTokens(db, "dev@calvras.com", 200, 3_000);
+    const status = await quotaStatus(db, "dev@calvras.com", 4_000);
+    expect(status.used).toBe(300);
   });
 });

@@ -48,6 +48,10 @@ beforeAll(async () => {
   globalThis.fetch = (async (input: any, init?: any) => {
     const url = String(typeof input === "string" ? input : input?.url ?? input);
     if (url.includes("googleapis.com/oauth2/v3/certs")) return new Response(JSON.stringify({ keys: [jwk] }), { headers: { "content-type": "application/json" } });
+    if (url === "https://www.googleapis.com/oauth2/v3/userinfo") {
+      const token = new Headers(init?.headers ?? {}).get("authorization");
+      return Response.json({ email: "access@fixture.test", sub: "access-account", email_verified: token === "Bearer verified-access", name: "Fixture" });
+    }
     if (url.startsWith("https://api.github.com/")) {
       const token = new Headers(init?.headers ?? {}).get("authorization")?.replace(/^Bearer\s+/i, "");
       if (token === "gho_bad") return Response.json({ message: "Bad credentials" }, { status: 401 });
@@ -141,6 +145,21 @@ describe("the sign-in loop over HTTP", () => {
   it("shuts the console to a caller without the owner token", async () => {
     expect((await getJson("/api/site/admin/summary")).status).toBe(401);
     expect((await getJson("/api/site/admin/summary", { authorization: "Bearer not-it" })).status).toBe(401);
+  });
+
+  it("rejects an unverified Google access-token identity", async () => {
+    const answer = await postJson("/api/site/session", { accessToken: "unverified-access", email: "claimed@fixture.test" });
+    expect(answer.status).toBe(401);
+    expect(sqlite.prepare("SELECT COUNT(*) AS n FROM accounts WHERE email IN ('access@fixture.test', 'claimed@fixture.test')").get()).toEqual(expect.objectContaining({ n: 0 }));
+  });
+
+  it("uses the provider identity rather than a claimed email on the access-token path", async () => {
+    const answer = await postJson("/api/site/session", { accessToken: "verified-access", email: "claimed@fixture.test" });
+    expect(answer.status).toBe(200);
+    expect(answer.body.email).toBe("access@fixture.test");
+    const summary = await getJson("/api/site/admin/summary", admin);
+    expect(summary.body.accounts.some((account: { email: string }) => account.email === "access@fixture.test")).toBe(true);
+    await postJson("/api/site/admin/remove", { email: "access@fixture.test" }, admin);
   });
 
   it("answers a browser preflight so the desktop app can post from its own origin", async () => {

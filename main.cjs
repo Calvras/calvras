@@ -1,4 +1,9 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, net } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, net, webContents, nativeImage, screen } = require('electron');
+const { createBrowserTools } = require('./electron/browser-tools.cjs');
+const { createExecutionPolicy } = require('./electron/execution-policy.cjs');
+const { createGitHubConnection } = require('./electron/github-connection.cjs');
+const { createPetWindow } = require('./electron/pet-window.cjs');
+const { createDocument } = require('./electron/document-tools.cjs');
 const path = require('path');
 const http = require('http');
 const https = require('https');
@@ -18,19 +23,42 @@ const REDIRECT_URI = `http://127.0.0.1:${REDIRECT_PORT}/callback`;
 let mainWindow = null;
 let authServer = null;
 
-// ── Persist signed-in user ────────────────────────────────────────────────
+const APP_VERSION = '9.4.0';
+const previousUserData = app.getPath('userData');
+app.setName('Calvras');
+if (!app.commandLine.hasSwitch('user-data-dir')) {
+  const profile = path.join(app.getPath('appData'), 'Calvras');
+  const hasProfileData = dir => ['kraken-auth.json', 'calvras-auth.json', 'Local Storage'].some(entry => fs.existsSync(path.join(dir, entry)));
+  const legacyProfile = !hasProfileData(profile) && [previousUserData, path.join(app.getPath('appData'), 'Kraken'), path.join(app.getPath('appData'), 'tanstack_start_ts')]
+    .find(dir => dir !== profile && hasProfileData(dir));
+  // Keep the existing Chromium profile so an upgrade cannot strand chats or cookies.
+  app.setPath('userData', legacyProfile || profile);
+}
+
 const Store = (() => {
-  const fs = require('fs');
-  const storePath = path.join(app.getPath('userData'), 'kraken-auth.json');
+  const storePath = path.join(app.getPath('userData'), 'calvras-auth.json');
+  const legacyPath = path.join(app.getPath('userData'), 'kraken-auth.json');
+  try {
+    if (!fs.existsSync(storePath) && fs.existsSync(legacyPath)) {
+      const data = fs.readFileSync(legacyPath, 'utf8');
+      JSON.parse(data);
+      fs.writeFileSync(storePath, data, { flag: 'wx', mode: 0o600 });
+      fs.unlinkSync(legacyPath);
+    }
+  } catch (error) {
+    console.warn('[Calvras] Saved sign-in migration could not complete:', error.code || 'invalid data');
+  }
   return {
     get() {
       try { return JSON.parse(fs.readFileSync(storePath, 'utf8')); } catch { return null; }
     },
     set(data) {
-      try { fs.writeFileSync(storePath, JSON.stringify(data), 'utf8'); } catch {}
+      fs.mkdirSync(path.dirname(storePath), { recursive: true });
+      fs.writeFileSync(storePath, JSON.stringify(data), { mode: 0o600 });
     },
     clear() {
-      try { fs.unlinkSync(storePath); } catch {}
+      fs.rmSync(storePath, { force: true });
+      fs.rmSync(legacyPath, { force: true });
     }
   };
 })();
@@ -57,6 +85,7 @@ async function refreshGoogleTokens(authData) {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString(),
+      signal: AbortSignal.timeout(12000),
     });
     const data = await res.json();
     if (!res.ok || !data.access_token) return false;
@@ -74,7 +103,7 @@ function postSession(payload) {
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(payload),
-        'User-Agent': 'Kraken/9.3.1',
+        'User-Agent': 'Calvras/9.4.0',
       },
       timeout: 12000,
     }, (res) => {
@@ -100,39 +129,35 @@ async function syncAccountWithCalvras(authData) {
   if (idTokenExpired(authData.idToken)) {
     const refreshed = await refreshGoogleTokens(authData);
     if (!refreshed && !authData.accessToken) {
-      console.warn('[Kraken] Cannot sync: token expired and refresh failed');
+      console.warn('[Calvras] Cannot sync: token expired and refresh failed');
       return;
     }
   }
-  const payload = JSON.stringify({
-    idToken: authData.idToken || '',
-    accessToken: authData.accessToken || '',
-    email: authData.email,
-    name: authData.name || authData.email.split('@')[0],
-    picture: authData.picture || '',
-    platform: process.platform || 'win32',
-    version: '9.3.1',
-  });
   const delays = [0, 1500, 5000];
   for (let attempt = 0; attempt < delays.length; attempt += 1) {
     if (delays[attempt]) await new Promise(r => setTimeout(r, delays[attempt]));
     try {
-      const body = await postSession(payload);
+      const body = await postSession(JSON.stringify({
+        idToken: authData.idToken || '',
+        accessToken: authData.accessToken || '',
+        platform: process.platform,
+        version: APP_VERSION,
+      }));
       if (body.session && authData.session !== body.session) {
         authData.session = body.session;
         Store.set(authData);
       }
-      console.log(`[Kraken] Account synced: ${authData.email} (plan: ${body.plan || 'free'})`);
+      console.log('[Calvras] Account synced.');
       return;
     } catch (err) {
-      console.warn(`[Kraken] Account sync attempt ${attempt + 1} failed: ${err.message}`);
+      console.warn(`[Calvras] Account sync attempt ${attempt + 1} failed: ${err.message}`);
       // On token error, try refreshing and retry
       if (attempt === 0 && /401|token|expired|invalid/i.test(err.message)) {
         await refreshGoogleTokens(authData);
       }
     }
   }
-  console.error('[Kraken] Account sync failed after 3 attempts — the admin ledger will not show this sign-in yet.');
+  console.error('[Calvras] Account sync failed after 3 attempts — the admin ledger will not show this sign-in yet.');
 }
 
 // ── IPC ───────────────────────────────────────────────────────────────────
@@ -172,9 +197,165 @@ const previewOriginReady = new Promise((resolve) => {
 });
 ipcMain.handle('workspace:preview-origin', () => previewOriginReady);
 
-ipcMain.handle('kraken:pick-folder', async () => {
+function requireAppSender(event) {
+  if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame || event.senderFrame.url !== url.pathToFileURL(path.join(__dirname, 'app.html')).href) throw new Error('Only the Calvras app can use this action.');
+}
+
+const executionPolicy = createExecutionPolicy({
+  onRequest: request => mainWindow.webContents.send('approval:request', request),
+  onSettled: result => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('approval:settled', result); },
+});
+const runningCommands = new Set();
+let commandGeneration = 0;
+ipcMain.handle('approval:mode', (event, mode) => {
+  requireAppSender(event);
+  return mode === undefined ? executionPolicy.getMode() : executionPolicy.setMode(mode);
+});
+ipcMain.handle('approval:respond', (event, response) => {
+  requireAppSender(event);
+  return executionPolicy.respond(response);
+});
+ipcMain.handle('agent:cancel', event => {
+  requireAppSender(event);
+  commandGeneration++;
+  executionPolicy.cancel();
+  for (const stop of runningCommands) stop();
+});
+let githubConnection;
+function getGitHubConnection() {
+  if (!githubConnection) githubConnection = createGitHubConnection({
+    statePath: path.join(app.getPath('userData'), 'github-consent.json'),
+    onStatus: state => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('github:status', state); },
+  });
+  return githubConnection;
+}
+for (const method of ['status', 'connect', 'cancel', 'disconnect']) {
+  ipcMain.handle('github:' + method, (event) => {
+    requireAppSender(event);
+    return getGitHubConnection()[method]();
+  });
+}
+
+let desktopPet;
+function getDesktopPet() {
+  if (!desktopPet) desktopPet = createPetWindow({ BrowserWindow, ipcMain, Menu, screen, getMainWindow: () => mainWindow,
+    positionPath: path.join(app.getPath('userData'), 'pet-position.json'),
+    onEnabledChange: state => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('pet:status', state); } });
+  return desktopPet;
+}
+ipcMain.handle('pet:status', event => { requireAppSender(event); return getDesktopPet().status(); });
+ipcMain.handle('pet:enabled', (event, enabled) => {
+  requireAppSender(event);
+  if (typeof enabled !== 'boolean') throw new Error('Pet visibility must be true or false.');
+  return getDesktopPet().setEnabled(enabled);
+});
+ipcMain.handle('pet:activity', (event, activity) => { requireAppSender(event); return getDesktopPet().setActivity(activity); });
+
+let browserTools;
+function getBrowserTools() {
+  if (!browserTools) browserTools = createBrowserTools({ BrowserWindow, webContents, nativeImage, getMainWindow: () => mainWindow,
+    beforeAction: async action => {
+      const generation = commandGeneration;
+      // Full access (Turbo) dispatches browser actions without asking; other modes confirm each mutation.
+      if (executionPolicy.getMode() !== 'Turbo') {
+        const detail = `${action.action} ${action.selector || 'page'}\n${action.url}\n${action.text || (typeof action.value === 'string' ? action.value : '')}`.trim();
+        await executionPolicy.authorize(detail, { force: true, title: 'Allow browser action?', reason: 'This interaction may change an account or submit information. Page label: ' + action.target.label });
+      }
+      if (generation !== commandGeneration) throw new Error('Browser action cancelled before dispatch.');
+    } });
+  return browserTools;
+}
+
+for (const method of ['inspect', 'action', 'capture', 'diagnostics', 'compare']) {
+  ipcMain.handle('browser:' + method, async (event, payload) => {
+    requireAppSender(event);
+    const result = await getBrowserTools()[method](payload);
+    if (!result.ok) throw new Error(result.summary);
+    return result;
+  });
+}
+ipcMain.handle('browser:login', async (event, payload) => {
+  requireAppSender(event);
+  const inspected = await getBrowserTools().inspect(payload);
+  if (!inspected.ok) throw new Error(inspected.summary);
+  const answer = await dialog.showMessageBox(mainWindow, {
+    type: 'question', title: 'Sign in to this site',
+    message: 'Open a private sign-in window for ' + new URL(inspected.url).hostname + '?',
+    detail: 'Enter credentials yourself. Calvras does not read passwords or sign you in automatically. Pages and images you later ask it to inspect are sent to the AI provider. This session is separate from your normal browser.',
+    buttons: ['Open sign-in', 'Cancel'], defaultId: 1, cancelId: 1,
+  });
+  if (answer.response !== 0) throw new Error('Site sign-in was cancelled.');
+  const result = await getBrowserTools().login(payload);
+  if (!result.ok) throw new Error(result.summary);
+  return result;
+});
+
+ipcMain.handle('workspace:replace', (event, payload) => {
+  requireAppSender(event);
+  const { filePath, oldText, newText } = payload || {};
+  if (!currentWorkspaceDir) throw new Error('Select a workspace first.');
+  if (typeof filePath !== 'string' || path.isAbsolute(filePath) || filePath.split(/[\\/]/).includes('.git')) throw new Error('Use a workspace-relative source file.');
+  if (typeof oldText !== 'string' || !oldText || typeof newText !== 'string') throw new Error('Provide nonempty oldText and string newText.');
+  const root = fs.realpathSync(currentWorkspaceDir);
+  const target = fs.realpathSync(path.resolve(root, filePath));
+  const relative = path.relative(root, target);
+  if (!relative || relative.startsWith('..' + path.sep) || relative === '..' || path.isAbsolute(relative)) throw new Error('The file must stay inside the workspace.');
+  if (fs.statSync(target).size > 2 * 1024 * 1024) throw new Error('Exact edits support text files up to 2 MB.');
+  const before = fs.readFileSync(target, 'utf8');
+  const index = before.indexOf(oldText);
+  if (index < 0 || before.indexOf(oldText, index + 1) >= 0) throw new Error('oldText must match exactly once; read the file and include more context.');
+  const after = before.slice(0, index) + newText + before.slice(index + oldText.length);
+  fs.writeFileSync(target, after, 'utf8');
+  return { path: relative, replaced: 1, bytes: Buffer.byteLength(after) };
+});
+
+ipcMain.handle('document:create', async (event, input) => {
+  requireAppSender(event);
+  const generation = commandGeneration;
+  return createDocument({ BrowserWindow, root: currentWorkspaceDir || path.join(app.getPath('documents'), 'Calvras'), input,
+    isCancelled: () => generation !== commandGeneration || !mainWindow || mainWindow.isDestroyed() });
+});
+ipcMain.handle('document:reveal', (event, filePath) => {
+  requireAppSender(event);
+  if (typeof filePath !== 'string' || !['.pdf', '.docx'].includes(path.extname(filePath).toLowerCase())) throw new Error('Only generated document files can be revealed.');
+  const target = fs.realpathSync(filePath);
+  const roots = [currentWorkspaceDir, path.join(app.getPath('documents'), 'Calvras')].filter(root => root && fs.existsSync(root));
+  if (!roots.some(root => { const relative = path.relative(fs.realpathSync(root), target); return relative && relative !== '..' && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative); })) throw new Error('Document is outside the current output folders.');
+  shell.showItemInFolder(target);
+  return { revealed: true };
+});
+
+ipcMain.handle('browser:open-external', async (event, target) => {
+  requireAppSender(event);
+  if (!isSitePreviewUrl(target)) throw new Error('Only HTTP or HTTPS pages can open in your browser.');
+  await shell.openExternal(new URL(target).href);
+  return { opened: true };
+});
+
+// Search providers send no CORS headers, so fetch them from the main process.
+ipcMain.handle('web:fetch', async (_event, payload) => {
+  const url = String((payload && payload.url) || '');
+  if (!/^https:\/\//i.test(url)) return { ok: false, status: 0, text: '' };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  try {
+    const res = await fetch(url, {
+      headers: { 'Accept': 'text/html', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+      signal: controller.signal,
+      redirect: 'follow',
+    });
+    const text = (await res.text()).slice(0, 2000000);
+    return { ok: res.ok, status: res.status, text };
+  } catch (err) {
+    return { ok: false, status: 0, text: '', error: String((err && err.message) || err) };
+  } finally {
+    clearTimeout(timer);
+  }
+});
+
+ipcMain.handle('calvras:pick-folder', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
-    title: 'Select the folder Kraken should work in',
+    title: 'Select the folder Calvras should work in',
     properties: ['openDirectory', 'createDirectory'],
   });
   if (result.canceled || !result.filePaths.length) return null;
@@ -189,6 +370,12 @@ ipcMain.handle('workspace:get-info', async () => {
     name: currentWorkspaceDir ? path.basename(currentWorkspaceDir) : '',
     reachable: true,
   };
+});
+
+ipcMain.handle('workspace:open-explorer', async () => {
+  if (!currentWorkspaceDir) return { ok: false, error: 'No workspace folder is open.' };
+  const err = await shell.openPath(currentWorkspaceDir);
+  return { ok: !err, error: err || '' };
 });
 
 ipcMain.handle('workspace:set-folder', async (_event, folderPath) => {
@@ -299,25 +486,66 @@ ipcMain.handle('workspace:search', async (_event, query) => {
   return { matches };
 });
 
-ipcMain.handle('workspace:exec', async (_event, payload) => {
+ipcMain.handle('workspace:git-inspect', async (event, kind) => {
+  requireAppSender(event);
+  const commands = {
+    branch: ['rev-parse', '--abbrev-ref', 'HEAD'],
+    status: ['status', '--porcelain'],
+    stats: ['diff', '--no-ext-diff', '--no-textconv', '--numstat', 'HEAD'],
+    diff: ['diff', '--no-ext-diff', '--no-textconv'],
+    staged: ['diff', '--no-ext-diff', '--no-textconv', '--cached'],
+    pr: ['pr', 'view', '--json', 'number,state,title'],
+  };
+  if (!Object.hasOwn(commands, kind) || !currentWorkspaceDir) throw new Error('Select a workspace and a supported Git inspection.');
+  if (kind === 'pr' && !(await getGitHubConnection().status()).connected) return { stdout: '', stderr: 'Connect GitHub to view pull requests.', success: false, exitCode: 1 };
+  const env = { ...process.env, GH_PROMPT_DISABLED: '1' };
+  for (const key of ['GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN']) delete env[key];
+  return new Promise(resolve => {
+    const proc = spawn(kind === 'pr' ? 'gh' : 'git', commands[kind], { cwd: currentWorkspaceDir, env, windowsHide: true, shell: false });
+    let stdout = '', stderr = '';
+    const timer = setTimeout(() => proc.kill(), 15000);
+    proc.stdout.on('data', data => { stdout = (stdout + data).slice(0, 2 * 1024 * 1024); });
+    proc.stderr.on('data', data => { stderr = (stderr + data).slice(0, 4096); });
+    proc.once('error', () => { clearTimeout(timer); resolve({ stdout: '', stderr: 'Git inspection could not start.', success: false, exitCode: 1 }); });
+    proc.once('close', code => { clearTimeout(timer); resolve({ stdout, stderr, success: code === 0, exitCode: code }); });
+  });
+});
+
+ipcMain.handle('workspace:exec', async (event, payload) => {
+  requireAppSender(event);
+  const cmd = typeof payload === 'string' ? payload : (payload && payload.command);
+  const generation = commandGeneration;
+  const cwd = (payload && payload.cwd) || currentWorkspaceDir || process.cwd();
+  await executionPolicy.authorize(cmd, { reason: 'Run in ' + cwd + '. Review the exact command before allowing it.' });
+  let commandEnv = process.env;
+  if ((await getGitHubConnection().status()).connected) commandEnv = await getGitHubConnection().credentialEnvironment();
+  requireAppSender(event);
+  if (generation !== commandGeneration) throw new Error('Command cancelled before execution.');
   return new Promise((resolve) => {
-    const cmd = typeof payload === 'string' ? payload : (payload && payload.command);
-    const cwd = (payload && payload.cwd) || currentWorkspaceDir || process.cwd();
+    const timeoutMs = Math.max(1000, Number(payload && payload.timeoutMs) || 30000);
+    const background = Boolean(payload && payload.background);
     const startTime = Date.now();
     const isWin = process.platform === 'win32';
     const shellCmd = isWin ? 'powershell.exe' : '/bin/sh';
     const shellArgs = isWin ? ['-NoProfile', '-Command', cmd] : ['-c', cmd];
 
-    // Detect commands that start long-running servers and never exit.
-    // For these we spawn, drain output for up to 5 seconds, then resolve
-    // so the agent can continue (the server keeps running in the background).
-    const SERVER_RE = /\b(bun\s+run\s+dev|bun\s+dev|npm\s+(run\s+)?(dev|start|serve)|npx\s+(vite|serve|http-server|next|ts-node|nodemon)|yarn\s+(dev|start)|pnpm\s+(dev|start)|node\s+[\w./\\-]+\.(?:js|ts|cjs|mjs)|python\d?\s+(-m\s+http\.server|[\w./\\-]+\.py)|vite|next\s+dev|http-server|live-server|php\s+-S|uvicorn|flask\s+run|rails\s+s|cargo\s+run|go\s+run|dotnet\s+run)\b/i;
-    const isServer = SERVER_RE.test(String(cmd || ''));
-
-    const proc = spawn(shellCmd, shellArgs, { cwd, detached: isServer });
+    // On Windows, detached:true makes console apps (powershell) exit instantly,
+    // so background servers stay attached + hidden and are unref'd after drain.
+    const proc = spawn(shellCmd, shellArgs, { cwd, env: commandEnv, detached: background && !isWin, windowsHide: true });
     let stdout = '';
     let stderr = '';
     let settled = false;
+    let timedOut = false;
+    let timer = null;
+    let drainTimer = null;
+    const stop = () => {
+      if (proc.exitCode !== null) return;
+      if (isWin) spawn('taskkill', ['/PID', String(proc.pid), '/T', '/F'], { windowsHide: true });
+      else proc.kill('SIGKILL');
+    };
+    runningCommands.add(stop);
+    proc.once('close', () => runningCommands.delete(stop));
+    proc.once('error', () => runningCommands.delete(stop));
 
     proc.stdout.on('data', d => { stdout += d.toString(); });
     proc.stderr.on('data', d => { stderr += d.toString(); });
@@ -325,13 +553,16 @@ ipcMain.handle('workspace:exec', async (_event, payload) => {
     const settle = (code) => {
       if (settled) return;
       settled = true;
+      if (timer) clearTimeout(timer);
+      if (drainTimer) clearTimeout(drainTimer);
       resolve({
         stdout,
         stderr,
         exitCode: code == null ? 0 : code,
-        success: code == null || code === 0,
+        success: !timedOut && (code == null || code === 0),
         durationMs: Date.now() - startTime,
-        background: code == null, // true = still running, we just stopped waiting
+        timedOut,
+        background: code == null && background,
       });
     };
 
@@ -339,20 +570,37 @@ ipcMain.handle('workspace:exec', async (_event, payload) => {
     proc.on('error', err => {
       if (settled) return;
       settled = true;
+      clearTimeout(timer);
       resolve({
         stdout,
         stderr: err.message,
         exitCode: 1,
         success: false,
         durationMs: Date.now() - startTime,
+        timedOut,
+        background: false,
       });
     });
 
-    // For server commands: stop waiting after 5 s and let the process keep running.
-    if (isServer) {
+    // Explicit background (run:bg:) — drain 5 s so the server can bind, then
+    // let it keep running for the live preview.
+    if (background) {
       proc.unref();
-      setTimeout(() => settle(null), 5000);
+      drainTimer = setTimeout(() => settle(null), 5000);
+      return;
     }
+
+    // Timer: at zero the whole process tree is stopped and the AI receives
+    // everything captured up to that point.
+    timer = setTimeout(() => {
+      timedOut = true;
+      if (isWin) {
+        spawn('taskkill', ['/PID', String(proc.pid), '/T', '/F'], { windowsHide: true });
+      } else {
+        proc.kill('SIGKILL');
+      }
+      setTimeout(() => settle(1), 3000);
+    }, timeoutMs);
   });
 });
 
@@ -375,7 +623,7 @@ function downloadFileWithRedirects(fileUrl, destPath, onProgress) {
       }
       const req = client.get(parsed, {
         headers: {
-          'User-Agent': 'Kraken-Updater/9.3.1',
+          'User-Agent': 'Calvras-Updater/9.4.0',
           'Accept': 'application/octet-stream, */*'
         }
       }, (res) => {
@@ -444,7 +692,7 @@ function runInstallerAndExit(installerPath) {
     });
     child.on('error', (err) => {
       // spawn itself errored (e.g. access denied) — try via shell as fallback
-      console.warn('[Kraken] Installer spawn failed, falling back to shell open:', err.message);
+      console.warn('[Calvras] Installer spawn failed, falling back to shell open:', err.message);
       try {
         const { shell } = require('electron');
         shell.openPath(installerPath);
@@ -457,14 +705,14 @@ function runInstallerAndExit(installerPath) {
       app.quit();
     }, 1000);
   } catch (err) {
-    console.error('[Kraken] Failed to spawn installer:', err);
+    console.error('[Calvras] Failed to spawn installer:', err);
     // Last-resort: open via shell (triggers UAC via Windows shell)
     try {
       const { shell } = require('electron');
       shell.openPath(installerPath);
       setTimeout(() => app.quit(), 1500);
     } catch (shellErr) {
-      console.error('[Kraken] Shell open also failed:', shellErr);
+      console.error('[Calvras] Shell open also failed:', shellErr);
       throw err;
     }
   }
@@ -490,13 +738,13 @@ async function performDirectUpdate(targetUrl, targetVersion) {
     }
 
     if (!urlToDownload) {
-      urlToDownload = 'https://github.com/Calvras/calvras/releases/download/v9.3.1/Kraken.Setup.9.3.1.exe';
+      urlToDownload = 'https://github.com/Calvras/calvras/releases/download/v9.4.0/Calvras.Setup.9.4.0.exe';
     }
 
-    const tempInstaller = path.join(app.getPath('temp'), `Kraken-Setup-${targetVersion || '9.3.1'}-${Date.now()}.exe`);
+    const tempInstaller = path.join(app.getPath('temp'), `Calvras-Setup-${targetVersion || '9.4.0'}-${Date.now()}.exe`);
 
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('updater:status', { status: 'downloading', version: targetVersion || '9.3.1' });
+      mainWindow.webContents.send('updater:status', { status: 'downloading', version: targetVersion || '9.4.0' });
     }
 
     await downloadFileWithRedirects(urlToDownload, tempInstaller, (percent) => {
@@ -508,7 +756,7 @@ async function performDirectUpdate(targetUrl, targetVersion) {
     updateDownloadedPath = tempInstaller;
 
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('updater:status', { status: 'installing', version: targetVersion || '9.3.1' });
+      mainWindow.webContents.send('updater:status', { status: 'installing', version: targetVersion || '9.4.0' });
     }
 
     // Don't wrap in try/catch here — runInstallerAndExit handles its own fallbacks
@@ -548,7 +796,7 @@ ipcMain.handle('updater:install', async (_event, directUrl) => {
 });
 
 ipcMain.handle('app:get-version', () => {
-  return app.getVersion();
+  return APP_VERSION;
 });
 
 ipcMain.handle('auth:google-signin', async () => {
@@ -562,6 +810,28 @@ ipcMain.handle('auth:get-user', () => {
 ipcMain.handle('auth:sign-out', () => {
   Store.clear();
   loadSignIn();
+});
+
+ipcMain.handle('quota:status', async (event) => {
+  requireAppSender(event);
+  const auth = Store.get();
+  if (!auth || !auth.session) return { ok: false, signedIn: false };
+  try {
+    const res = await fetch('https://calvras.com/api/site/quota', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session: auth.session }),
+      signal: AbortSignal.timeout(10000),
+    });
+    const data = await res.json();
+    return { ok: res.ok, signedIn: true, ...data };
+  } catch { return { ok: false, signedIn: true, error: 'Could not reach calvras.com' }; }
+});
+
+ipcMain.handle('quota:session', (event) => {
+  requireAppSender(event);
+  const auth = Store.get();
+  return auth?.session || '';
 });
 
 // ── Google OAuth flow ─────────────────────────────────────────────────────
@@ -587,7 +857,7 @@ function startGoogleOAuth() {
       // Send a nice close-page response to the browser
       res.writeHead(200, { 'Content-Type': 'text/html' });
       res.end(`<!DOCTYPE html><html><head><meta charset="utf-8">
-        <title>Kraken — Signed in</title>
+        <title>Calvras — Signed in</title>
         <style>
           body { font-family: -apple-system, sans-serif; background: #f7f6f3;
                  display: flex; align-items: center; justify-content: center;
@@ -598,7 +868,7 @@ function startGoogleOAuth() {
         </style></head>
         <body><div class="card">
           <div class="logo">✓ Signed in</div>
-          <p>You can close this tab and return to Kraken.</p>
+          <p>You can close this tab and return to Calvras.</p>
         </div></body></html>`);
 
       stopAuthServer();
@@ -685,7 +955,7 @@ async function fetchUserInfo(accessToken) {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   const data = await res.json();
-  if (!res.ok) throw new Error('Failed to fetch user info');
+  if (!res.ok || !data.email || !data.sub || data.email_verified !== true) throw new Error('Google did not return a verified email address.');
   return { name: data.name, email: data.email, picture: data.picture, sub: data.sub };
 }
 
@@ -697,7 +967,7 @@ function windowDefaults() {
     minWidth: 1000,
     minHeight: 650,
     backgroundColor: '#f7f6f3',
-    title: 'Kraken',
+    title: 'Calvras',
     center: true,
     show: false,
     icon: path.join(__dirname, 'build', 'icon.ico'),
@@ -715,8 +985,9 @@ function loadSignIn() {
   if (!mainWindow || mainWindow.isDestroyed()) {
     mainWindow = new BrowserWindow(windowDefaults());
     Menu.setApplicationMenu(null);
-    mainWindow.on('closed', () => { mainWindow = null; });
+    mainWindow.on('closed', () => { commandGeneration++; executionPolicy.cancel(); desktopPet?.dispose(); desktopPet = null; githubConnection?.dispose(); githubConnection = null; browserTools?.dispose(); browserTools = null; mainWindow = null; });
   }
+  getBrowserTools();
   mainWindow.loadFile(path.join(__dirname, 'signin.html'));
   mainWindow.webContents.on('did-finish-load', () => {
     mainWindow.show();
@@ -728,8 +999,9 @@ function loadMainApp(user) {
   if (!mainWindow || mainWindow.isDestroyed()) {
     mainWindow = new BrowserWindow(windowDefaults());
     Menu.setApplicationMenu(null);
-    mainWindow.on('closed', () => { mainWindow = null; });
+    mainWindow.on('closed', () => { commandGeneration++; executionPolicy.cancel(); desktopPet?.dispose(); desktopPet = null; githubConnection?.dispose(); githubConnection = null; browserTools?.dispose(); browserTools = null; mainWindow = null; });
   }
+  getBrowserTools();
   mainWindow.loadFile(path.join(__dirname, 'app.html'));
   mainWindow.webContents.on('did-finish-load', () => {
     mainWindow.show();
@@ -764,6 +1036,39 @@ function loadMainApp(user) {
     } catch {}
   });
 }
+
+function isSitePreviewUrl(value) {
+  try {
+    const parsed = new URL(value);
+    return ['https:', 'http:'].includes(parsed.protocol) && !parsed.username && !parsed.password;
+  } catch { return false; }
+}
+
+app.on('web-contents-created', (_event, contents) => {
+  contents.on('will-attach-webview', (event, preferences, params) => {
+    if (!isSitePreviewUrl(params.src)) {
+      event.preventDefault();
+      return;
+    }
+    delete preferences.preload;
+    preferences.nodeIntegration = false;
+    preferences.nodeIntegrationInSubFrames = false;
+    preferences.contextIsolation = true;
+    preferences.sandbox = true;
+    preferences.webSecurity = true;
+    preferences.allowRunningInsecureContent = false;
+  });
+  if (contents.getType() !== 'webview') return;
+  contents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  const guardNavigation = (event, target) => {
+    if (!isSitePreviewUrl(target)) event.preventDefault();
+  };
+  contents.on('will-navigate', guardNavigation);
+  contents.on('will-redirect', guardNavigation);
+  contents.session.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+  contents.session.setPermissionCheckHandler(() => false);
+  contents.session.on('will-download', event => event.preventDefault());
+});
 
 // ── App startup ───────────────────────────────────────────────────────────
 function createWindow() {

@@ -21,7 +21,7 @@ const REV_POLL_MS = 4_000;
 export const Route = createFileRoute("/admin-kraken")({
   head: () => ({
     meta: [
-      { title: "Kraken Admin Console" },
+      { title: "Calvras Admin Console" },
       { name: "robots", content: "noindex, nofollow, noarchive" },
       { name: "referrer", content: "no-referrer" },
     ],

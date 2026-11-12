@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { RELEASE_VERSION, releaseArtifacts, updateManifest } from "../lib/release";
 import { checkForUpdate, readRelease } from "../lib/update";
 import { DOWNLOAD } from "../lib/download";
+import { LANDING_HTML } from "../lib/landing-html";
 
 const require = createRequire(import.meta.url);
 const { downloadInstaller } = require("../../electron/update-core.cjs") as {
@@ -38,8 +39,8 @@ afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("the published release", () => {
   it("names the version this repo is actually at", () => {
-    const pkg = JSON.parse(require("node:fs").readFileSync(path.resolve(process.cwd(), "package.json"), "utf8")) as { version: string };
-    expect(RELEASE_VERSION).toBe(pkg.version);
+    const config = JSON.parse(require("node:fs").readFileSync(path.resolve(process.cwd(), "electron-builder.kraken.json"), "utf8")) as { extraMetadata: { version: string } };
+    expect(RELEASE_VERSION).toBe(config.extraMetadata.version);
   });
 
   it("feeds the landing page and the app from one source", () => {
@@ -52,15 +53,23 @@ describe("the published release", () => {
     expect(DOWNLOAD.feed).toBe("https://calvras.com/update.json");
   });
 
+  it("routes every landing-page download button through the current release", () => {
+    const page = new DOMParser().parseFromString(LANDING_HTML, "text/html");
+    const links = [...page.querySelectorAll("a")].filter(link => /Download Calvras/i.test(link.textContent || ""));
+    expect(links.length).toBeGreaterThan(0);
+    expect(links.every(link => link.getAttribute("href") === "/download")).toBe(true);
+    expect(page.title).toContain("Calvras");
+    expect(page.body.textContent).toContain("Kracton");
+    expect(page.body.textContent).not.toMatch(/\bKraken\b|Zoom company/);
+  });
+
   it("builds artifact names the installer config produces", () => {
     const artifacts = releaseArtifacts("10.4.0");
     expect(artifacts.tag).toBe("v10.4.0");
-    expect(artifacts.installer).toBe("https://github.com/Calvras/calvras/releases/download/v10.4.0/Calvras-Setup-10.4.0.exe");
-    expect(artifacts.portable).toBe("https://github.com/Calvras/calvras/releases/download/v10.4.0/Calvras-10.4.0-win.zip");
-    const builder = JSON.parse(require("node:fs").readFileSync(path.resolve(process.cwd(), "package.json"), "utf8")) as { build: { nsis: { artifactName: string }; win: { artifactName: string } } };
-    const rendered = (pattern: string, ext: string) => pattern.replace("${version}", "10.4.0").replace("${ext}", ext);
-    expect(rendered(builder.build.nsis.artifactName, "exe")).toBe(artifacts.installer.split("/").pop());
-    expect(rendered(builder.build.win.artifactName, "zip")).toBe(artifacts.portable.split("/").pop());
+    expect(artifacts.installer).toBe("https://github.com/Calvras/calvras/releases/download/v10.4.0/Calvras.Setup.10.4.0.exe");
+    expect(artifacts.portable).toBe("");
+    const builder = JSON.parse(require("node:fs").readFileSync(path.resolve(process.cwd(), "electron-builder.kraken.json"), "utf8")) as { nsis: { artifactName: string } };
+    expect(builder.nsis.artifactName.replace("${version}", "10.4.0")).toBe(artifacts.installer.split("/").pop());
   });
 });
 

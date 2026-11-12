@@ -1,5 +1,4 @@
-﻿// LandingPage — renders our full static Kraken branded page
-import { useEffect } from "react";
+﻿import { useEffect } from "react";
 import { LANDING_HTML } from "@/lib/landing-html";
 
 export function LandingPage() {

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Kraken</title>
+  <title>Calvras</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -11,29 +11,46 @@
 </head>
 <body>
   <div class="app-layout">
+    <!-- ICON RAIL (Codex Windows) -->
+    <nav class="codex-rail" id="codex-rail">
+      <button class="rail-btn active" id="rail-home-btn" title="Home">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3l9 8h-3v9h-5v-6H11v6H6v-9H3l9-8z"></path></svg>
+      </button>
+      <button class="rail-btn" id="rail-sidebar-btn" title="Toggle sidebar">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+      </button>
+      <button class="rail-btn" id="rail-recents-btn" title="Search chats">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+      </button>
+      <button class="rail-btn" id="rail-projects-btn" title="Projects">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+      </button>
+      <div class="rail-spacer"></div>
+      <button class="rail-avatar" id="user-profile-btn" title="Account">
+        <img src="avatar_milo.png" alt="" class="user-avatar" id="user-avatar-img">
+      </button>
+    </nav>
+
     <!-- SIDEBAR -->
-    <aside class="sidebar" id="sidebar">
-      <div class="sidebar-header">
-        <div class="brand" id="brand-home-btn" title="Kraken Home">
-          <svg class="kraken-logo" width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-            <polygon points="2,2 22,2 14,12 22,22 2,22 10,12" />
+    <aside class="sidebar collapsed" id="sidebar">
+      <div class="sidebar-topbar">
+        <button class="icon-btn" id="search-btn" title="Search conversations">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
           </svg>
-          <span class="brand-name">Kraken</span>
-        </div>
-        <div class="header-actions">
-          <button class="icon-btn search-toggle" id="search-btn" title="Search">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="11" cy="11" r="8"></circle>
-              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-            </svg>
-          </button>
-          <button class="icon-btn" id="sidebar-toggle-btn" title="Collapse sidebar">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-              <line x1="9" y1="3" x2="9" y2="21"></line>
-            </svg>
-          </button>
-        </div>
+        </button>
+        <button class="icon-btn" id="notif-btn" title="Notifications">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+        </button>
+        <span class="sidebar-topbar-spacer"></span>
+        <button class="icon-btn" id="sidebar-toggle-btn" title="Collapse sidebar">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line><path d="m15 10-2 2 2 2"></path></svg>
+        </button>
+      </div>
+      <div class="notif-popover" id="notif-popover" style="display:none;">
+        <div class="notif-title">Notifications</div>
+        <div class="notif-empty">You're all caught up.</div>
       </div>
 
       <!-- Quick Search Bar -->
@@ -43,29 +60,30 @@
 
       <!-- Primary Navigation -->
       <nav class="primary-nav">
-        <a href="#" class="nav-item active" id="btn-new-chat">
+        <a href="#" class="nav-item" id="btn-new-chat">
           <svg class="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 20h9"></path>
             <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
           </svg>
           <span>New chat</span>
         </a>
-        <a href="#" class="nav-item" id="btn-library">
+        <a href="#" class="nav-item" id="btn-library-nav">
           <svg class="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
             <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
           </svg>
           <span>Library</span>
         </a>
-        <a href="#" class="nav-item" id="btn-projects">
+        <a href="#" class="nav-item" id="btn-projects-nav">
           <svg class="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
           </svg>
           <span>Projects</span>
         </a>
-        <a href="#" class="nav-item" id="btn-plugins">
+        <a href="#" class="nav-item" id="btn-plugins-nav">
           <svg class="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+            <path d="M12 22v-5"></path><path d="M9 8V2"></path><path d="M15 8V2"></path>
+            <path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8z"></path>
           </svg>
           <span>Plugins</span>
         </a>
@@ -73,44 +91,22 @@
 
       <!-- Chat History Lists -->
       <div class="sidebar-scrollable" id="chat-history-list">
-        <!-- Dynamic Chat History Sections will be rendered here -->
-      </div>
-
-      
-      <!-- Workspace & Branch Bar (Image 1) -->
-      <!-- User Profile / Footer -->
-      <div class="sidebar-footer">
-        <div class="user-profile" id="user-profile-btn">
-          <img src="avatar_milo.png" alt="User" class="user-avatar" id="user-avatar-img">
-          <span class="user-name" id="user-name-display">Milo Erić</span>
-        </div>
-        <button class="icon-btn settings-btn" id="settings-btn" title="Settings">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="3"></circle>
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-          </svg>
-        </button>
+        <!-- Dynamic Projects + Recents sections rendered here -->
       </div>
     </aside>
+    <div class="sidebar-scrim" id="sidebar-scrim"></div>
 
     <!-- MAIN CHAT CONTAINER -->
     <main class="main-content">
       <!-- Top Action Bar -->
       <header class="main-header">
         <div class="header-left">
-          <button class="icon-btn uncollapse-btn" id="sidebar-uncollapse-btn" title="Expand sidebar" style="display: none;">
+          <button class="icon-btn uncollapse-btn" id="sidebar-uncollapse-btn" title="Expand sidebar" style="display: flex;">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
               <line x1="9" y1="3" x2="9" y2="21"></line>
             </svg>
           </button>
-          
-          <div class="active-chat-title-wrapper" id="active-chat-title-wrapper" style="display: none;">
-            <span class="active-chat-title" id="active-chat-title-text">Review Q3 Support Report</span>
-            <svg class="chevron-down" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="6 9 12 15 18 9"></polyline>
-            </svg>
-          </div>
         </div>
         <!-- Header right: Terminal toggle -->
         <div class="header-right">
@@ -126,6 +122,33 @@
             <span class="update-progress-text" id="update-progress-text">Downloading…</span>
             <div class="update-progress-track"><div class="update-progress-fill" id="update-progress-fill"></div></div>
           </div>
+          <div class="codex-top-actions" id="codex-top-actions" style="display:none;">
+            <div class="codex-top-menu-wrap">
+              <button class="icon-btn top-icon-btn" id="top-more-btn" title="More actions">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"></circle><circle cx="12" cy="12" r="1.7"></circle><circle cx="19" cy="12" r="1.7"></circle></svg>
+              </button>
+              <div class="codex-top-menu" id="top-more-menu" style="display:none;">
+                <button class="codex-top-menu-item" id="top-open-explorer">Open folder in Explorer</button>
+                <button class="codex-top-menu-item" id="top-open-preview">Open Live Preview</button>
+                <button class="codex-top-menu-item" id="top-open-terminal">Open Terminal</button>
+                <div class="codex-menu-divider"></div>
+                <button class="codex-top-menu-item" id="top-commit-all">Commit all changes…</button>
+                <button class="codex-top-menu-item" id="top-push-btn">Push current branch</button>
+                <button class="codex-top-menu-item" id="top-open-diff">Open diff viewer</button>
+              </div>
+            </div>
+            <button class="icon-btn top-icon-btn" id="top-diff-btn" title="View changes">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"></line><circle cx="9" cy="7" r="2.5" fill="#181818"></circle><line x1="4" y1="17" x2="20" y2="17"></line><circle cx="15" cy="17" r="2.5" fill="#181818"></circle></svg>
+            </button>
+            <button class="diff-stats-badge" id="diff-stats-badge" style="display:none;" title="Open uncommitted changes">
+              <span class="diff-stat-add" id="diff-stat-add">+0</span>
+              <span class="diff-stat-del" id="diff-stat-del">-0</span>
+            </button>
+            <span class="top-divider"></span>
+            <button class="icon-btn top-icon-btn" id="env-toggle-btn" title="Environment">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+            </button>
+          </div>
           <button class="icon-btn terminal-toggle-btn" id="terminal-toggle-btn" title="Open Terminal (Ctrl+`)">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="4 17 10 11 4 5"></polyline>
@@ -135,48 +158,64 @@
         </div>
       </header>
 
-      <!-- Real Terminal Panel — slides up from bottom of main-content -->
-      <div class="terminal-panel" id="terminal-panel" style="display:none;">
-        <div class="terminal-panel-header">
-          <div class="terminal-panel-title">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="4 17 10 11 4 5"></polyline>
-              <line x1="12" y1="19" x2="20" y2="19"></line>
-            </svg>
-            <span>Terminal</span>
-            <span class="terminal-cwd-label" id="terminal-cwd-label">~</span>
-          </div>
-          <div class="terminal-panel-actions">
-            <button class="icon-btn" id="terminal-clear-btn" title="Clear terminal">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path>
-              </svg>
-            </button>
-            <button class="icon-btn" id="terminal-close-btn" title="Close terminal">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18"></line>
-                <line x1="6" y1="6" x2="18" y2="18"></line>
-              </svg>
-            </button>
-          </div>
+      <!-- Environment panel (Codex-style floating card) -->
+      <div class="env-panel" id="env-panel" style="display:none;">
+        <div class="env-header">
+          <span>Environment</span>
+          <button class="icon-btn env-gear" id="env-settings-btn" title="Workspace settings">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          </button>
         </div>
-        <div class="terminal-output" id="terminal-output"></div>
-        <div class="terminal-input-row">
-          <span class="terminal-prompt-symbol" id="terminal-prompt-symbol">$</span>
-          <input type="text" class="terminal-input" id="terminal-input" placeholder="Enter command…" autocomplete="off" spellcheck="false">
+        <section class="env-github" aria-label="GitHub connection">
+          <div class="env-github-heading"><span>GitHub</span><span id="env-github-account">Not connected</span></div>
+          <p class="env-github-status" id="env-github-status" role="status">Connect your account to work with repositories.</p>
+          <code class="env-github-code" id="env-github-code" hidden></code>
+          <div class="env-github-actions"><button type="button" id="env-github-connect">Connect GitHub</button><button type="button" id="env-github-disconnect" hidden>Disconnect</button><button type="button" id="env-github-cancel" hidden>Cancel</button></div>
+        </section>
+        <button class="env-row" id="env-changes-btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+          <span>Changes</span>
+          <span class="env-row-value" id="env-changes-count"></span>
+        </button>
+        <button class="env-row" id="env-local-btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+          <span id="env-local-name">Local</span>
+          <svg class="env-chev" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        </button>
+        <button class="env-row" id="env-branch-btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>
+          <span id="env-branch-name">—</span>
+          <svg class="env-chev" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        </button>
+        <button class="env-row muted" id="env-commit-btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><line x1="3" y1="12" x2="9" y2="12"></line><line x1="15" y1="12" x2="21" y2="12"></line></svg>
+          <span>Commit or push</span>
+        </button>
+        <div class="env-row muted" id="env-pr-row">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.55 0-.27-.01-1.17-.02-2.12-3.2.7-3.88-1.36-3.88-1.36-.52-1.33-1.28-1.68-1.28-1.68-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.03 1.76 2.7 1.25 3.35.96.1-.75.4-1.25.72-1.54-2.55-.29-5.24-1.28-5.24-5.68 0-1.26.45-2.28 1.18-3.09-.12-.29-.51-1.46.11-3.05 0 0 .96-.31 3.15 1.18a10.9 10.9 0 0 1 5.74 0c2.19-1.49 3.15-1.18 3.15-1.18.62 1.59.23 2.76.11 3.05.73.81 1.18 1.83 1.18 3.09 0 4.41-2.69 5.38-5.26 5.66.41.36.78 1.05.78 2.13 0 1.54-.01 2.78-.01 3.16 0 .3.2.67.8.55A11.51 11.51 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5z"></path></svg>
+          <span id="env-pr-text">Checking pull request</span>
+        </div>
+        <div class="env-divider"></div>
+        <div class="env-section-label">Sources</div>
+        <div class="env-sources" id="env-sources">
+          <div class="env-empty">No sources yet</div>
         </div>
       </div>
 
       <!-- Center Greeting & Input Card State (EXACT REPLICA OF USER SCREENSHOT) -->
       <div class="chat-viewport" id="chat-viewport">
         <div class="welcome-container" id="welcome-container">
-          <h1 class="welcome-heading" id="welcome-heading">Hello, Milo</h1>
+          <div class="codex-home-hero">
+            <svg class="codex-home-logo" width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 3c1.8 0 2.6 1 3.4 1.6 1 .1 2.1.4 2.7 1.4.6 1 .3 2 .6 3 .7.8 1.3 1.7 1.3 3s-.6 2.2-1.3 3c-.3 1 0 2-.6 3-.6 1-1.7 1.3-2.7 1.4-.8.6-1.6 1.6-3.4 1.6s-2.6-1-3.4-1.6c-1-.1-2.1-.4-2.7-1.4-.6-1-.3-2-.6-3C4.6 14.2 4 13.3 4 12s.6-2.2 1.3-3c.3-1 0-2 .6-3 .6-1 1.7-1.3 2.7-1.4C9.4 4 10.2 3 12 3z"></path>
+              <polyline points="10 9.5 8.5 12 10 14.5"></polyline>
+              <polyline points="14 9.5 15.5 12 14 14.5"></polyline>
+            </svg>
+            <h1 class="welcome-heading" id="welcome-heading">What should we build?</h1>
+          </div>
 
-          <!-- The Exact Input Card from Screenshot media_1793953218078_bd4e8b27.png -->
-          <div class="antigravity-chat-card">
-            <!-- Top Context Tags -->
-            <div class="card-context-tags">
-              <div class="context-tag" id="tag-folder" title="Click to choose workspace folder or work without one">
+          <div class="codex-home-composer">
+            <div class="choose-project-bar" id="tag-folder" title="Click to choose workspace folder or work without one">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
                 </svg>
@@ -190,7 +229,7 @@
               <!-- Workspace Folder Selection Popover -->
               <div class="folder-mode-popover" id="folder-mode-popover" style="display: none;">
                 <div class="folder-popover-header">
-                  <span>Workspace Folder Mode</span>
+                  <span>Choose a project</span>
                   <button type="button" class="folder-popover-close" id="folder-popover-close" title="Close">&times;</button>
                 </div>
                 <div class="folder-popover-status" id="folder-popover-status">
@@ -202,14 +241,14 @@
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
                     <div class="popover-item-text">
                       <div class="popover-item-title">Work without a folder</div>
-                      <div class="popover-item-desc">General AI mode — chat, ask questions, explain code, and generate images or video.</div>
+                      <div class="popover-item-desc">Chat and browse without a workspace.</div>
                     </div>
                   </button>
                   <button type="button" class="folder-popover-item" id="btn-mode-pick-folder">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
                     <div class="popover-item-text">
                       <div class="popover-item-title">Choose Workspace Folder...</div>
-                      <div class="popover-item-desc">Select a folder on your computer to build projects, edit files, and run commands.</div>
+                      <div class="popover-item-desc">Open a local folder to build and edit.</div>
                     </div>
                   </button>
                 </div>
@@ -257,34 +296,21 @@
                 </div>
               </div>
 
-              <div class="context-tag" id="tag-checkout">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
-                  <line x1="8" y1="21" x2="16" y2="21"></line>
-                  <line x1="12" y1="17" x2="12" y2="21"></line>
-                </svg>
-                <span>Local Workspace</span>
-                <svg class="chevron-small" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="6 9 12 15 18 9"></polyline>
-                </svg>
-              </div>
-            </div>
-
+            <div class="antigravity-chat-card">
             <!-- Inner Nested Input Area -->
             <div class="inner-prompt-box">
               <!-- Attachment previews appear here when files are added -->
               <div class="card-attachments" id="card-attachments" style="display:none;"></div>
 
-              <textarea 
-                id="prompt-input" 
-                class="prompt-textarea dark-textarea" 
-                placeholder="Ask anything, @ to mention, / for actions" 
+              <textarea
+                id="prompt-input"
+                class="prompt-textarea dark-textarea"
+                placeholder="Message..."
                 rows="1"
               ></textarea>
 
               <div class="card-bottom-row">
                 <div class="card-left-actions">
-                  <!-- Just the clean '+' button (No Gemini!) -->
                   <button class="plus-btn-dark" id="attach-btn" title="Add attachment">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
                       <line x1="12" y1="5" x2="12" y2="19"></line>
@@ -292,10 +318,6 @@
                     </svg>
                   </button>
                   <input type="file" id="file-input" style="display: none;" multiple>
-                </div>
-
-                <div class="card-right-actions">
-                  <!-- Turbo Dropdown Container -->
                   <div class="mode-dropdown-container">
                     <button class="mode-selector-btn dark-mode-btn" id="mode-selector-btn">
                       <svg class="shield-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -303,78 +325,30 @@
                         <line x1="12" y1="8" x2="12" y2="12"></line>
                         <line x1="12" y1="16" x2="12.01" y2="16"></line>
                       </svg>
-                      <span class="selected-mode-name">Turbo</span>
+                      <span class="selected-mode-name">Full access</span>
                       <svg class="chevron-icon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <polyline points="18 15 12 9 6 15"></polyline>
+                        <polyline points="6 9 12 15 18 9"></polyline>
                       </svg>
                     </button>
-
-                    <!-- Exact Turbo Menu from media_1793953276593_45fb13b6.png -->
                     <div class="mode-dropdown-menu" id="mode-dropdown-menu">
-                      <!-- Request Review -->
                       <div class="mode-option" data-mode="Request Review">
-                        <div class="mode-option-icon">
-                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                            <circle cx="12" cy="12" r="3"></circle>
-                          </svg>
-                        </div>
-                        <div class="mode-option-content">
-                          <div class="mode-option-title">Request Review</div>
-                          <div class="mode-option-desc">Every command requires approval.</div>
-                        </div>
+                        <div class="mode-option-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11V6a2 2 0 0 0-4 0v5"></path><path d="M14 10V4a2 2 0 0 0-4 0v6"></path><path d="M10 10.5V6a2 2 0 0 0-4 0v8"></path><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"></path></svg></div>
+                        <div class="mode-option-content"><div class="mode-option-title">Ask for approval</div><div class="mode-option-desc">Every command requires approval.</div></div>
                       </div>
-
-                      <!-- Default -->
                       <div class="mode-option" data-mode="Default">
-                        <div class="mode-option-icon">
-                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-                            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-                          </svg>
-                        </div>
-                        <div class="mode-option-content">
-                          <div class="mode-option-title">Default</div>
-                          <div class="mode-option-desc">Ask before sensitive operations.</div>
-                        </div>
+                        <div class="mode-option-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><polyline points="9 11.5 11 13.5 15 9.5"></polyline></svg></div>
+                        <div class="mode-option-content"><div class="mode-option-title">Approve for me</div><div class="mode-option-desc">Run safe commands automatically.</div></div>
                       </div>
-
-                      <!-- Auto (Preview) -->
-                      <div class="mode-option" data-mode="Auto (Preview)">
-                        <div class="mode-option-icon">
-                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-                          </svg>
-                        </div>
-                        <div class="mode-option-content">
-                          <div class="mode-option-title">Auto (Preview)</div>
-                          <div class="mode-option-desc">Automatically decide if commands run.</div>
-                        </div>
-                      </div>
-
-                      <!-- Turbo (Active with checkmark) -->
                       <div class="mode-option active" data-mode="Turbo">
-                        <div class="mode-option-icon">
-                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-                            <line x1="12" y1="8" x2="12" y2="12"></line>
-                            <line x1="12" y1="16" x2="12.01" y2="16"></line>
-                          </svg>
-                        </div>
-                        <div class="mode-option-content">
-                          <div class="mode-option-title">Turbo</div>
-                          <div class="mode-option-desc">Run all commands without restrictions.</div>
-                        </div>
-                        <div class="mode-option-check">
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                            <polyline points="20 6 9 17 4 12"></polyline>
-                          </svg>
-                        </div>
+                        <div class="mode-option-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg></div>
+                        <div class="mode-option-content"><div class="mode-option-title">Full access</div><div class="mode-option-desc">Run local commands; confirm sensitive actions.</div></div>
+                        <div class="mode-option-check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>
                       </div>
                     </div>
                   </div>
+                </div>
 
-                  <!-- Voice Mic Button -->
+                <div class="card-right-actions">
                   <button class="voice-btn-dark" id="voice-btn" title="Voice input">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                       <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
@@ -383,16 +357,15 @@
                       <line x1="8" y1="23" x2="16" y2="23"></line>
                     </svg>
                   </button>
-
-                  <!-- Sparkle Submit Button: White circle with black sparkles -->
-                  <button class="sparkle-btn-white" id="send-btn" title="Send message">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M12 2L14.2 7.8L20 10L14.2 12.2L12 18L9.8 12.2L4 10L9.8 7.8L12 2Z"></path>
-                      <circle cx="18" cy="18" r="2"></circle>
+                  <button class="codex-send-circle" id="send-btn" title="Send message">
+                    <svg id="home-send-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                      <line x1="12" y1="19" x2="12" y2="5"></line>
+                      <polyline points="5 12 12 5 19 12"></polyline>
                     </svg>
                   </button>
                 </div>
               </div>
+            </div>
             </div>
           </div>
         </div>
@@ -409,96 +382,147 @@
 
           <!-- Bottom Floating Input Capsule Bar -->
           <div class="capsule-input-container">
-            <!-- Attachment previews above the input -->
-            <div class="capsule-attachments" id="capsule-attachments" style="display:none;"></div>
+            <details class="composer-task-dock" id="composer-task-dock" hidden>
+              <summary><span class="task-dock-count" id="task-dock-count"></span><span class="task-dock-current" id="task-dock-current"></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 9 6 6 6-6"/></svg></summary>
+              <div class="task-dock-list" id="task-dock-list"></div>
+            </details>
             <div class="capsule-input-bar" id="capsule-input-bar">
-              <button class="circle-btn attach-btn-small" id="capsule-attach-btn" title="Attach file (or paste image)">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-                  <line x1="12" y1="5" x2="12" y2="19"></line>
-                  <line x1="5" y1="12" x2="19" y2="12"></line>
-                </svg>
-              </button>
-              <input type="file" id="capsule-file-input" style="display:none;" multiple accept="image/*,.pdf,.doc,.docx,.txt,.csv,.xlsx,.xls,.pptx,.ppt,.zip,.json,.md">
-
-              <textarea 
-                id="capsule-prompt-input" 
-                class="capsule-text-input" 
-                placeholder="Ask anything" 
+              <!-- Attachment previews inside the card -->
+              <div class="capsule-attachments" id="capsule-attachments" style="display:none;"></div>
+              <textarea
+                id="capsule-prompt-input"
+                class="capsule-text-input"
+                placeholder="Message..."
                 rows="1"
               ></textarea>
 
-              <div class="capsule-right-actions">
-                <!-- Turbo Mode Selector in Capsule Bar -->
-                <div class="mode-dropdown-container capsule-mode-container">
-                  <button class="capsule-model-btn" id="capsule-mode-btn">
-                    <svg class="shield-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #6b7280;">
-                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-                      <line x1="12" y1="8" x2="12" y2="12"></line>
-                      <line x1="12" y1="16" x2="12.01" y2="16"></line>
-                    </svg>
-                    <span class="capsule-model-name" id="capsule-mode-label">Turbo</span>
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color: #6b7280;">
-                      <polyline points="18 15 12 9 6 15"></polyline>
+              <div class="capsule-bottom-row">
+                <div class="capsule-left-actions">
+                  <button class="circle-btn attach-btn-small" id="capsule-attach-btn" title="Attach file (or paste image)">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                      <line x1="12" y1="5" x2="12" y2="19"></line>
+                      <line x1="5" y1="12" x2="19" y2="12"></line>
                     </svg>
                   </button>
+                  <input type="file" id="capsule-file-input" style="display:none;" multiple accept="image/*,.pdf,.doc,.docx,.txt,.csv,.xlsx,.xls,.pptx,.ppt,.zip,.json,.md">
 
-                  <!-- Turbo Menu in Capsule Bar -->
-                  <div class="mode-dropdown-menu" id="capsule-mode-menu" style="right: -20px;">
-                    <div class="mode-option" data-mode="Request Review">
-                      <div class="mode-option-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg></div>
-                      <div class="mode-option-content"><div class="mode-option-title">Request Review</div><div class="mode-option-desc">Every command requires approval.</div></div>
-                    </div>
-                    <div class="mode-option" data-mode="Default">
-                      <div class="mode-option-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></div>
-                      <div class="mode-option-content"><div class="mode-option-title">Default</div><div class="mode-option-desc">Ask before sensitive operations.</div></div>
-                    </div>
-                    <div class="mode-option" data-mode="Auto (Preview)">
-                      <div class="mode-option-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg></div>
-                      <div class="mode-option-content"><div class="mode-option-title">Auto (Preview)</div><div class="mode-option-desc">Automatically decide if commands run.</div></div>
-                    </div>
-                    <div class="mode-option active" data-mode="Turbo">
-                      <div class="mode-option-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg></div>
-                      <div class="mode-option-content"><div class="mode-option-title">Turbo</div><div class="mode-option-desc">Run all commands without restrictions.</div></div>
-                      <div class="mode-option-check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>
+                  <div class="mode-dropdown-container capsule-mode-container">
+                    <button class="capsule-model-btn" id="capsule-mode-btn">
+                      <svg class="shield-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                        <polyline points="9 11.5 11 13.5 15 9.5"></polyline>
+                      </svg>
+                      <span class="capsule-model-name" id="capsule-mode-label">Ask for approval</span>
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="6 9 12 15 18 9"></polyline>
+                      </svg>
+                    </button>
+
+                    <div class="mode-dropdown-menu" id="capsule-mode-menu">
+                      <div class="mode-option" data-mode="Request Review">
+                        <div class="mode-option-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11V6a2 2 0 0 0-4 0v5"></path><path d="M14 10V4a2 2 0 0 0-4 0v6"></path><path d="M10 10.5V6a2 2 0 0 0-4 0v8"></path><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"></path></svg></div>
+                        <div class="mode-option-content"><div class="mode-option-title">Ask for approval</div><div class="mode-option-desc">Every command requires approval.</div></div>
+                      </div>
+                      <div class="mode-option" data-mode="Default">
+                        <div class="mode-option-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><polyline points="9 11.5 11 13.5 15 9.5"></polyline></svg></div>
+                        <div class="mode-option-content"><div class="mode-option-title">Approve for me</div><div class="mode-option-desc">Run safe commands automatically.</div></div>
+                      </div>
+                      <div class="mode-option active" data-mode="Turbo">
+                        <div class="mode-option-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg></div>
+                        <div class="mode-option-content"><div class="mode-option-title">Full access</div><div class="mode-option-desc">Run local commands; confirm sensitive actions.</div></div>
+                        <div class="mode-option-check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>
+                      </div>
                     </div>
                   </div>
                 </div>
 
-                <button class="circle-btn voice-btn" id="capsule-voice-btn" title="Voice input">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
-                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-                    <line x1="12" y1="19" x2="12" y2="23"></line>
-                    <line x1="8" y1="23" x2="16" y2="23"></line>
-                  </svg>
-                </button>
+                <div class="capsule-right-actions">
+                  <button class="circle-btn voice-btn" id="capsule-voice-btn" title="Voice input">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                      <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                      <line x1="12" y1="19" x2="12" y2="23"></line>
+                      <line x1="8" y1="23" x2="16" y2="23"></line>
+                    </svg>
+                  </button>
 
-                <!-- Send / Stop Button -->
-                <button class="capsule-send-btn" id="capsule-send-btn" title="Send message">
-                  <svg id="capsule-send-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <line x1="12" y1="19" x2="12" y2="5"></line>
-                    <polyline points="5 12 12 5 19 12"></polyline>
-                  </svg>
-                  <svg id="capsule-stop-icon" width="11" height="11" viewBox="0 0 24 24" fill="currentColor" style="display: none;">
-                    <rect x="5" y="5" width="14" height="14" rx="2"></rect>
-                  </svg>
-                </button>
+                  <button class="capsule-send-btn" id="capsule-send-btn" title="Send message">
+                    <svg id="capsule-send-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                      <line x1="12" y1="19" x2="12" y2="5"></line>
+                      <polyline points="5 12 12 5 19 12"></polyline>
+                    </svg>
+                    <svg id="capsule-stop-icon" width="11" height="11" viewBox="0 0 24 24" fill="currentColor" style="display: none;">
+                      <rect x="5" y="5" width="14" height="14" rx="2"></rect>
+                    </svg>
+                  </button>
+                </div>
               </div>
             </div>
-            
-            <div class="input-disclaimer">Kraken AI can make mistakes. Check important info.</div>
+
+            <div class="composer-meta-row">
+              <button class="composer-meta-btn" id="composer-local-btn" title="Workspace folder">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                  <line x1="8" y1="21" x2="16" y2="21"></line>
+                  <line x1="12" y1="17" x2="12" y2="21"></line>
+                </svg>
+                <span id="composer-local-label">Local</span>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </button>
+              <span class="composer-branch" id="composer-branch">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="6" y1="3" x2="6" y2="15"></line>
+                  <circle cx="18" cy="6" r="3"></circle>
+                  <circle cx="6" cy="18" r="3"></circle>
+                  <path d="M18 9a9 9 0 0 1-9 9"></path>
+                </svg>
+                <span id="composer-branch-name">—</span>
+              </span>
+            </div>
           </div>
         </div>
 
       </div>
     </main>
+
+    <!-- Real Terminal Panel — right-side dock, flex sibling of .main-content -->
+    <div class="terminal-panel" id="terminal-panel" style="display:none;">
+      <div class="terminal-panel-header">
+        <div class="terminal-panel-title">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="4 17 10 11 4 5"></polyline>
+            <line x1="12" y1="19" x2="20" y2="19"></line>
+          </svg>
+          <span>Terminal</span>
+          <span class="terminal-cwd-label" id="terminal-cwd-label">~</span>
+        </div>
+        <div class="terminal-panel-actions">
+          <button class="icon-btn" id="terminal-clear-btn" title="Clear terminal">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path>
+            </svg>
+          </button>
+          <button class="icon-btn" id="terminal-close-btn" title="Close terminal">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="terminal-output" id="terminal-output"></div>
+      <div class="terminal-input-row">
+        <span class="terminal-prompt-symbol" id="terminal-prompt-symbol">$</span>
+        <input type="text" class="terminal-input" id="terminal-input" placeholder="Enter command…" autocomplete="off" spellcheck="false">
+      </div>
+    </div>
   </div>
 
   <!-- MODALS -->
   <div class="modal-overlay" id="pro-modal" style="display: none;">
     <div class="modal-card">
       <div class="modal-header">
-        <h2 id="modal-title">Upgrade to Kraken Pro</h2>
+        <h2 id="modal-title">Upgrade to Calvras Pro</h2>
         <button class="close-modal-btn" id="close-pro-modal">&times;</button>
       </div>
       <p class="modal-sub">Unlock unlimited Astra Max reasoning, priority compute, and full workspace integrations.</p>
@@ -525,6 +549,22 @@
           <button class="plan-cta-btn primary">Upgrade Yearly</button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- Library / Plugins overlay -->
+  <div class="modal-overlay" id="library-plugins-overlay" style="display: none;">
+    <div class="modal-card lp-card">
+      <div class="modal-header">
+        <h2 id="lp-title">Library</h2>
+        <button class="close-modal-btn" id="close-lp-overlay">&times;</button>
+      </div>
+      <p class="modal-sub" id="lp-sub">Saved references and generated documents across your conversations.</p>
+      <div class="lp-search-row" id="lp-search-row">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <input type="text" id="lp-search-input" placeholder="Search library..." spellcheck="false">
+      </div>
+      <div class="lp-body" id="lp-body"></div>
     </div>
   </div>
 
@@ -722,7 +762,7 @@
               <div class="settings-card-item">
                 <div class="settings-item-text">
                   <div class="settings-item-title">Enable Telemetry</div>
-                  <div class="settings-item-desc">When toggled on, Kraken collects usage data to help enhance performance and features.</div>
+                  <div class="settings-item-desc">When toggled on, Calvras collects usage data to help enhance performance and features.</div>
                 </div>
                 <label class="settings-switch">
                   <input type="checkbox" checked>
@@ -733,7 +773,7 @@
               <div class="settings-card-item">
                 <div class="settings-item-text">
                   <div class="settings-item-title">Marketing Emails</div>
-                  <div class="settings-item-desc">Receive product updates, tips, and promotions from Kraken via email.</div>
+                  <div class="settings-item-desc">Receive product updates, tips, and promotions from Calvras via email.</div>
                 </div>
                 <label class="settings-switch">
                   <input type="checkbox">
@@ -749,7 +789,11 @@
               <div class="settings-card-item">
                 <div class="settings-item-text">
                   <div class="settings-item-title" id="account-plan-name">Your Plan: Antigravity Starter Quota</div>
-                  <div class="settings-item-desc">Free users and Starter users receive the base limits on Kraken. Upgrade to Kraken Pro or Ultra for unlimited rate limits and priority fleet.</div>
+                  <div class="settings-item-desc">Free users and Starter users receive the base limits on Calvras. Upgrade to Calvras Pro or Ultra for unlimited rate limits and priority fleet.</div>
+                  <div class="quota-meter" id="quota-meter" hidden>
+                    <div class="quota-track"><div class="quota-fill" id="quota-usage-bar"></div></div>
+                    <span class="quota-label" id="quota-usage-label"></span>
+                  </div>
                 </div>
                 <button class="settings-btn-primary" id="btn-upgrade-plan">Upgrade</button>
               </div>
@@ -781,7 +825,7 @@
             <div class="api-guide-icon">⚡</div>
             <div class="api-guide-body">
               <div class="api-guide-title">How API Keys & Model Integration Work</div>
-              <p>Kraken connects directly from your local desktop app to model APIs using low-latency streaming. Your keys are stored <strong>only on your machine</strong> in encrypted local storage and are never uploaded to any third party. If a provider hits a rate limit, Kraken automatically falls back to your next active key.</p>
+              <p>Calvras connects directly from your local desktop app to model APIs using low-latency streaming. Your keys are stored <strong>only on your machine</strong> in encrypted local storage and are never uploaded to any third party. If a provider hits a rate limit, Calvras automatically falls back to your next active key.</p>
             </div>
           </div>
 
@@ -871,7 +915,7 @@
               <div class="tutorial-card">
                 <div class="tut-step">3</div>
                 <div class="tut-title">Automatic Fallback</div>
-                <div class="tut-desc">Kraken automatically tests latency and switches models seamlessly so tasks never pause or get stuck.</div>
+                <div class="tut-desc">Calvras automatically tests latency and switches models seamlessly so tasks never pause or get stuck.</div>
               </div>
             </div>
           </div>
@@ -888,7 +932,7 @@
               <div class="settings-card-item">
                 <div class="settings-item-text">
                   <div class="settings-item-title">Launch on Startup</div>
-                  <div class="settings-item-desc">Start Kraken automatically when your computer turns on.</div>
+                  <div class="settings-item-desc">Start Calvras automatically when your computer turns on.</div>
                 </div>
                 <label class="settings-switch"><input type="checkbox"><span class="slider"></span></label>
               </div>
@@ -968,7 +1012,7 @@
               <div class="settings-card-item">
                 <div class="settings-item-text">
                   <div class="settings-item-title">Desktop Notifications</div>
-                  <div class="settings-item-desc">Show Windows toast notifications when Kraken is running in background.</div>
+                  <div class="settings-item-desc">Show Windows toast notifications when Calvras is running in background.</div>
                 </div>
                 <label class="settings-switch"><input type="checkbox" checked><span class="slider"></span></label>
               </div>
@@ -991,8 +1035,6 @@
           <line x1="8" y1="21" x2="16" y2="21"></line>
           <line x1="12" y1="17" x2="12" y2="21"></line>
         </svg>
-        <span>Live Preview</span>
-        <span class="preview-live-dot" title="Real-time execution active"></span>
       </div>
       <div class="preview-url-bar">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1000,7 +1042,7 @@
           <line x1="2" y1="12" x2="22" y2="12"></line>
           <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1 4-10z"></path>
         </svg>
-        <input type="text" id="preview-url-input" value="" placeholder="http://localhost:3000" spellcheck="false">
+        <input type="text" id="preview-url-input" value="" placeholder="Search or enter address" spellcheck="false">
       </div>
       <div class="preview-panel-actions">
         <button id="preview-refresh-btn" title="Reload preview">
@@ -1009,7 +1051,8 @@
             <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
           </svg>
         </button>
-        <button id="preview-open-tab-btn" title="Open in new browser tab">
+        <button id="preview-login-btn" title="Sign in to this site securely" aria-label="Sign in to this site"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></button>
+        <button id="preview-open-tab-btn" title="Open in your browser">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
             <polyline points="15 3 21 3 21 9"></polyline>
@@ -1023,6 +1066,42 @@
     </div>
     <div class="preview-panel-body">
       <iframe id="preview-iframe" src="about:blank" title="Live preview"></iframe>
+      <div id="preview-site-status" class="preview-site-status" role="status" hidden></div>
+    </div>
+  </aside>
+
+  <!-- Diff viewer — split-pane sibling of the chat column, Codex-style -->
+  <aside class="diff-panel" id="diff-panel" aria-hidden="true" aria-label="Uncommitted changes">
+    <div class="diff-panel-header">
+      <span class="diff-panel-title">Uncommitted changes
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+      </span>
+      <div class="diff-panel-tabs">
+        <button class="diff-tab active" id="diff-tab-unstaged">Unstaged · <span id="diff-unstaged-count">0</span></button>
+        <button class="diff-tab" id="diff-tab-staged">Staged</button>
+        <button class="icon-btn" id="diff-copy-btn" title="Copy diff">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+        </button>
+        <button class="icon-btn" id="diff-close-btn" title="Close diff viewer">&times;</button>
+      </div>
+    </div>
+    <div class="diff-body">
+      <div class="diff-main" id="diff-main"></div>
+      <div class="diff-tree" id="diff-tree">
+        <div class="diff-filter-row">
+          <input type="text" id="diff-filter-input" placeholder="Filter files..." spellcheck="false" autocomplete="off">
+        </div>
+      </div>
+    </div>
+    <div class="diff-footer">
+      <button class="diff-footer-btn" id="diff-revert-all">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 14 4 9 9 4"></polyline><path d="M20 20v-7a4 4 0 0 0-4-4H4"></path></svg>
+        Revert all
+      </button>
+      <button class="diff-footer-btn" id="diff-stage-all">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        Stage all
+      </button>
     </div>
   </aside>
 

@@ -100,7 +100,7 @@ async function handleApi(request: Request, env: SiteEnv): Promise<Response | nul
   if (agent) return agent;
   if (["/api/v1/chat/completions", "/api/chat/completions", "/v1/chat/completions"].includes(url.pathname)) return handleChatCompletions(request);
   if (url.pathname === "/download" || url.pathname === "/install" || url.pathname === "/get") {
-    return Response.redirect("https://github.com/Calvras/calvras/releases/download/v9.3.1/Kraken.Setup.9.3.1.exe", 302);
+    return Response.redirect(updateManifest().installer, 302);
   }
   // The published version feed. Every installed Calvras reads it to decide whether to offer an
   // update, so it is public on purpose: a version number and a download URL, never a key or a path.

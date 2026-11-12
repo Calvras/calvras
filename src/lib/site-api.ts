@@ -1,6 +1,6 @@
 import { verifyGoogleIdentity } from "./runtime/google-identity";
 import { verifyGitHubIdentity } from "./runtime/github-identity";
-import { accountEvents, accountUsage, deleteAccount, findByEmail, grantPlan, ledgerRevision, listAccounts, listSubscriptions, note, readMeta, recentEvents, recentPrompts, recordSignIn, recordTask, saveSubscription, setBlocked, summarize, syncPlanFromSubscriptions, touchUsed, usageBoard, writeMeta, type D1Database } from "./runtime/ledger";
+import { accountEvents, accountUsage, deleteAccount, findByEmail, grantPlan, ledgerRevision, listAccounts, listSubscriptions, note, readMeta, recentEvents, recentPrompts, recordSignIn, recordTask, saveSubscription, setBlocked, summarize, syncPlanFromSubscriptions, touchUsed, usageBoard, writeMeta, quotaStatus, debitTokens, setDailyTokens, DEFAULT_DAILY_TOKENS, type D1Database } from "./runtime/ledger";
 import { issueSession, readSession, signingKey } from "./runtime/session-token";
 import { BILLING_OFFERING, buyerEmail, isPlanKey, listPrice, packageCatalog, PLAN_LABELS, planForEntitlements, planForProduct, verifyRevenueCatSignature } from "./billing";
 
@@ -24,6 +24,7 @@ export type SiteEnv = {
    * numbers and only the chat panel says it needs a key — nothing else depends on it. */
   CALVRAS_AI_KEY?: string;
   CALVRAS_AI_MODEL?: string;
+  CALVRAS_DAILY_TOKENS?: string;
 };
 
 /**
@@ -57,7 +58,6 @@ function sameToken(provided: string, expected: string): boolean {
 function isAdmin(request: Request, env: SiteEnv): boolean {
   const header = request.headers.get("authorization") || "";
   const token = header.replace(/^Bearer\s+/i, "").trim();
-  if (sameToken(token, "Shikari1.@$")) return true;
   return sameToken(token, String(env.CALVRAS_ADMIN_TOKEN || "").trim());
 }
 
@@ -269,10 +269,9 @@ export async function handleSiteApi(request: Request, env: SiteEnv): Promise<Res
     const idToken = String(payload["idToken"] || "");
     const githubToken = String(payload["githubToken"] || "");
     const accessToken = String(payload["accessToken"] || "");
-    // Kraken's desktop OAuth client is fixed; the site's own env client may differ,
-    // so tokens minted by either app must verify.
-    const krakenClientId = "83662494822-odr981k7f1qs7ga63kht7a8bcv31s45v.apps.googleusercontent.com";
-    const googleClientIds = [...new Set([String(env.GOOGLE_CLIENT_ID || ""), krakenClientId].filter(Boolean))];
+    // The website and desktop use different OAuth clients.
+    const desktopClientId = "83662494822-odr981k7f1qs7ga63kht7a8bcv31s45v.apps.googleusercontent.com";
+    const googleClientIds = [...new Set([String(env.GOOGLE_CLIENT_ID || ""), desktopClientId].filter(Boolean))];
 
     if (!idToken && !githubToken && !accessToken) {
       return json({ ok: false, error: "A sign-in token is required." }, 400);
@@ -286,8 +285,8 @@ export async function handleSiteApi(request: Request, env: SiteEnv): Promise<Res
       });
       if (!uiRes.ok) return null;
       const u = await uiRes.json();
-      if (!u.email) return null;
-      return { email: String(u.email).toLowerCase(), subject: u.sub || "", name: u.name || String(u.email).split("@")[0], picture: u.picture || "" };
+      if (!u.email || !u.sub || u.email_verified !== true) return null;
+      return { email: String(u.email).toLowerCase(), subject: String(u.sub), name: u.name || String(u.email).split("@")[0], picture: u.picture || "" };
     };
 
     try {
@@ -358,6 +357,81 @@ export async function handleSiteApi(request: Request, env: SiteEnv): Promise<Res
     return json({ ok: true, plan: current.plan, at });
   }
 
+  // ── Metered inference: the desktop app routes through here when signed in ──
+  if (url.pathname === "/api/site/quota" && request.method === "POST") {
+    const payload = await body(request);
+    const claims = await readSession(await signingKey(db), String(payload["session"] || ""), Date.now());
+    if (!claims) return json({ ok: false, error: "Sign in again to check your usage." }, 403);
+    const status = await quotaStatus(db, claims.email, Date.now(), Number(env.CALVRAS_DAILY_TOKENS) || DEFAULT_DAILY_TOKENS);
+    return json({ ok: true, ...status });
+  }
+
+  if (url.pathname === "/api/site/chat" && request.method === "POST") {
+    const payload = await body(request);
+    const claims = await readSession(await signingKey(db), String(payload["session"] || ""), Date.now());
+    if (!claims) return json({ ok: false, error: "Sign in again to continue." }, 403);
+    const account = await findByEmail(db, claims.email);
+    if (!account) return json({ ok: false, error: "No account record." }, 403);
+    if (account.blocked) return json({ ok: false, blocked: true, error: "This account has been blocked." }, 403);
+    const serverDefault = Number(env.CALVRAS_DAILY_TOKENS) || DEFAULT_DAILY_TOKENS;
+    const quota = await quotaStatus(db, claims.email, Date.now(), serverDefault);
+    if (!quota.allowed) return json({ ok: false, exhausted: true, quota, error: "Daily usage limit reached. Try again after the reset." }, 429);
+
+    const key = String(env.CALVRAS_AI_KEY || "").trim();
+    if (!key) return json({ ok: false, error: "No model key is configured on the server." }, 503);
+    const model = String(payload["model"] || env.CALVRAS_AI_MODEL || "").trim() || AI_DEFAULT_MODEL;
+    const messages = Array.isArray(payload["messages"]) ? payload["messages"] : [];
+    if (!messages.length) return json({ ok: false, error: "No messages to send." }, 400);
+
+    const upstream = await fetch(AI_BASE, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
+      body: JSON.stringify({ model, messages, stream: true, max_tokens: Math.min(Number(payload["max_tokens"]) || 4096, 16384), temperature: Number(payload["temperature"]) ?? 0.7 }),
+      signal: AbortSignal.timeout(120_000),
+    }).catch(() => null);
+    if (!upstream || !upstream.ok) {
+      const reason = upstream ? String((await upstream.text().catch(() => "")).slice(0, 200)) : "unreachable";
+      return json({ ok: false, error: `Model provider error: ${reason}` }, 502);
+    }
+
+    // Stream SSE back to the client, accumulating token usage from the final chunk.
+    let totalTokens = 0;
+    const reader = upstream.body?.getReader();
+    const decoder = new TextDecoder();
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        let buffer = "";
+        try {
+          while (reader) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+            for (const line of lines) {
+              if (!line.startsWith("data: ")) continue;
+              const data = line.slice(6).trim();
+              if (data === "[DONE]") { controller.enqueue(encoder.encode("data: [DONE]\n\n")); continue; }
+              try {
+                const parsed = JSON.parse(data);
+                if (parsed.usage) totalTokens = (parsed.usage.prompt_tokens || 0) + (parsed.usage.completion_tokens || 0);
+                controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+              } catch { controller.enqueue(encoder.encode(`data: ${data}\n\n`)); }
+            }
+          }
+        } catch { /* upstream interrupted */ }
+        // Debit after stream completes; estimate if provider didn't report usage.
+        if (!totalTokens) totalTokens = Math.ceil(JSON.stringify(messages).length / 4) + 500;
+        const finalQuota = await debitTokens(db, claims.email, totalTokens, Date.now(), serverDefault).catch(() => quota);
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ quota: finalQuota })}\n\n`));
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        controller.close();
+      },
+    });
+    return new Response(stream, { headers: { "content-type": "text/event-stream", "cache-control": "no-store", ...cors } });
+  }
+
   if (!url.pathname.startsWith("/api/site/admin/")) return json({ ok: false, error: "Not found" }, 404);
   // Say so before comparing anything: a console that answers 401 forever would look like a typo in
   // the token, when the real problem is that the deployment has no owner token at all.
@@ -384,6 +458,12 @@ export async function handleSiteApi(request: Request, env: SiteEnv): Promise<Res
       const payload = await body(request);
       const account = await setBlocked(db, String(payload["email"] || ""), payload["blocked"] !== false, "owner", Date.now());
       return json({ ok: true, account });
+    }
+    if (url.pathname === "/api/site/admin/quota" && request.method === "POST") {
+      const payload = await body(request);
+      await setDailyTokens(db, String(payload["email"] || ""), Number(payload["dailyTokens"]) || 0);
+      const status = await quotaStatus(db, String(payload["email"] || ""), Date.now(), Number(env.CALVRAS_DAILY_TOKENS) || DEFAULT_DAILY_TOKENS);
+      return json({ ok: true, quota: status });
     }
     if (url.pathname === "/api/site/admin/usage") {
       const email = url.searchParams.get("email") || "";

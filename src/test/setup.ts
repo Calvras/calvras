@@ -44,3 +44,13 @@ if (typeof window !== "undefined") Object.defineProperty(window, "matchMedia", {
 // from logging "Not implemented" for every render; the element contract is what is asserted.
 if (typeof window !== "undefined") HTMLCanvasElement.prototype.getContext = (() => null) as unknown as typeof HTMLCanvasElement.prototype.getContext;
 
+if (typeof window !== "undefined" && !("ResizeObserver" in window)) {
+  class ResizeObserverStub {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  Object.defineProperty(window, "ResizeObserver", { writable: true, value: ResizeObserverStub });
+  Object.defineProperty(globalThis, "ResizeObserver", { writable: true, value: ResizeObserverStub });
+}
+

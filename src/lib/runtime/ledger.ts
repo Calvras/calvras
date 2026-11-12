@@ -16,6 +16,7 @@ export type AccountRow = {
   plan_set_by: string; plan_set_at: number; first_seen: number; last_seen: number;
   signins: number; platform: string; version: string; city: string; country: string; places: string;
   blocked: number; blocked_at: number; blocked_by: string; last_used: number;
+  daily_tokens: number; tokens_used: number; tokens_reset_at: number;
 };
 export type EventRow = { id: number; email: string; kind: string; detail: string; at: number };
 export type UsageRow = {
@@ -44,7 +45,10 @@ CREATE TABLE IF NOT EXISTS accounts (
   blocked INTEGER NOT NULL DEFAULT 0,
   blocked_at INTEGER NOT NULL DEFAULT 0,
   blocked_by TEXT NOT NULL DEFAULT '',
-  last_used INTEGER NOT NULL DEFAULT 0
+  last_used INTEGER NOT NULL DEFAULT 0,
+  daily_tokens INTEGER NOT NULL DEFAULT 0,
+  tokens_used INTEGER NOT NULL DEFAULT 0,
+  tokens_reset_at INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -380,4 +384,60 @@ export async function deleteAccount(db: D1Database, email: string): Promise<void
   await db.prepare("DELETE FROM events WHERE email = ?").bind(target).run();
   const gone = await db.prepare("DELETE FROM accounts WHERE email = ?").bind(target).run();
   if (!gone.meta?.changes) throw new Error(`No account matched ${target}.`);
+}
+
+// ── Daily token quota ─────────────────────────────────────────────────────
+
+export const DEFAULT_DAILY_TOKENS = 2_000_000;
+const QUOTA_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+export type QuotaStatus = {
+  allowed: boolean;
+  used: number;
+  limit: number;
+  percent: number;
+  resetAt: number;
+  exhausted: boolean;
+};
+
+export async function quotaStatus(db: D1Database, email: string, at: number, serverDefault = DEFAULT_DAILY_TOKENS): Promise<QuotaStatus> {
+  const account = await findByEmail(db, email);
+  if (!account) return { allowed: false, used: 0, limit: serverDefault, percent: 0, resetAt: 0, exhausted: false };
+  const limit = account.daily_tokens > 0 ? account.daily_tokens : serverDefault;
+  let used = account.tokens_used;
+  let resetAt = account.tokens_reset_at;
+  if (resetAt > 0 && at >= resetAt + QUOTA_WINDOW_MS) {
+    await db.prepare("UPDATE accounts SET tokens_used = 0, tokens_reset_at = 0 WHERE email = ?").bind(account.email).run();
+    used = 0;
+    resetAt = 0;
+  }
+  const exhausted = used >= limit;
+  return { allowed: !exhausted && !account.blocked, used, limit, percent: Math.min(100, Math.round((used / limit) * 100)), resetAt: exhausted ? resetAt + QUOTA_WINDOW_MS : 0, exhausted };
+}
+
+export async function debitTokens(db: D1Database, email: string, tokens: number, at: number, serverDefault = DEFAULT_DAILY_TOKENS): Promise<QuotaStatus> {
+  const target = accountEmail(email);
+  const account = await findByEmail(db, target);
+  if (!account) throw new Error("No account to debit.");
+  const limit = account.daily_tokens > 0 ? account.daily_tokens : serverDefault;
+  const debit = Math.max(0, Math.round(tokens));
+  let resetAt = account.tokens_reset_at;
+  if (resetAt === 0 || at >= resetAt + QUOTA_WINDOW_MS) {
+    resetAt = at;
+    await db.prepare("UPDATE accounts SET tokens_used = ?, tokens_reset_at = ? WHERE email = ?").bind(debit, at, target).run();
+  } else {
+    await db.prepare("UPDATE accounts SET tokens_used = tokens_used + ? WHERE email = ?").bind(debit, target).run();
+  }
+  const updated = await findByEmail(db, target);
+  const used = updated?.tokens_used ?? debit;
+  const exhausted = used >= limit;
+  if (exhausted) await note(db, target, "quota_exhausted", `${used}/${limit} tokens`, at);
+  return { allowed: !exhausted, used, limit, percent: Math.min(100, Math.round((used / limit) * 100)), resetAt: exhausted ? resetAt + QUOTA_WINDOW_MS : 0, exhausted };
+}
+
+export async function setDailyTokens(db: D1Database, email: string, tokens: number): Promise<void> {
+  const target = accountEmail(email);
+  const value = Math.max(0, Math.round(tokens));
+  const changes = await db.prepare("UPDATE accounts SET daily_tokens = ? WHERE email = ?").bind(value, target).run();
+  if (!changes.meta?.changes) throw new Error(`No account matched ${target}.`);
 }

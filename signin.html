@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Kraken — Sign in</title>
+  <title>Calvras — Sign in</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -181,7 +181,7 @@
         <svg class="signin-logo" viewBox="0 0 24 24" fill="currentColor">
           <polygon points="2,2 22,2 14,12 22,22 2,22 10,12" />
         </svg>
-        <span class="signin-wordmark">Kraken</span>
+        <span class="signin-wordmark">Calvras</span>
         <span class="signin-tagline">The AI Coding Agent</span>
       </div>
 
@@ -198,7 +198,7 @@
       <div class="signin-status" id="signin-status"></div>
 
       <div class="signin-terms">
-        By continuing you agree to Kraken's Terms of Service and Privacy Policy.
+        Calvras by Kracton. By continuing you agree to Calvras's Terms of Service and Privacy Policy.
       </div>
 
     </div>
@@ -240,7 +240,7 @@
       try {
         const result = await ipcRenderer.invoke('auth:google-signin');
         if (result.success) {
-          setStatus('Signed in! Loading Kraken…', 'success');
+          setStatus('Signed in! Loading Calvras…', 'success');
         } else {
           setStatus(result.error || 'Sign in failed. Please try again.', 'error');
           setLoading(false);

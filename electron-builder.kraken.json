@@ -1,21 +1,36 @@
 {
-  "appId": "dev.getkraken.app",
-  "productName": "Kraken",
+  "appId": "com.kracton.calvras",
+  "productName": "Calvras",
   "extraMetadata": {
     "main": "main.cjs",
-    "version": "9.3.1"
+    "version": "9.4.0",
+    "name": "calvras",
+    "author": "Kracton"
   },
-  "copyright": "Copyright © 2026 Calvras",
+  "copyright": "Copyright © 2026 Kracton",
   "directories": {
-    "output": "dist/kraken"
+    "output": "dist/calvras-940"
   },
   "files": [
     "app.html",
     "signin.html",
     "app.css",
     "app.js",
-    "main.js",
     "main.cjs",
+    "electron/browser-tools.cjs",
+    "electron/document-tools.cjs",
+    "electron/vendor/fflate.cjs",
+    "electron/vendor/fflate.LICENSE",
+    "electron/execution-policy.cjs",
+    "electron/github-connection.cjs",
+    "electron/pet-window.cjs",
+    "electron/pet-preload.cjs",
+    "electron/pet.html",
+    "electron/pet.css",
+    "electron/pet.js",
+    "electron/vendor/three.module.js",
+    "electron/vendor/three.core.js",
+    "electron/vendor/LICENSE",
     "oauth.config.json",
     "avatar_milo.png",
     "kraken_logo.png",
@@ -41,13 +56,15 @@
     "icon": "build/icon.ico"
   },
   "nsis": {
+    "guid": "2052a91c-a297-5fe9-8322-ee71ef469ded",
     "oneClick": false,
     "allowToChangeInstallationDirectory": true,
     "installerIcon": "build/icon.ico",
     "uninstallerIcon": "build/icon.ico",
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
-    "shortcutName": "Kraken"
+    "shortcutName": "Calvras",
+    "artifactName": "Calvras.Setup.${version}.exe"
   },
   "publish": {
     "provider": "github",

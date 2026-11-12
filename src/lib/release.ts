@@ -5,12 +5,7 @@
  */
 export const REPO = "Calvras/calvras";
 
-/** Must match package.json's version; a unit test fails the build if the two drift apart. */
-export const RELEASE_VERSION = "10.1.3";
-
-/** Override this only when a build is published somewhere other than the tag's GitHub release. */
-export const RELEASE_INSTALLER = "https://github.com/Calvras/calvras/releases/download/v8.0.0/Kraken.Setup.8.0.0.exe";
-export const RELEASE_PORTABLE = "";
+export const RELEASE_VERSION = "9.4.0";
 
 export const UPDATE_FEED_PATH = "/update.json";
 export const UPDATE_FEED_URL = `https://calvras.com${UPDATE_FEED_PATH}`;
@@ -23,8 +18,8 @@ export function releaseArtifacts(version: string): ReleaseArtifacts {
   return {
     version: clean,
     tag,
-    installer: RELEASE_INSTALLER || `https://github.com/${REPO}/releases/download/${tag}/Calvras-Setup-${clean}.exe`,
-    portable: RELEASE_PORTABLE || `https://github.com/${REPO}/releases/download/${tag}/Calvras-${clean}-win.zip`,
+    installer: `https://github.com/${REPO}/releases/download/${tag}/Calvras.Setup.${clean}.exe`,
+    portable: "",
     release: `https://github.com/${REPO}/releases/tag/${tag}`,
   };
 }

@@ -84,7 +84,7 @@ describe("public site surface", () => {
   it("keeps the workspace off the home page for anyone but the desktop runtime", () => {
     const index = source("src/routes/index.tsx");
     expect(index).toContain('loader: (context) => ({ workspace: servesWorkspace(workspaceHostFrom(context)) })');
-    expect(index).toContain("if (!workspace) return <LandingPage />;");
+    expect(index).toContain("if (!workspace || showLanding) return <LandingPage />;");
     expect(source("src/start.ts")).toContain("workspaceHost: new URL(request.url).hostname");
   });
 

@@ -25,7 +25,7 @@
   "build": {
     "appId": "com.calvras.app",
     "productName": "Calvras",
-    "copyright": "Copyright (c) 2026 Calvras",
+    "copyright": "Copyright (c) 2026 Kracton",
     "directories": {
       "output": "electron-dist"
     },
@@ -175,5 +175,5 @@
   },
   "version": "10.1.3",
   "description": "Calvras - Autonomous AI Coding Agent",
-  "author": "Calvras <support@calvras.com>"
+  "author": "Kracton <support@calvras.com>"
 }
