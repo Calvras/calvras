@@ -106,7 +106,6 @@ hr{margin-top:32px;border:0;border-top:1px solid oklch(0.15 0 0 / 0.2);}
     <header>
       <div class="brand">
         <img class="brand-mark" src="/calvras-logo.png" alt="Calvras">
-        <span>/ Sales@calvras.com</span>
       </div>
       <nav>
         <span class="item"><a href="/about">Product</a></span>
@@ -117,7 +116,7 @@ hr{margin-top:32px;border:0;border-top:1px solid oklch(0.15 0 0 / 0.2);}
       <div class="head-right">
         <span class="vdiv"></span>
         <a href="/signin">Log in</a>
-        <a href="https://github.com/Calvras/calvras/releases/download/v9.5.0/Calvras.Setup.9.5.0.exe" class="pill-outline">Get it Now <span class="light">— It's Free</span></a>
+        <a href="https://github.com/Calvras/calvras/releases/download/v9.6.0/Calvras.Setup.9.6.0.exe" class="pill-outline">Get it Now <span class="light">— It's Free</span></a>
       </div>
     </header>
 
@@ -126,7 +125,7 @@ hr{margin-top:32px;border:0;border-top:1px solid oklch(0.15 0 0 / 0.2);}
         <div class="badge-row">
           <span class="badge-dot">✦</span>
           <div class="badge-text">
-            <p class="big">v9.5.0</p>
+            <p class="big">v9.6.0</p>
             <p class="small">Read Our <a href="https://github.com/Calvras/calvras/releases">Release Notes</a></p>
           </div>
         </div>
@@ -140,7 +139,7 @@ hr{margin-top:32px;border:0;border-top:1px solid oklch(0.15 0 0 / 0.2);}
           <span class="rate"><svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>4.9</span>
         </div>
         <div class="cta">
-          <a href="https://github.com/Calvras/calvras/releases/download/v9.5.0/Calvras.Setup.9.5.0.exe" class="pill-black">Download <span class="light">— It's Free</span></a>
+          <a href="https://github.com/Calvras/calvras/releases/download/v9.6.0/Calvras.Setup.9.6.0.exe" class="pill-black">Download <span class="light">— It's Free</span></a>
           <a href="/pricing" class="pricing">Our Pricing <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h10v10"/><path d="M7 17 17 7"/></svg></a>
         </div>
       </div>

@@ -3,13 +3,13 @@
   "productName": "Calvras",
   "extraMetadata": {
     "main": "main.cjs",
-    "version": "9.5.0",
+    "version": "9.6.0",
     "name": "calvras",
     "author": "Kracton"
   },
   "copyright": "Copyright © 2026 Kracton",
   "directories": {
-    "output": "dist/calvras-940"
+    "output": "dist/calvras-960-publish"
   },
   "files": [
     "app.html",
