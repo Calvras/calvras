@@ -4,6 +4,7 @@ const { createExecutionPolicy } = require('./electron/execution-policy.cjs');
 const { createGitHubConnection } = require('./electron/github-connection.cjs');
 const { createPetWindow } = require('./electron/pet-window.cjs');
 const { createDocument } = require('./electron/document-tools.cjs');
+const { extractPdfText } = require('./electron/pdf-text.cjs');
 const path = require('path');
 const http = require('http');
 const https = require('https');
@@ -23,7 +24,7 @@ const REDIRECT_URI = `http://127.0.0.1:${REDIRECT_PORT}/callback`;
 let mainWindow = null;
 let authServer = null;
 
-const APP_VERSION = '9.4.0';
+const APP_VERSION = '9.5.0';
 const previousUserData = app.getPath('userData');
 app.setName('Calvras');
 if (!app.commandLine.hasSwitch('user-data-dir')) {
@@ -103,7 +104,7 @@ function postSession(payload) {
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(payload),
-        'User-Agent': 'Calvras/9.4.0',
+        'User-Agent': 'Calvras/9.5.0',
       },
       timeout: 12000,
     }, (res) => {
@@ -172,7 +173,10 @@ const PREVIEW_MIME = {
   '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png',
   '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp',
   '.ico': 'image/x-icon', '.woff': 'font/woff', '.woff2': 'font/woff2',
-  '.txt': 'text/plain; charset=utf-8',
+  '.txt': 'text/plain; charset=utf-8', '.md': 'text/plain; charset=utf-8',
+  '.csv': 'text/plain; charset=utf-8', '.pdf': 'application/pdf',
+  '.wasm': 'application/wasm', '.mp3': 'audio/mpeg', '.wav': 'audio/wav',
+  '.ogg': 'audio/ogg', '.mp4': 'video/mp4', '.webm': 'video/webm',
 };
 const previewServer = http.createServer((req, res) => {
   if (!currentWorkspaceDir) { res.writeHead(404); res.end('No workspace open'); return; }
@@ -330,6 +334,25 @@ ipcMain.handle('browser:open-external', async (event, target) => {
   if (!isSitePreviewUrl(target)) throw new Error('Only HTTP or HTTPS pages can open in your browser.');
   await shell.openExternal(new URL(target).href);
   return { opened: true };
+});
+
+ipcMain.handle('artifact:open', (event, filePath) => {
+  requireAppSender(event);
+  if (typeof filePath !== 'string' || !filePath) throw new Error('No file path.');
+  const resolved = path.isAbsolute(filePath) ? filePath : path.resolve(currentWorkspaceDir || '', filePath);
+  const target = fs.realpathSync(resolved);
+  const roots = [currentWorkspaceDir, path.join(app.getPath('documents'), 'Calvras')].filter(root => root && fs.existsSync(root));
+  if (!roots.some(root => { const relative = path.relative(fs.realpathSync(root), target); return relative && relative !== '..' && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative); })) throw new Error('File is outside the current output folders.');
+  return shell.openPath(target);
+});
+
+ipcMain.handle('pdf:extract-text', (event, payload) => {
+  requireAppSender(event);
+  const b64 = payload && payload.dataB64;
+  if (typeof b64 !== 'string' || !b64) throw new Error('No PDF data.');
+  const buf = Buffer.from(b64, 'base64');
+  if (buf.length > 25 * 1024 * 1024) throw new Error('PDF too large to read.');
+  return { text: extractPdfText(buf) };
 });
 
 // Search providers send no CORS headers, so fetch them from the main process.
@@ -623,7 +646,7 @@ function downloadFileWithRedirects(fileUrl, destPath, onProgress) {
       }
       const req = client.get(parsed, {
         headers: {
-          'User-Agent': 'Calvras-Updater/9.4.0',
+          'User-Agent': 'Calvras-Updater/9.5.0',
           'Accept': 'application/octet-stream, */*'
         }
       }, (res) => {
@@ -738,13 +761,13 @@ async function performDirectUpdate(targetUrl, targetVersion) {
     }
 
     if (!urlToDownload) {
-      urlToDownload = 'https://github.com/Calvras/calvras/releases/download/v9.4.0/Calvras.Setup.9.4.0.exe';
+      urlToDownload = 'https://github.com/Calvras/calvras/releases/download/v9.5.0/Calvras.Setup.9.5.0.exe';
     }
 
-    const tempInstaller = path.join(app.getPath('temp'), `Calvras-Setup-${targetVersion || '9.4.0'}-${Date.now()}.exe`);
+    const tempInstaller = path.join(app.getPath('temp'), `Calvras-Setup-${targetVersion || '9.5.0'}-${Date.now()}.exe`);
 
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('updater:status', { status: 'downloading', version: targetVersion || '9.4.0' });
+      mainWindow.webContents.send('updater:status', { status: 'downloading', version: targetVersion || '9.5.0' });
     }
 
     await downloadFileWithRedirects(urlToDownload, tempInstaller, (percent) => {
@@ -756,7 +779,7 @@ async function performDirectUpdate(targetUrl, targetVersion) {
     updateDownloadedPath = tempInstaller;
 
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('updater:status', { status: 'installing', version: targetVersion || '9.4.0' });
+      mainWindow.webContents.send('updater:status', { status: 'installing', version: targetVersion || '9.5.0' });
     }
 
     // Don't wrap in try/catch here — runInstallerAndExit handles its own fallbacks

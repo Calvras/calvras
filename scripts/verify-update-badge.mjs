@@ -30,7 +30,7 @@ try {
     body: JSON.stringify({ tag_name: feed.tag, assets: [{ name: `Calvras.Setup.${feed.tag.replace(/^v/, '')}.exe`, browser_download_url: `https://github.com/Calvras/calvras/releases/download/${feed.tag}/Calvras.Setup.${feed.tag.replace(/^v/, '')}.exe` }] }),
   }));
   if (packagedExe) {
-    check('packaged build reports the published version', await app.evaluate(({ app: electronApp }) => electronApp.getVersion()) === '9.4.0');
+    check('packaged build reports the published version', await app.evaluate(({ app: electronApp }) => electronApp.getVersion()) === '9.5.0');
   } else {
     await page.goto(pathToFileURL(path.resolve('app.html')).href);
   }
@@ -47,7 +47,7 @@ try {
   check('badge tooltip names the install target', /99\.1\.0/.test(badge.title));
   await page.screenshot({ path: path.join(out, 'badge.png') });
 
-  feed.tag = 'v9.4.0';
+  feed.tag = 'v9.5.0';
   await page.reload();
   await page.waitForSelector('#prompt-input');
   await page.waitForTimeout(2500);

@@ -3,7 +3,7 @@
   "productName": "Calvras",
   "extraMetadata": {
     "main": "main.cjs",
-    "version": "9.4.0",
+    "version": "9.5.0",
     "name": "calvras",
     "author": "Kracton"
   },
@@ -19,6 +19,7 @@
     "main.cjs",
     "electron/browser-tools.cjs",
     "electron/document-tools.cjs",
+    "electron/pdf-text.cjs",
     "electron/vendor/fflate.cjs",
     "electron/vendor/fflate.LICENSE",
     "electron/execution-policy.cjs",
@@ -33,6 +34,8 @@
     "electron/vendor/LICENSE",
     "oauth.config.json",
     "avatar_milo.png",
+    "calvras-mascot.png",
+    "calvras-logo.png",
     "kraken_logo.png",
     "build/icon.png",
     "node_modules/**/*",

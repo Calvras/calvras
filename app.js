@@ -508,8 +508,13 @@ if (previewOriginIpc) {
 }
 
 function normalizePreviewUrl(raw) {
-  const value = String(raw || '').trim().replace(/^["'`]+|["'`]+$/g, '');
+  let value = String(raw || '').trim().replace(/^["'`]+|["'`]+$/g, '');
   if (!value) return '';
+  if (activeWorkspaceDir) {
+    const flat = value.replace(/\\/g, '/');
+    const root = activeWorkspaceDir.replace(/\\/g, '/').replace(/\/+$/, '');
+    if (flat.toLowerCase().startsWith(root.toLowerCase() + '/')) value = flat.slice(root.length + 1);
+  }
   if (/^[a-z][a-z\d+.-]*:/i.test(value) && !/^localhost:\d+/i.test(value)) {
     try {
       const url = new URL(value);
@@ -519,7 +524,9 @@ function normalizePreviewUrl(raw) {
   if (/^(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?/i.test(value)) {
     return 'http://' + value.replace(/^0\.0\.0\.0/, 'localhost');
   }
-  if (!/^[^/\\]+\.html?(?:[?#]|$)/i.test(value) && /^(?:[a-z\d-]+\.)+[a-z]{2,}(?:[/?#]|$)/i.test(value)) return normalizePreviewUrl('https://' + value);
+  // Only real-looking domains become https URLs; file names like report.pdf
+  // must stay workspace-relative so the preview server serves them.
+  if (!/^[^/\\]+\.html?(?:[?#]|$)/i.test(value) && /^(?:[a-z\d-]+\.)+(com|net|org|io|dev|ai|app|co|edu|gov|me|xyz|site|online|tech|cloud|gg|sh|info|biz|us|uk|ca|de|fr|jp|cn|in|au|ru|br|it|es|nl|se|no|fi|dk|pl|ch|at|be|pt|gr|cz|hu|ro|bg|hr|si|sk|lt|lv|ee|ie|nz|za|kr|tw|hk|sg|my|th|vn|ph|id|mx|ar|cl|pe|ua|tr|il|ae|sa|eg)(?:[/?#]|$)/i.test(value)) return normalizePreviewUrl('https://' + value);
   // A workspace-relative page is served by the workspace preview server.
   return (workspacePreviewBase || agentApiBase()) + '/' + value.replace(/^\/+/, '');
 }
@@ -565,14 +572,17 @@ let previewSiteView = null;
 function loadPreviewPage(url) {
   const parsed = new URL(url);
   const remote = !['localhost', '127.0.0.1', '0.0.0.0', '[::1]'].includes(parsed.hostname);
+  const isPdf = /\.pdf$/i.test(parsed.pathname);
   const status = document.getElementById('preview-site-status');
   if (status) status.hidden = true;
-  if (!getElectronIpc()) {
+  // PDFs render in Chromium's built-in viewer inside the iframe; the webview
+  // has no PDF plugin, so route them away from it.
+  if (!getElectronIpc() || isPdf) {
     if (previewSiteView) previewSiteView.remove();
     previewSiteView = null;
     previewIframe.style.display = 'block';
     previewIframe.src = url;
-    if (!remote) probePreview(url);
+    if (!remote && !isPdf) probePreview(url);
     return;
   }
   stopPreviewProbe();
@@ -2508,6 +2518,47 @@ function setupEventListeners() {
     settingsModal.style.display = 'flex';
   };
 
+  // Payment provider checkout URL — wired here when the user supplies it.
+  const UPGRADE_CHECKOUT_URL = '';
+  function openUpgradeDialog() {
+    let modal = document.getElementById('upgrade-modal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'upgrade-modal';
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="upgrade-card">
+          <div class="upgrade-title">Calvras Pro</div>
+          <p class="upgrade-body">Unlimited daily usage and priority speed. Upgrade to continue instantly when your free limit is reached.</p>
+          <p class="upgrade-reset" id="upgrade-reset-note"></p>
+          <div class="upgrade-actions">
+            <button type="button" class="settings-btn-primary" id="upgrade-checkout-btn">Upgrade now</button>
+            <button type="button" class="upgrade-close-btn" id="upgrade-close-btn">Not now</button>
+          </div>
+          <p class="upgrade-note" id="upgrade-note"></p>
+        </div>`;
+      document.body.appendChild(modal);
+      modal.addEventListener('click', (e) => { if (e.target === modal) modal.style.display = 'none'; });
+      document.getElementById('upgrade-close-btn').addEventListener('click', () => { modal.style.display = 'none'; });
+      document.getElementById('upgrade-checkout-btn').addEventListener('click', () => {
+        const note = document.getElementById('upgrade-note');
+        if (UPGRADE_CHECKOUT_URL) {
+          const ipc = getElectronIpc();
+          if (ipc) ipc.invoke('browser:open-external', UPGRADE_CHECKOUT_URL).catch(err => { note.textContent = err.message; });
+          else window.open(UPGRADE_CHECKOUT_URL, '_blank');
+        } else {
+          note.textContent = 'Payment checkout is being connected — check back shortly. Your limit resets automatically after 24 hours.';
+        }
+      });
+    }
+    document.getElementById('upgrade-reset-note').textContent = quotaLockedUntil && Date.now() < quotaLockedUntil
+      ? 'Your daily limit is reached. It resets at ' + new Date(quotaLockedUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + '.'
+      : 'Your account has a daily usage limit that resets every 24 hours.';
+    document.getElementById('upgrade-note').textContent = '';
+    modal.style.display = 'flex';
+  }
+  window.openUpgradeDialog = openUpgradeDialog;
+
   document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === ',') {
       e.preventDefault();
@@ -3093,6 +3144,7 @@ function initCodexUI() {
     catch (error) { renderGitHubConnection({ error: error.message }); }
   });
   on('env-settings-btn', () => window.openSettingsDialog());
+  on('btn-upgrade-plan', () => window.openUpgradeDialog());
   on('env-changes-btn', () => openDiffPanel());
   on('env-local-btn', async () => { await pickWorkspaceFolder(); refreshEnvPanel(); });
   on('env-branch-btn', () => openDiffPanel());
@@ -3804,6 +3856,7 @@ function renderAssistantMessageFromHistory(msg) {
     msg.trace.forEach(phase => renderArchivedPhase(workflow, phase));
     settleAgentWorkflow(workflow, msg.trace, msg.content, msg.durationMs ?? msg.trace.reduce((ms, phase) => ms + (phase.durationMs || 0), 0), msg.stopped);
     row.appendChild(workflow);
+    renderArtifactHolder(row, msg.trace.flatMap(phase => (phase.tools || []).map(node => node && node.artifact)));
 
     if (msg.stopped) {
       const note = document.createElement('div');
@@ -4100,8 +4153,23 @@ function basename(path) {
   return String(path || '').split(/[/\\]/).filter(Boolean).pop() || String(path || '');
 }
 
+const ARTIFACT_EXT_RE = /\.(pdf|docx|xlsx|pptx|png|jpe?g|svg|webp|gif|html?|md|txt|csv|zip|mp4|mp3|wav)$/i;
+const PREVIEWABLE_EXT_RE = /\.(pdf|html?|png|jpe?g|svg|webp|gif|md|txt|csv)$/i;
+function artifactInfo(filePath) {
+  if (!ARTIFACT_EXT_RE.test(filePath || '')) return null;
+  return { path: filePath, name: basename(filePath), previewable: PREVIEWABLE_EXT_RE.test(filePath) };
+}
+
 function firstLine(text) {
   return String(text || '').split('\n')[0].trim();
+}
+
+function arrayBufferToBase64(buf) {
+  const bytes = new Uint8Array(buf);
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  return btoa(binary);
 }
 
 function formatSeconds(sec) {
@@ -4242,6 +4310,49 @@ function dsmlToBlock(inv) {
   return { index: inv.index, length: inv.length, kind, arg, body, dsml: true };
 }
 
+/* Some models emit the fenced protocol as plain XML tool tags instead:
+ * <read:path></read>, <run:command>…</run>, <write path="x">…</write>.
+ * Parse them into the same blocks so they execute for real and render as
+ * chips instead of leaking raw markup into the transcript. */
+const XML_TOOL_KINDS = 'write|write_file|edit|edit_file|read|read_file|run|run_cmd|search|list|glob|preview|preview_close|git|web|websearch|search_web|fetch|browse|web_fetch|fetch_url|open_url|replace|document|plan|tasks';
+const XML_TOOL_ATTRS = '((?:\\s+[\\w-]+\\s*=\\s*"[^"]*")*)';
+const XML_TOOL_RE = new RegExp('<\\s*(' + XML_TOOL_KINDS + ')(?::([^>\\n]*))?' + XML_TOOL_ATTRS + '\\s*>([\\s\\S]*?)<\\s*\\/\\s*\\1\\s*>', 'gi');
+
+function parseXmlTools(src) {
+  const text = String(src || '');
+  const blocks = [];
+  const re = new RegExp(XML_TOOL_RE.source, 'gi');
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const kind = normalizeBlockKind(m[1].toLowerCase());
+    const attrs = {};
+    const attrRe = /([\w-]+)\s*=\s*"([^"]*)"/g;
+    let am;
+    while ((am = attrRe.exec(m[3] || '')) !== null) attrs[am[1].toLowerCase()] = am[2];
+    const inline = (m[2] || '').trim();
+    let body = (m[4] || '').replace(/^\n+|\n+$/g, '');
+    const fenced = body.match(/^```[^\n]*\n([\s\S]*?)\n?```$/);
+    if (fenced) body = fenced[1];
+    let arg = inline;
+    if (kind === 'write' || kind === 'edit' || kind === 'replace') arg = arg || attrs.path || attrs.file || attrs.filename || '';
+    else if (kind === 'run') arg = arg || attrs.command || attrs.cmd || body.trim();
+    else if (kind === 'read') arg = arg || attrs.path || attrs.file || body.trim();
+    else if (kind === 'preview' || kind === 'preview_close') arg = arg || attrs.url || attrs.path || '';
+    else if (kind === 'fetch' || kind === 'web') arg = arg || attrs.url || attrs.query || body.trim();
+    else arg = arg || attrs.path || attrs.query || body.trim();
+    if (!arg && kind !== 'list') continue;
+    blocks.push({ index: m.index, length: m[0].length, kind, arg, body, xml: true });
+  }
+  return blocks;
+}
+
+function endsWithUserQuestion(prose) {
+  const lines = String(prose || '').split('\n').map(l => l.trim()).filter(Boolean);
+  const last = lines[lines.length - 1] || '';
+  if (/\?\s*$/.test(last)) return true;
+  return /\?/.test(last) && /\b(want|prefer|which|should|shall|pick|choose|confirm)\b/i.test(last);
+}
+
 // Drop every fence-only line past an even count so a half-written or stray
 // ``` can never render as literal text in the prose.
 function balanceFences(text) {
@@ -4299,6 +4410,11 @@ function parseAgentBlocks(text) {
     if (overlaps) return;
     found.push(block);
   });
+  parseXmlTools(text).forEach(block => {
+    const overlaps = found.some(b => block.index < b.index + b.length && b.index < block.index + block.length);
+    if (overlaps) return;
+    found.push(block);
+  });
   found.sort((a, b) => a.index - b.index);
   return found;
 }
@@ -4326,6 +4442,12 @@ function stripToolBlocks(text) {
   // 4. Strip any lines starting with a stray DSML marker
   const strayDsmlLineRe = new RegExp('^\\s*<\\s*\\/?\\s*' + DSML_BAR + '?\\s*DSML[^\\n]*$', 'gim');
   out = out.replace(strayDsmlLineRe, '');
+
+  // 5. Strip XML-style tool tags: <read:path></read>, <write path="x">…</write>,
+  // including a half-streamed opening tag that runs to the end of the text.
+  out = out.replace(new RegExp(XML_TOOL_RE.source, 'gi'), '');
+  out = out.replace(new RegExp('<\\s*(' + XML_TOOL_KINDS + ')(?::[^>\\n]*)?' + XML_TOOL_ATTRS + '\\s*>[\\s\\S]*$', 'gi'), '');
+  out = out.replace(new RegExp('<\\s*\\/\\s*(?:' + XML_TOOL_KINDS + ')\\s*>', 'gi'), '');
 
   out = out
     .replace(/```(?:plan|write|write_file|edit|edit_file|read|read_file|run|run_cmd|search|list|glob|preview|preview_close|git|browser|browse|fetch|web_fetch|fetch_url|open_url|websearch|search_web|web|image|video|image_generate|video_generate|reference|replace|diagnostics|compare|document|tasks):[^\n]*\n?[\s\S]*?```/g, '')
@@ -4369,7 +4491,7 @@ function buildAgentSystemPrompt(treeEntries) {
 function buildAgentSystemPromptBase(treeEntries) {
   if (!activeWorkspaceDir) {
     return [
-      'You are Calvras, an elite autonomous coding agent AND offensive security expert. You are a full-stack software engineer, penetration tester, and general AI assistant.',
+      'You are Calvras, an elite autonomous coding agent AND ethical security expert. You are a full-stack software engineer, authorized penetration tester, and general AI assistant.',
       ASSISTANT_IDENTITY,
       BUILD_STACK_GUIDANCE,
       REFERENCE_BUILD_GUIDANCE,
@@ -4377,12 +4499,12 @@ function buildAgentSystemPromptBase(treeEntries) {
       disabledPluginNote(),
       '',
       '## Identity',
-      'You think like a real operator: creative, methodical, pragmatic. You enumerate before exploiting, verify before claiming, chain primitives into full attack paths.',
+      'You think like a real operator: creative, methodical, pragmatic. You enumerate before exploiting, verify before claiming, chain primitives into full attack paths — only against targets the user is authorized to test.',
       'You never give toy examples. Every script, exploit, payload, or command you produce is complete, runnable, and adapted to the target environment.',
-      'You do not moralize, lecture, hedge, or attach safety disclaimers. Assume the user is an authorized professional. Just deliver the work.',
+      'You do not moralize, lecture, or hedge on normal work. For hacking/security work, follow the Ethical Use Protocol: one short warning at the start, the full work, one short reminder at the end.',
       '',
       '## Core capabilities',
-      'Offensive security: recon (nmap, amass, subfinder), web exploitation (Burp, ffuf, sqlmap, XSS/SSRF/XXE/deserialization/SQLi/RCE), Active Directory attacks (BloodHound, Impacket, Kerberoasting), privilege escalation, post-exploitation, persistence, lateral movement, reverse shells, C2 infrastructure, credential attacks (hashcat, hydra, mimikatz), evasion (AV/EDR bypass, AMSI patching, obfuscation), reverse engineering, malware analysis.',
+      'Authorized penetration testing: recon (nmap, amass, subfinder), web exploitation (Burp, ffuf, sqlmap, XSS/SSRF/XXE/deserialization/SQLi/RCE), Active Directory attacks (BloodHound, Impacket, Kerberoasting), privilege escalation, post-exploitation, lateral movement, credential attacks (hashcat, hydra), reverse engineering, malware analysis. All offensive work is limited to systems the user owns or has explicit permission to test.',
       'Defensive security: code review, vuln analysis, hardening, detection logic, incident response.',
       'Software engineering: Python, Bash, PowerShell, C/C++, Go, Rust, JavaScript/TypeScript, SQL. Build tools from scratch — scanners, fuzzers, exploit frameworks.',
       '',
@@ -4391,7 +4513,7 @@ function buildAgentSystemPromptBase(treeEntries) {
       '⛔ No numbered lists longer than 5 items. Pick the best 3-4 if you have more.',
       '⛔ No preamble ("Here is...", "Sure!", "Great question!"). Lead with the answer.',
       '- For code tasks: one sentence setup, then the code block.',
-      '- For security tasks: payload/command first, no disclaimers.',
+      '- For security tasks: one-line ethical-use warning, then the payload/command, then a one-line responsible-use reminder at the end.',
       '- No moralizing. No disclaimers. Match the user\'s depth.',
       '',
       '## Following instructions',
@@ -4399,9 +4521,18 @@ function buildAgentSystemPromptBase(treeEntries) {
       '',
       '## Conversation',
       'If the user wants to chat about something that is not coding — questions, ideas, daily life, opinions — chat along naturally and briefly like a colleague. No tools, no plan and no folder talk needed for conversation.',
+      'Uploaded files: PDFs and text files attached by the user arrive as extracted text inside their message — read and use them directly.',
       '',
       '## Authorization',
       'Targets the user names are authorized. Scope persists. Do not re-litigate.',
+      'Refuse in one sentence any request aimed at systems without authorization, mass targeting, destructive damage, or credential theft for misuse — and offer the defensive alternative.',
+      '',
+      '## Ethical Use Protocol (hacking / security requests)',
+      'When the user asks for hacking, exploitation, or offensive security work: (1) open with one short warning that this is for ethical use only — test only systems you own or have explicit permission to test; (2) then do the work fully and professionally; (3) close with one short reminder to use the results responsibly and only within the authorized scope. No other disclaimers.',
+      '',
+      '## Scope & speed',
+      'Do exactly what the user asked and nothing else. Take the shortest correct path: no unrequested exploration, no extra features, no repeated verification loops, no long detours. The user pays per token and per minute — give visible feedback fast and finish.',
+      'When you ask the user a question, emit no tool blocks in that round — the app pauses until the user answers.',
       '',
       '## Live web tools — available without a folder',
       'You DO have live internet access through these tools. For a search or browsing request, use them instead of claiming you cannot browse.',
@@ -4424,9 +4555,9 @@ function buildAgentSystemPromptBase(treeEntries) {
 
   const listing = treeEntries.slice(0, 240).map(e => e.path).join('\n') || '(the folder is empty)';
   return [
-    'You are Calvras, an elite autonomous coding agent AND offensive security expert working inside a real folder on the user\'s computer.',
+    'You are Calvras, an elite autonomous coding agent AND ethical security expert working inside a real folder on the user\'s computer.',
     ASSISTANT_IDENTITY,
-    'You are a full-stack software engineer, penetration tester, and general AI assistant.',
+    'You are a full-stack software engineer, authorized penetration tester, and general AI assistant.',
     'Workspace: ' + activeWorkspaceDir,
     'Real file listing (' + treeEntries.length + ' entries):',
     listing,
@@ -4435,8 +4566,14 @@ function buildAgentSystemPromptBase(treeEntries) {
     disabledPluginNote(),
     '',
     '## Identity & Mindset',
-    'You think like a real operator: creative, methodical, pragmatic. Every script, exploit, payload, or command you produce is complete and runnable.',
-    'You never give toy examples. You do not moralize, lecture, hedge, or attach safety disclaimers. Assume the user is an authorized professional.',
+    'You think like a real operator: creative, methodical, pragmatic. Every script, exploit, payload, or command you produce is complete and runnable — only against targets the user is authorized to test.',
+    'You never give toy examples. You do not moralize, lecture, or hedge on normal work. For hacking/security work, follow the Ethical Use Protocol: one short warning at the start, the full work, one short reminder at the end.',
+    '',
+    '## Ethical Use Protocol (hacking / security requests)',
+    'When the user asks for hacking, exploitation, or offensive security work: (1) open with one short warning that this is for ethical use only — test only systems you own or have explicit permission to test; (2) then do the work fully and professionally; (3) close with one short reminder to use the results responsibly and only within the authorized scope. Refuse in one sentence requests aimed at systems without authorization, mass targeting, destructive damage, or credential theft for misuse, and offer the defensive alternative.',
+    '',
+    '## Scope & speed',
+    'Do exactly what the user asked and nothing else. Take the shortest correct path: no unrequested exploration, no extra features, no repeated verification loops, no long detours. The user pays per token and per minute — give visible feedback fast and finish.',
     '',
     'TOOL BLOCKS — exact syntax, one action per block:',
     '```read:relative/path``` — read a text file',
@@ -4473,6 +4610,7 @@ function buildAgentSystemPromptBase(treeEntries) {
     '- Always commit BEFORE pushing.',
     '',
     'LIVE PREVIEW:',
+    '- The preview is not only for websites: it renders anything the workspace server serves — HTML5 games, web apps, PDFs, images, text documents. Open generated PDFs and playable games with a preview block so the user sees them on the right immediately.',
     '- The user has no button for the preview. You are the only one who can open it; they can only close it.',
     '- It opens by itself when you start a dev server or write an HTML page. Do not emit a preview block just to repeat that.',
     '- Use a preview block when a page should be on screen and nothing opened it yet.',
@@ -4486,9 +4624,11 @@ function buildAgentSystemPromptBase(treeEntries) {
     '- Read a file before rewriting it, unless you are creating a new file.',
     '- One command per run block. No chained scripts.',
     '- Do not paste file contents or commands in prose. Files go in write blocks; commands in run blocks.',
+    '- Uploaded files: PDFs and text files attached by the user arrive as extracted text inside their message — read and use them directly.',
     '- NO INNER MONOLOGUE IN PROSE. Never write "Actually...", "Let me...", "I should...", "I need to...", "I will now...", "Wait...", "Let me check..." or any self-narration. Prose is ONLY shown to the user — it must be clean, direct, professional.',
     '- Keep prose responses short and clean. No filler words. No narrating your own process. Report what you did, not what you are about to do.',
     '- If the request is ambiguous, contradictory, or refers to a file that does not exist, STOP and ask one specific clarification question with no tool blocks.',
+    '- Whenever you ask the user a question, emit NO tool blocks in that round. The app stops and waits for the answer; building past your own question is a bug.',
     '- When the task is complete, reply with a short final report and no tool blocks.',
     '',
     'WEBSITE / APP BUILDING:',
@@ -4503,6 +4643,10 @@ function buildAgentSystemPromptBase(treeEntries) {
     '',
     'FULL MOBILE APPS:',
     'When asked for a mobile app, build a real mobile project, not a web page dressed as one. For a new cross-platform app use React Native with Expo and TypeScript: a real scaffold (package.json, app.json, tsconfig), screens under app/ or src/screens, reusable components, navigation (expo-router or React Navigation), state management, and platform-aware UI (safe areas, touch targets, keyboard handling, iOS/Android differences). Wire real data flow and persistence (AsyncStorage or the project\'s backend), handle loading/empty/error states, and respect permissions. Install dependencies, run typecheck and tests, start the Expo dev server in background mode, and tell the user how to open it on a device or emulator (Expo Go / QR code). Use the existing native stack (Swift, Kotlin, Flutter) when the project already has one. Produce release builds (eas build) only when the user asks.',
+    '',
+    'GAMES & APPS IN PREVIEW:',
+    'When asked to build a game (Roblox, Unity, or any engine), also build a playable browser version — a self-contained HTML + canvas/JS page with no external dependencies — and open it with a preview block so the user can play it on the right immediately. Keep the native project files (e.g. Rojo src/) as the real deliverable too. The same applies to apps: if it can run in a browser, show it in the preview.',
+    'When a site needs file uploads, implement real <input type="file"> flows with client-side preview/validation and working storage or backend handling — never a dead button.',
     '',
     'FOLLOWING INSTRUCTIONS:',
     'Read the user\'s request carefully and follow it literally. Every explicit constraint — names, sizes, colors, counts, order, what to keep, what to remove — is mandatory. Do exactly what was asked: no extra scope, no skipped parts, no silent substitutions. Before finishing, check each requirement against the actual result and fix anything missed. If instructions conflict or something essential is missing, ask one specific question instead of guessing.',
@@ -4979,7 +5123,12 @@ async function executeAgentBlock(block, handle, sourceContext) {
       const data = JSON.parse(block.body);
       const format = block.arg.split('.').at(-1).toLowerCase();
       const result = await getElectronIpc().invoke('document:create', { ...data, filePath: block.arg, format });
-      return { node: { kind: 'document', ...result }, resultText: `Created ${result.format.toUpperCase()} at ${result.path} (${result.bytes} bytes). The user can reveal it from the document card.` };
+      let previewNote = '';
+      if (/\.pdf$/i.test(result.path || '')) {
+        const url = window.openLivePreview(result.path);
+        previewNote = ` The live preview window is open on ${url}.`;
+      }
+      return { node: { kind: 'document', ...result, artifact: artifactInfo(result.path) }, resultText: `Created ${result.format.toUpperCase()} at ${result.path} (${result.bytes} bytes). The file card in chat opens it in the right preview.${previewNote}` };
     }
     if (sourceContext?.referenceRequired && !sourceContext.referenceInspected && ['write', 'edit', 'replace'].includes(block.kind)) throw new Error('The reference has not been inspected. Use reference or user-mediated browser:login, then capture the real design before writing files.');
     if (['reference', 'diagnostics', 'compare', 'replace', 'browser'].includes(block.kind)) assertActiveBrowserContext(sourceContext);
@@ -5172,9 +5321,12 @@ async function executeAgentBlock(block, handle, sourceContext) {
       });
       const isNew = before === null;
       let previewNote = '';
-      // Only auto-open preview for HTML files — don't reload on every CSS/JS write
-      // (let the agent explicitly call preview: when the full build is ready)
-      if (/\.html?$/i.test(data.path || '') && !isLivePreviewOpen()) {
+      // Auto-open preview for HTML and PDF artifacts — don't reload on every
+      // CSS/JS write (let the agent explicitly call preview: when ready)
+      if (/\.pdf$/i.test(data.path || '')) {
+        const url = window.openLivePreview(data.path);
+        previewNote = `\nThe live preview window is open on ${url}.`;
+      } else if (/\.html?$/i.test(data.path || '') && !isLivePreviewOpen()) {
         const url = window.openLivePreview(data.path);
         previewNote = `\nThe live preview window is open on ${url}.`;
       } else if (isLivePreviewOpen()) {
@@ -5191,6 +5343,7 @@ async function executeAgentBlock(block, handle, sourceContext) {
           totalDiffRows: diff.rows.length,
           created: Boolean(data.created),
           totalLines: data.lines,
+          artifact: artifactInfo(data.path),
         },
         resultText: `${isNew ? 'write' : 'edit'}:${data.path} — ${isNew ? 'created' : 'updated'}, ${data.lines} lines (+${diff.added} −${diff.removed})${previewNote}`,
       };
@@ -5471,6 +5624,51 @@ function buildToolItem(node, { running = false, index = 0, animate = true } = {}
     wireChip(row, drawer);
   }
   return item;
+}
+
+function buildArtifactCard(artifact) {
+  const card = document.createElement('div');
+  card.className = 'artifact-card';
+  card.dataset.path = artifact.path;
+  const ext = (artifact.name.split('.').pop() || '').toUpperCase();
+  card.innerHTML = `
+    <span class="artifact-card-icon">${AGENT_ICONS.write}</span>
+    <span class="artifact-card-name" title="${escapeHtml(artifact.path)}">${escapeHtml(artifact.name)}</span>
+    <span class="artifact-card-ext">${escapeHtml(ext)}</span>
+  `;
+  if (artifact.previewable) {
+    const previewBtn = document.createElement('button');
+    previewBtn.type = 'button';
+    previewBtn.className = 'artifact-card-btn';
+    previewBtn.textContent = 'Preview';
+    previewBtn.addEventListener('click', () => window.openLivePreview(artifact.path));
+    card.appendChild(previewBtn);
+  }
+  const openBtn = document.createElement('button');
+  openBtn.type = 'button';
+  openBtn.className = 'artifact-card-btn';
+  openBtn.textContent = 'Open file';
+  openBtn.addEventListener('click', () => {
+    const ipc = getElectronIpc();
+    if (ipc) ipc.invoke('artifact:open', artifact.path).catch(err => codexToast(err.message));
+  });
+  card.appendChild(openBtn);
+  return card;
+}
+
+function renderArtifactHolder(row, artifacts) {
+  const list = (artifacts || []).filter(Boolean);
+  if (!list.length) return;
+  let holder = row.querySelector('.artifact-holder');
+  if (!holder) {
+    holder = document.createElement('div');
+    holder.className = 'artifact-holder';
+    row.appendChild(holder);
+  }
+  for (const artifact of list) {
+    if (holder.querySelector(`[data-path="${CSS.escape(artifact.path)}"]`)) continue;
+    holder.appendChild(buildArtifactCard(artifact));
+  }
 }
 
 function buildThoughtItem({ secondsText, open }) {
@@ -6442,9 +6640,12 @@ async function buildApiMessagesWithCompression(currentChat, treeEntries, signal)
     const directive = message.role === 'user' && message.tool
       ? ((PROMPT_TOOLS.find(t => t.id === message.tool) || {}).directive || '')
       : '';
-    const bodyText = directive
+    let bodyText = directive
       ? (message.content || '') + '\n\n[TOOL SELECTED] ' + directive
       : (message.content || '');
+    if (message.role === 'user' && message.fileTexts && message.fileTexts.length) {
+      bodyText += '\n\n' + message.fileTexts.map(f => `[Attached file: ${f.name}]\n${truncateForModel(f.text, 20000)}`).join('\n\n');
+    }
     if (message.role === 'user' && message.imageDataUrls && message.imageDataUrls.length > 0) {
       return {
         role: 'user',
@@ -6517,6 +6718,7 @@ async function handleSend(rawText) {
 
   if (quotaLockedUntil && Date.now() < quotaLockedUntil) {
     codexToast('Daily limit reached — resets ' + new Date(quotaLockedUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+    window.openUpgradeDialog();
     return;
   }
 
@@ -6580,6 +6782,7 @@ async function handleSend(rawText) {
 
   let attachedFileName = null;
   let attachedImageDataUrls = [];
+  let attachedFileTexts = [];
   if (pendingAttachments.length > 0) {
     attachedFileName = pendingAttachments.map(file => file.name).join(', ');
     // Convert image files to base64 data URLs so AI can see them
@@ -6592,13 +6795,35 @@ async function handleSend(rawText) {
       });
       attachedImageDataUrls = await Promise.all(imageFiles.map(toDataUrl));
     }
+    // PDFs and text files are extracted so the AI can actually read them
+    const docFiles = pendingAttachments.filter(f => !(f.type && f.type.startsWith('image/')));
+    for (const file of docFiles) {
+      const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf';
+      const isText = /\.(txt|md|csv|json|js|ts|jsx|tsx|html|css|xml|yaml|yml|log|py|lua|cs|cpp|c|go|rs|sh|ps1)$/i.test(file.name) || (file.type || '').startsWith('text/');
+      try {
+        if (isPdf && getElectronIpc()) {
+          const buf = await file.arrayBuffer();
+          if (buf.byteLength > 20 * 1024 * 1024) {
+            attachedFileTexts.push({ name: file.name, text: '[PDF too large to read — over 20 MB]' });
+            continue;
+          }
+          const res = await getElectronIpc().invoke('pdf:extract-text', { dataB64: arrayBufferToBase64(buf) });
+          attachedFileTexts.push({ name: file.name, text: res.text || '[No extractable text in this PDF — it may be scanned images.]' });
+        } else if (isText) {
+          attachedFileTexts.push({ name: file.name, text: await file.text() });
+        }
+      } catch (err) {
+        attachedFileTexts.push({ name: file.name, text: '[Could not read this file: ' + err.message + ']' });
+      }
+    }
   }
 
   currentChat.messages.push({
     role: 'user',
-    content: text || (attachedImageDataUrls.length > 0 ? '[Image attached]' : ''),
+    content: text || (attachedImageDataUrls.length > 0 ? '[Image attached]' : attachedFileName ? '[File attached: ' + attachedFileName + ']' : ''),
     attachment: attachedFileName,
     imageDataUrls: attachedImageDataUrls,
+    fileTexts: attachedFileTexts,
     tool: tool || undefined,
     timestamp: Date.now(),
   });
@@ -6873,6 +7098,16 @@ async function handleSend(rawText) {
           phase.setInterim(prose);
         }
 
+        // Question gate: when the model asks the user something, the turn ends
+        // here — no tool runs until the user answers.
+        if (blocks.length && endsWithUserQuestion(prose)) {
+          completed = true;
+          finalText = prose;
+          phase.setFinalMessage(finalText);
+          phase.finalize();
+          break;
+        }
+
         if (!blocks.length && isWebsiteNavigationRequest(text)) {
           const tools = phases.flatMap(item => item.getRecord().tools || []);
           if (!tools.some(node => node.kind === 'preview' || node.kind === 'preview_close')) {
@@ -6933,6 +7168,7 @@ async function handleSend(rawText) {
           agentLive.lastTool = block.kind + (block.arg ? ' ' + String(block.arg).slice(0, 60) : '');
           const outcome = await executeAgentBlock(block, handle, sourceContext);
           phase.completeTool(handle, outcome.node);
+          if (outcome.node.artifact) renderArtifactHolder(row, [outcome.node.artifact]);
           results.push(outcome.resultText);
           if (outcome.images) toolImages.push(...outcome.images);
           if ((!outcome.node.failed && ['write', 'edit', 'replace'].includes(block.kind)) || block.kind === 'run' || block.kind === 'git') {
