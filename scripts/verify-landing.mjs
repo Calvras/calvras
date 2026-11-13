@@ -1,5 +1,5 @@
-// Renders the rebuilt landing page at the reference resolution (1280x960)
-// and reports element geometry so the layout can be compared to the FLARE ref.
+// Renders the landing page (image-replica-studio clone) and reports geometry
+// so the layout can be checked against the reference repo's Tailwind layout.
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -14,8 +14,7 @@ const ts = await fs.readFile(path.join(root, 'src/lib/landing-html.ts'), 'utf8')
 const start = ts.indexOf('`') + 1;
 const end = ts.lastIndexOf('`');
 let html = ts.slice(start, end);
-html = html.split('/calvras-logo.png').join(pub('calvras-logo.png'));
-html = html.split('/social-preview.png').join(pub('social-preview.png'));
+html = html.split('src="/calvras-logo.png"').join('src="' + pub('calvras-logo.png') + '"');
 html = html.split('/calvras-logo.ico').join(pub('calvras-logo.ico'));
 const tmp = path.join(out, 'render.html');
 await fs.writeFile(tmp, html);
@@ -37,12 +36,14 @@ const geo = await page.evaluate(() => {
     return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) };
   };
   return {
-    frame: pick('.frame'), topbar: pick('.topbar'), brand: pick('.brand'), nav: pick('.nav'),
-    download: pick('.download-pill'), hero: pick('.hero'), eyebrow: pick('.eyebrow'),
-    headlineLeft: pick('.headline-left'), headlineRight: pick('.headline-right'),
-    heroLogo: pick('.hero-logo'), statCard: pick('.stat-card'), inset: pick('.inset-tile'),
-    social: pick('.social-rail'), tagline: pick('.tagline'),
-    fontsLoaded: document.fonts.check('600 96px Oswald'),
+    header: pick('header'), brandMark: pick('.brand-mark'), nav: pick('nav'),
+    pillOutline: pick('.pill-outline'), hero: pick('.hero'), h1: pick('h1'),
+    sub: pick('.sub'), testi: pick('.testi'), pillBlack: pick('.pill-black'),
+    heroRight: pick('.hero-right'), portrait: pick('.portrait'), chipFit: pick('.chip-fit'),
+    chipDesign: pick('.chip-design'), play: pick('.play'), glassStat: pick('.glass-stat'),
+    glassProduct: pick('.glass-product'), logos: pick('.logos'),
+    fontsLoaded: document.fonts.check('600 16px Fraunces') && document.fonts.check('700 16px Manrope'),
+    downloadHrefs: [...document.querySelectorAll('a[href*="releases/download"]')].map(a => a.href),
   };
 });
 console.log(JSON.stringify(geo, null, 2));
