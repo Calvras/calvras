@@ -3169,23 +3169,6 @@ function initCodexUI() {
   window.addEventListener('workspace-changed', () => { refreshEnvPanel(); });
   renderEnvSources();
 
-  // Icon rail
-  on('rail-home-btn', () => { const b = document.getElementById('btn-new-chat'); if (b) b.click(); });
-  on('rail-sidebar-btn', () => {
-    const sb = document.getElementById('sidebar');
-    if (!sb) return;
-    const t = sb.classList.contains('collapsed') ? document.getElementById('sidebar-uncollapse-btn') : document.getElementById('sidebar-toggle-btn');
-    if (t) t.click();
-  });
-  on('rail-recents-btn', () => {
-    setSidebarOpen(true);
-    const box = document.getElementById('sidebar-search-box');
-    const i = document.getElementById('sidebar-search-input');
-    if (box) box.style.display = 'block';
-    if (i) i.focus();
-  });
-  on('rail-projects-btn', () => { setSidebarOpen(true); toggleProjectPopover(); });
-
   // Brand menu + notifications popover
   const brandMenu = document.getElementById('brand-menu');
   const notifPop = document.getElementById('notif-popover');
@@ -4127,9 +4110,9 @@ const OUTPUT_LINE_HEIGHT = 18;
 const THOUGHT_MAX_H = 184;
 const THOUGHT_FADE = 18;
 
-const AGENT_BLOCK_RE = /```(write|write_file|edit|edit_file|read|read_file|run|run_cmd|search|list|glob|preview|preview_close|git|web|websearch|search_web|browser|browse|fetch|web_fetch|fetch_url|open_url|image|image_generate|reference|replace|diagnostics|compare|document|plan|tasks):([^\n]*)\n?([\s\S]*?)```/g;
+const AGENT_BLOCK_RE = /```(ask|write|write_file|edit|edit_file|read|read_file|run|run_cmd|search|list|glob|preview|preview_close|git|web|websearch|search_web|browser|browse|fetch|web_fetch|fetch_url|open_url|image|image_generate|reference|replace|diagnostics|compare|document|plan|tasks):([^\n]*)\n?([\s\S]*?)```/g;
 const AGENT_BARE_BLOCK_RE = /```(run|read|search|list|glob|preview|preview_close|git)\s*\n([\s\S]*?)```/g;
-const AGENT_TOOL_LABELS = { run: 'Run', read: 'Read', write: 'Write', edit: 'Edit', search: 'Search', list: 'Glob', preview: 'Preview', preview_close: 'Preview', git: 'Git', web: 'Web Search', fetch: 'Browse', plan: 'Plan', browser: 'Browser', reference: 'Reference', replace: 'Edit', diagnostics: 'Check', compare: 'Compare', document: 'Document', tool: 'Tool' };
+const AGENT_TOOL_LABELS = { ask: 'Question', run: 'Run', read: 'Read', write: 'Write', edit: 'Edit', search: 'Search', list: 'Glob', preview: 'Preview', preview_close: 'Preview', git: 'Git', web: 'Web Search', fetch: 'Browse', plan: 'Plan', browser: 'Browser', reference: 'Reference', replace: 'Edit', diagnostics: 'Check', compare: 'Compare', document: 'Document', tool: 'Tool' };
 
 const AGENT_ICONS = {
   thought: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2Z"></path><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2Z"></path></svg>',
@@ -4314,7 +4297,7 @@ function dsmlToBlock(inv) {
  * <read:path></read>, <run:command>…</run>, <write path="x">…</write>.
  * Parse them into the same blocks so they execute for real and render as
  * chips instead of leaking raw markup into the transcript. */
-const XML_TOOL_KINDS = 'write|write_file|edit|edit_file|read|read_file|run|run_cmd|search|list|glob|preview|preview_close|git|web|websearch|search_web|fetch|browse|web_fetch|fetch_url|open_url|replace|document|plan|tasks';
+const XML_TOOL_KINDS = 'ask|write|write_file|edit|edit_file|read|read_file|run|run_cmd|search|list|glob|preview|preview_close|git|web|websearch|search_web|fetch|browse|web_fetch|fetch_url|open_url|replace|document|plan|tasks';
 const XML_TOOL_ATTRS = '((?:\\s+[\\w-]+\\s*=\\s*"[^"]*")*)';
 const XML_TOOL_RE = new RegExp('<\\s*(' + XML_TOOL_KINDS + ')(?::([^>\\n]*))?' + XML_TOOL_ATTRS + '\\s*>([\\s\\S]*?)<\\s*\\/\\s*\\1\\s*>', 'gi');
 
@@ -4351,6 +4334,86 @@ function endsWithUserQuestion(prose) {
   const last = lines[lines.length - 1] || '';
   if (/\?\s*$/.test(last)) return true;
   return /\?/.test(last) && /\b(want|prefer|which|should|shall|pick|choose|confirm)\b/i.test(last);
+}
+
+// Mid-build question: the composer swaps to a selection card and the build
+// stays paused until the user picks an option, types an answer, or skips.
+let questionHiddenComposer = null;
+function showQuestionCard(askBlock, prose) {
+  const old = document.getElementById('question-card');
+  if (old) old.remove();
+  if (questionHiddenComposer) questionHiddenComposer.style.display = '';
+  const fallbackTitle = String(prose || '').split('\n').map(l => l.trim()).filter(Boolean).pop() || 'One question before I continue';
+  const title = askBlock && askBlock.arg ? askBlock.arg : fallbackTitle;
+  const options = askBlock ? String(askBlock.body || '').split('\n')
+    .map(l => l.trim().replace(/^\d+[.)]\s*/, '').replace(/^[-*]\s*/, ''))
+    .filter(Boolean).slice(0, 4) : [];
+  const card = document.createElement('div');
+  card.id = 'question-card';
+  card.className = 'question-card';
+  const head = document.createElement('div');
+  head.className = 'question-card-head';
+  const titleEl = document.createElement('span');
+  titleEl.className = 'question-card-title';
+  titleEl.textContent = title;
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
+  closeBtn.id = 'question-close-btn';
+  closeBtn.className = 'question-close-btn';
+  closeBtn.title = 'Dismiss and type freely';
+  closeBtn.innerHTML = '&times;';
+  head.append(titleEl, closeBtn);
+  card.appendChild(head);
+  const list = document.createElement('div');
+  list.className = 'question-options';
+  options.forEach((text, i) => {
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'question-option';
+    const num = document.createElement('span');
+    num.className = 'question-option-num';
+    num.textContent = String(i + 1);
+    const label = document.createElement('span');
+    label.className = 'question-option-text';
+    label.textContent = text;
+    row.append(num, label);
+    row.addEventListener('click', () => resolveQuestionCard(text));
+    list.appendChild(row);
+  });
+  card.appendChild(list);
+  const freeRow = document.createElement('div');
+  freeRow.className = 'question-free-row';
+  freeRow.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>';
+  const freeInput = document.createElement('input');
+  freeInput.type = 'text';
+  freeInput.id = 'question-free-input';
+  freeInput.placeholder = 'Something else';
+  freeInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && freeInput.value.trim()) { e.preventDefault(); resolveQuestionCard(freeInput.value.trim()); }
+  });
+  const skipBtn = document.createElement('button');
+  skipBtn.type = 'button';
+  skipBtn.id = 'question-skip-btn';
+  skipBtn.className = 'question-skip-btn';
+  skipBtn.textContent = 'Skip';
+  skipBtn.addEventListener('click', () => resolveQuestionCard('Skip this question — proceed with your best judgment.'));
+  freeRow.append(freeInput, skipBtn);
+  card.appendChild(freeRow);
+  closeBtn.addEventListener('click', () => resolveQuestionCard(''));
+  const homeActive = welcomeContainer.style.display !== 'none';
+  const hidden = homeActive ? promptCard : capsuleBar;
+  questionHiddenComposer = hidden;
+  hidden.style.display = 'none';
+  hidden.parentElement.appendChild(card);
+  if (!options.length) freeInput.focus();
+}
+function resolveQuestionCard(answerText) {
+  const card = document.getElementById('question-card');
+  if (!card) return;
+  if (questionHiddenComposer) questionHiddenComposer.style.display = '';
+  questionHiddenComposer = null;
+  card.remove();
+  if (answerText) handleSend(answerText);
 }
 
 // Drop every fence-only line past an even count so a half-written or stray
@@ -4532,7 +4595,10 @@ function buildAgentSystemPromptBase(treeEntries) {
       '',
       '## Scope & speed',
       'Do exactly what the user asked and nothing else. Take the shortest correct path: no unrequested exploration, no extra features, no repeated verification loops, no long detours. The user pays per token and per minute — give visible feedback fast and finish.',
-      'When you ask the user a question, emit no tool blocks in that round — the app pauses until the user answers.',
+      'When you ask the user a question, emit no tool blocks in that round — the app pauses until the user answers. Ask with an ask block so the user gets a selection card: ```ask:Short title',
+      '1. First option',
+      '2. Second option',
+      '``` — up to 4 short options; the user can also type a custom answer or skip.',
       '',
       '## Live web tools — available without a folder',
       'You DO have live internet access through these tools. For a search or browsing request, use them instead of claiming you cannot browse.',
@@ -4629,6 +4695,10 @@ function buildAgentSystemPromptBase(treeEntries) {
     '- Keep prose responses short and clean. No filler words. No narrating your own process. Report what you did, not what you are about to do.',
     '- If the request is ambiguous, contradictory, or refers to a file that does not exist, STOP and ask one specific clarification question with no tool blocks.',
     '- Whenever you ask the user a question, emit NO tool blocks in that round. The app stops and waits for the answer; building past your own question is a bug.',
+    '- Ask with an ask block so the user gets a selection card instead of guessing: ```ask:Short title',
+    '1. First option',
+    '2. Second option',
+    '``` — up to 4 short options. The user can also type a custom answer or skip; the build resumes only after their feedback.',
     '- When the task is complete, reply with a short final report and no tool blocks.',
     '',
     'WEBSITE / APP BUILDING:',
@@ -7099,12 +7169,14 @@ async function handleSend(rawText) {
         }
 
         // Question gate: when the model asks the user something, the turn ends
-        // here — no tool runs until the user answers.
-        if (blocks.length && endsWithUserQuestion(prose)) {
+        // here — no tool runs until the user answers via the selection card.
+        const askBlock = blocks.find(b => b.kind === 'ask');
+        if (askBlock || endsWithUserQuestion(prose)) {
           completed = true;
           finalText = prose;
           phase.setFinalMessage(finalText);
           phase.finalize();
+          showQuestionCard(askBlock, prose);
           break;
         }
 

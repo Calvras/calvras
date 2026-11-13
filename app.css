@@ -4720,13 +4720,22 @@ html, body { background-color: #181818; color: #e8e8e8; }
    reply actions, icon-only top bar (measured from the Windows reference)
    rail #141414 · sidebar #171717 · selected row #292929 · bubble #2f2f2f
    ========================================================================== */
-.codex-rail { width: 48px; min-width: 48px; background: #141414; display: flex; flex-direction: column; align-items: center; padding: 10px 0 12px; gap: 6px; height: 100vh; z-index: 11; }
-.rail-btn { width: 34px; height: 34px; border-radius: 9px; border: none; background: transparent; color: #9a9a9a; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background-color 0.15s, color 0.15s; }
-.rail-btn:hover { background: #242424; color: #ffffff; }
-.rail-btn.active { background: #292929; color: #ffffff; }
-.rail-spacer { flex: 1; }
-.rail-avatar { width: 30px; height: 30px; border-radius: 50%; border: none; padding: 0; background: transparent; overflow: hidden; cursor: pointer; flex-shrink: 0; }
-.rail-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.header-avatar { width: 30px; height: 30px; border-radius: 50%; border: none; padding: 0; background: transparent; overflow: hidden; cursor: pointer; flex-shrink: 0; margin-left: 6px; }
+.header-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.question-card { pointer-events: auto; background: #232323; border: 1px solid #333; border-radius: 16px; padding: 14px 16px 12px; width: min(560px, calc(100% - 32px)); margin: 0 auto; color: #c2c2c2; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35); }
+.question-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
+.question-card-title { font-size: 13px; color: #e8e8e8; }
+.question-close-btn { border: none; background: transparent; color: #8a8a8a; font-size: 16px; line-height: 1; cursor: pointer; padding: 4px 7px; border-radius: 6px; }
+.question-close-btn:hover { color: #ffffff; background: #2e2e2e; }
+.question-option { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; border: none; background: transparent; color: #c2c2c2; padding: 11px 2px; cursor: pointer; border-bottom: 1px solid #2e2e2e; font-size: 13px; }
+.question-option:hover { color: #ffffff; }
+.question-option-num { width: 22px; height: 22px; flex-shrink: 0; border-radius: 6px; background: #333333; color: #9a9a9a; display: flex; align-items: center; justify-content: center; font-size: 11px; }
+.question-free-row { display: flex; align-items: center; gap: 10px; padding-top: 10px; color: #8a8a8a; }
+#question-free-input { flex: 1; border: none; background: transparent; color: #e8e8e8; font-size: 13px; outline: none; }
+#question-free-input::placeholder { color: #777777; }
+.question-skip-btn { border: none; background: #3a3a3a; color: #c2c2c2; font-size: 12px; padding: 6px 12px; border-radius: 8px; cursor: pointer; }
+.question-skip-btn:hover { background: #454545; color: #ffffff; }
 
 .brand-wrap { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .brand-chev-btn { background: none; border: none; color: #8c8c8c; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; cursor: pointer; border-radius: 5px; }
@@ -5106,12 +5115,12 @@ html, body { background-color: #181818; color: #e8e8e8; }
 
 /* ==========================================================================
    SLIDE-OUT SIDEBAR DRAWER + RIGHT TERMINAL DOCK
-   The 48px rail is the only permanent left column. The sidebar overlays the
-   content and slides away with its text; the terminal docks on the right.
+   The left edge is flat. The sidebar overlays the content and slides away
+   with its text; the terminal docks on the right.
    ========================================================================== */
 .sidebar {
   position: absolute;
-  left: 48px;
+  left: 0;
   top: 0;
   width: 290px;
   min-width: 290px;
@@ -5127,7 +5136,7 @@ html, body { background-color: #181818; color: #e8e8e8; }
   min-width: 290px;
   border-right: none;
   box-shadow: none;
-  transform: translateX(calc(-100% - 48px));
+  transform: translateX(-100%);
   pointer-events: none;
 }
 .sidebar .nav-item span,
@@ -5147,7 +5156,7 @@ html, body { background-color: #181818; color: #e8e8e8; }
 }
 .sidebar-scrim {
   position: fixed;
-  inset: 0 0 0 48px;
+  inset: 0;
   background: rgba(0, 0, 0, 0.42);
   opacity: 0;
   pointer-events: none;

@@ -155,6 +155,9 @@ try {
   check('question gate stops the turn with no tool run', gate.toolRows === 0);
   check('no raw tool tags in rendered reply', !gate.rawTags);
   await page.screenshot({ path: path.join(out, 'question-gate.png') });
+  // The question card replaces the composer; dismiss it so later steps can type.
+  await page.evaluate(() => document.getElementById('question-close-btn').click());
+  await page.waitForFunction(() => document.getElementById('capsule-input-bar').style.display !== 'none', null, { timeout: 5000 });
 
   const sysBody = JSON.parse(capturedBodies[0] || '{}');
   const sysPrompt = (sysBody.messages || []).map(m => m.content || '').join('\n');
