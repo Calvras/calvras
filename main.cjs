@@ -630,194 +630,55 @@ ipcMain.handle('workspace:exec', async (event, payload) => {
 
 // ── In-App Auto-Update & Installer Runner ──────────────────────────────────
 let isDownloadingUpdate = false;
-let updateDownloadedPath = null;
 
-function downloadFileWithRedirects(fileUrl, destPath, onProgress) {
-  return new Promise((resolve, reject) => {
-    function get(currentUrl, redirectCount = 0) {
-      if (redirectCount > 10) {
-        return reject(new Error('Too many redirects while downloading update'));
-      }
-      const client = currentUrl.startsWith('https:') ? https : http;
-      let parsed;
-      try {
-        parsed = new URL(currentUrl);
-      } catch (err) {
-        return reject(err);
-      }
-      const req = client.get(parsed, {
-        headers: {
-          'User-Agent': 'Calvras-Updater/9.7.0',
-          'Accept': 'application/octet-stream, */*'
-        }
-      }, (res) => {
-        if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
-          const nextUrl = new URL(res.headers.location, currentUrl).toString();
-          res.resume();
-          return get(nextUrl, redirectCount + 1);
-        }
+const { downloadInstaller, launchInstaller, latestRelease, isNewerVersion } = require('./electron/update-core.cjs');
 
-        if (res.statusCode !== 200) {
-          res.resume();
-          return reject(new Error(`Download failed with status ${res.statusCode}`));
-        }
-
-        const totalBytes = parseInt(res.headers['content-length'] || '0', 10);
-        let receivedBytes = 0;
-        let lastReportedPercent = -1;
-
-        const fileStream = fs.createWriteStream(destPath);
-
-        res.on('data', (chunk) => {
-          receivedBytes += chunk.length;
-          if (totalBytes > 0) {
-            const percent = Math.min(100, Math.round((receivedBytes / totalBytes) * 100));
-            if (percent !== lastReportedPercent) {
-              lastReportedPercent = percent;
-              if (onProgress) onProgress(percent, receivedBytes, totalBytes);
-            }
-          }
-        });
-
-        res.on('error', (err) => {
-          try { fs.unlinkSync(destPath); } catch {}
-          reject(err);
-        });
-
-        fileStream.on('finish', () => {
-          fileStream.close(() => resolve(destPath));
-        });
-
-        fileStream.on('error', (err) => {
-          try { fs.unlinkSync(destPath); } catch {}
-          reject(err);
-        });
-      });
-
-      req.on('error', (err) => {
-        try { fs.unlinkSync(destPath); } catch {}
-        reject(err);
-      });
-    }
-
-    get(fileUrl);
-  });
+function sendUpdateStatus(data) {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('updater:status', data);
 }
 
 function runInstallerAndExit(installerPath) {
-  try {
-    // Use shell: true so Windows properly handles UAC elevation for NSIS installers.
-    // openPath would be cleaner but does not support custom NSIS args; shell is reliable.
-    const child = spawn(installerPath, [], {
-      detached: true,
-      stdio: 'ignore',
-      shell: false,
-      windowsHide: false,
-    });
-    child.on('error', (err) => {
-      // spawn itself errored (e.g. access denied) — try via shell as fallback
-      console.warn('[Calvras] Installer spawn failed, falling back to shell open:', err.message);
-      try {
-        const { shell } = require('electron');
-        shell.openPath(installerPath);
-      } catch {}
-      setTimeout(() => app.quit(), 1200);
-    });
-    child.unref();
-    // Give the installer a moment to start before quitting
-    setTimeout(() => {
-      app.quit();
-    }, 1000);
-  } catch (err) {
-    console.error('[Calvras] Failed to spawn installer:', err);
-    // Last-resort: open via shell (triggers UAC via Windows shell)
-    try {
-      const { shell } = require('electron');
-      shell.openPath(installerPath);
-      setTimeout(() => app.quit(), 1500);
-    } catch (shellErr) {
-      console.error('[Calvras] Shell open also failed:', shellErr);
-      throw err;
-    }
-  }
+  return launchInstaller(installerPath, {
+    openPath: file => shell.openPath(file),
+    quit: () => setTimeout(() => app.quit(), 1000),
+  });
 }
 
-async function performDirectUpdate(targetUrl, targetVersion) {
+async function performDirectUpdate() {
   if (isDownloadingUpdate) return { status: 'already_downloading' };
   isDownloadingUpdate = true;
-
   try {
-    let urlToDownload = targetUrl;
-    if (!urlToDownload || typeof urlToDownload !== 'string') {
-      try {
-        const res = await fetch('https://api.github.com/repos/Calvras/calvras/releases/latest');
-        if (res.ok) {
-          const release = await res.json();
-          const asset = (release.assets || []).find(a => a.name && a.name.endsWith('.exe'));
-          if (asset && asset.browser_download_url) {
-            urlToDownload = asset.browser_download_url;
-          }
-        }
-      } catch {}
+    const release = await latestRelease();
+    if (!isNewerVersion(release.version, APP_VERSION)) {
+      isDownloadingUpdate = false;
+      sendUpdateStatus({ status: 'latest' });
+      return { status: 'latest' };
     }
-
-    if (!urlToDownload) {
-      urlToDownload = 'https://github.com/Calvras/calvras/releases/download/v9.7.0/Calvras.Setup.9.7.0.exe';
-    }
-
-    const tempInstaller = path.join(app.getPath('temp'), `Calvras-Setup-${targetVersion || '9.7.0'}-${Date.now()}.exe`);
-
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('updater:status', { status: 'downloading', version: targetVersion || '9.7.0' });
-    }
-
-    await downloadFileWithRedirects(urlToDownload, tempInstaller, (percent) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('updater:progress', { percent });
-      }
+    const tempInstaller = path.join(app.getPath('temp'), `Calvras-Setup-${release.version}-${Date.now()}.exe`);
+    sendUpdateStatus({ status: 'downloading', version: release.version });
+    await downloadInstaller(release.url, tempInstaller, {
+      sha256: release.sha256,
+      onProgress: ({ percent }) => {
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('updater:progress', { percent });
+      },
     });
-
-    updateDownloadedPath = tempInstaller;
-
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('updater:status', { status: 'installing', version: targetVersion || '9.7.0' });
-    }
-
-    // Don't wrap in try/catch here — runInstallerAndExit handles its own fallbacks
-    // and queues app.quit(), so we just need to return success and let the app die.
-    runInstallerAndExit(tempInstaller);
+    sendUpdateStatus({ status: 'installing', version: release.version });
+    await runInstallerAndExit(tempInstaller);
     return { success: true };
   } catch (err) {
     isDownloadingUpdate = false;
     console.error('Direct update error:', err);
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('updater:status', { status: 'error', message: err.message });
-    }
+    sendUpdateStatus({ status: 'error', message: err.message });
     throw err;
   }
 }
 
-ipcMain.handle('updater:download-and-install', async (_event, payload) => {
-  const targetUrl = typeof payload === 'string' ? payload : (payload && payload.url);
-  const targetVer = typeof payload === 'object' ? payload.version : null;
-  return performDirectUpdate(targetUrl, targetVer);
+ipcMain.handle('updater:check', async () => {
+  const release = await latestRelease();
+  return isNewerVersion(release.version, APP_VERSION) ? release : null;
 });
-
-ipcMain.handle('updater:install', async (_event, directUrl) => {
-  if (updateDownloadedPath && fs.existsSync(updateDownloadedPath)) {
-    runInstallerAndExit(updateDownloadedPath);
-    return { success: true };
-  }
-
-  try {
-    const { autoUpdater } = require('electron-updater');
-    autoUpdater.quitAndInstall(false, true);
-    return { success: true };
-  } catch (err) {
-    console.warn('autoUpdater.quitAndInstall threw, downloading directly:', err);
-    return performDirectUpdate(directUrl);
-  }
-});
+ipcMain.handle('updater:download-and-install', () => performDirectUpdate());
+ipcMain.handle('updater:install', () => performDirectUpdate());
 
 ipcMain.handle('app:get-version', () => {
   return APP_VERSION;
@@ -1042,26 +903,6 @@ function loadMainApp(user) {
         mainWindow.webContents.send('auth:user', user);
       }
     }, 1500);
-
-    // Auto-updater
-    try {
-      const { autoUpdater } = require('electron-updater');
-      const log = require('electron-log');
-      autoUpdater.logger = log;
-      autoUpdater.autoDownload = true;
-      autoUpdater.autoInstallOnAppQuit = true;
-      autoUpdater.on('update-available', (info) => {
-        if (mainWindow) mainWindow.webContents.send('updater:status', { status: 'available', version: info.version });
-      });
-      autoUpdater.on('download-progress', (p) => {
-        if (mainWindow) mainWindow.webContents.send('updater:progress', { percent: Math.round(p.percent) });
-      });
-      autoUpdater.on('update-downloaded', (info) => {
-        if (mainWindow) mainWindow.webContents.send('updater:status', { status: 'downloaded', version: info.version });
-      });
-      setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 3000);
-      setInterval(() => autoUpdater.checkForUpdates().catch(() => {}), 2 * 60 * 60 * 1000);
-    } catch {}
   });
 }
 

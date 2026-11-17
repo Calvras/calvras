@@ -5,17 +5,59 @@
 
 const fs = require('fs');
 const path = require('path');
+const { createHash } = require('crypto');
+
+function isNewerVersion(remote, local) {
+  if (!/^\d+\.\d+\.\d+$/.test(remote) || !/^\d+\.\d+\.\d+$/.test(local)) return false;
+  const a = remote.split('.').map(Number);
+  const b = local.split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    if (a[i] !== b[i]) return a[i] > b[i];
+  }
+  return false;
+}
+
+async function latestRelease({ fetchImpl = fetch } = {}) {
+  let release;
+  try {
+    const response = await fetchImpl('https://api.github.com/repos/Calvras/calvras/releases/latest', { signal: AbortSignal.timeout(20000) });
+    if (!response.ok) throw new Error(`GitHub answered ${response.status}.`);
+    const body = await response.json();
+    const version = String(body.tag_name || '').replace(/^v/, '');
+    const asset = (body.assets || []).find(item => item.name === `Calvras.Setup.${version}.exe`);
+    if (body.draft || body.prerelease || !asset) throw new Error('The release has no published installer.');
+    release = { version, url: asset.browser_download_url, sha256: asset.digest?.replace(/^sha256:/, '') };
+  } catch {
+    const response = await fetchImpl('https://calvras.com/update.json', { signal: AbortSignal.timeout(20000), cache: 'no-store' });
+    if (!response.ok) throw new Error(`The update feed answered ${response.status}.`);
+    const body = await response.json();
+    if (!body.ok) throw new Error('The update feed has no published installer.');
+    release = { version: body.version, url: body.installer };
+  }
+  if (!/^\d+\.\d+\.\d+$/.test(release.version) || release.url !== `https://github.com/Calvras/calvras/releases/download/v${release.version}/Calvras.Setup.${release.version}.exe`) {
+    throw new Error('The update feed did not name an official Calvras installer.');
+  }
+  if (release.sha256 && !/^[a-f0-9]{64}$/i.test(release.sha256)) throw new Error('The installer checksum is invalid.');
+  return release;
+}
+
+async function launchInstaller(file, { openPath, quit }) {
+  const error = await openPath(file);
+  if (error) throw new Error(`Windows could not open setup: ${error}`);
+  quit();
+}
 
 /**
  * Streams the installer to disk and only reports success once the bytes look like a Windows
  * program. A redirect to a login page or a deleted release answers 200 with HTML, and an app that
  * launches that instead of updating is worse than one that says it could not.
  */
-async function downloadInstaller(url, destination, { fetchImpl = fetch, onProgress = () => {}, minimumBytes = 5 * 1024 * 1024, timeoutMs = 30 * 60 * 1000 } = {}) {
+async function downloadInstaller(url, destination, { fetchImpl = fetch, onProgress = () => {}, minimumBytes = 5 * 1024 * 1024, timeoutMs = 30 * 60 * 1000, sha256 } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let received = 0;
   let total = 0;
+  const hash = createHash('sha256');
   try {
     const response = await fetchImpl(url, { redirect: 'follow', signal: controller.signal });
     if (!response.ok) throw new Error(`The download answered ${response.status}.`);
@@ -33,14 +75,17 @@ async function downloadInstaller(url, destination, { fetchImpl = fetch, onProgre
       for await (const chunk of chunksOf(response.body)) {
         const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
         received += buffer.length;
-        written = written.then(() => handle.write(buffer));
+        hash.update(buffer);
+        written = written.then(() => handle.writeFile(buffer));
         written.catch(() => {});
         onProgress({ received, total, percent: total ? Math.min(99, Math.round((received / total) * 100)) : 0 });
       }
       await written;
     } finally {
-      await handle.close();
+      try { await written; } finally { await handle.close(); }
     }
+    if (total && received !== total) throw new Error(`The download was incomplete (${received} of ${total} bytes).`);
+    if (sha256 && hash.digest('hex') !== sha256.toLowerCase()) throw new Error('The installer checksum did not match GitHub, so the download was discarded.');
     if (received < minimumBytes) throw new Error(`The download stopped after ${received} bytes, so the update was discarded.`);
     const magic = Buffer.alloc(2);
     const probe = await fs.promises.open(destination, 'r');
@@ -81,4 +126,4 @@ async function* chunksOf(body) {
   throw new Error('The download sent no data.');
 }
 
-module.exports = { downloadInstaller };
+module.exports = { downloadInstaller, launchInstaller, latestRelease, isNewerVersion };

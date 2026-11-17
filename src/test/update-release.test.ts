@@ -9,8 +9,11 @@ import { DOWNLOAD } from "../lib/download";
 import { LANDING_HTML } from "../lib/landing-html";
 
 const require = createRequire(import.meta.url);
-const { downloadInstaller } = require("../../electron/update-core.cjs") as {
+const { downloadInstaller, launchInstaller, latestRelease, isNewerVersion } = require("../../electron/update-core.cjs") as {
   downloadInstaller: (url: string, destination: string, options?: Record<string, unknown>) => Promise<{ file: string; bytes: number }>;
+  launchInstaller: (file: string, options: { openPath: (file: string) => Promise<string>; quit: () => void }) => Promise<void>;
+  latestRelease: (options?: { fetchImpl: typeof fetch }) => Promise<{ version: string; url: string; sha256?: string }>;
+  isNewerVersion: (remote: string, local: string) => boolean;
 };
 
 const EXE = Buffer.concat([Buffer.from("MZ"), Buffer.alloc(512, 0x2a)]);
@@ -121,7 +124,86 @@ describe("reading the feed", () => {
   });
 });
 
+describe("desktop upgrade", () => {
+  const version = "99.1.0";
+  const url = `https://github.com/Calvras/calvras/releases/download/v${version}/Calvras.Setup.${version}.exe`;
+  const asset = { name: `Calvras.Setup.${version}.exe`, browser_download_url: url, digest: `sha256:${"a".repeat(64)}` };
+  const github = { tag_name: `v${version}`, assets: [asset] };
+
+  it("selects the named public installer, not another executable", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => feedResponse({ ...github, assets: [{ name: "other.exe" }, asset] })));
+    expect(await latestRelease()).toEqual({ version, url, sha256: "a".repeat(64) });
+  });
+
+  it("uses the website feed when GitHub rate-limits the check", async () => {
+    const request = vi.fn().mockResolvedValueOnce({ ok: false, status: 403 }).mockResolvedValueOnce(feedResponse({ ok: true, version, installer: url }));
+    vi.stubGlobal("fetch", request);
+    expect(await latestRelease()).toEqual({ version, url });
+    expect(request.mock.calls[1][0]).toBe("https://calvras.com/update.json");
+  });
+
+  it("never launches an arbitrary URL supplied by a release", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => feedResponse({ ...github, assets: [{ ...asset, browser_download_url: "https://example.test/malware.exe" }] })));
+    await expect(latestRelease()).rejects.toThrow(/official Calvras installer/);
+  });
+
+  it("refuses missing installers rather than constructing an old download URL", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(feedResponse({ ...github, assets: [] })).mockResolvedValueOnce({ ok: false, status: 404 }));
+    await expect(latestRelease()).rejects.toThrow(/404/);
+  });
+
+  it("compares actual semantic versions and refuses equal or older releases", () => {
+    expect(isNewerVersion("9.10.0", "9.9.0")).toBe(true);
+    expect(isNewerVersion(RELEASE_VERSION, RELEASE_VERSION)).toBe(false);
+    expect(isNewerVersion("9.7.1", RELEASE_VERSION)).toBe(false);
+    expect(isNewerVersion("latest", RELEASE_VERSION)).toBe(false);
+  });
+
+  it("waits for Windows to open interactive setup before quitting", async () => {
+    const quit = vi.fn();
+    let finish!: (error: string) => void;
+    const openPath = vi.fn(() => new Promise<string>(resolve => { finish = resolve; }));
+    const pending = launchInstaller("C:/Temp/Calvras.Setup.exe", { openPath, quit });
+    expect(quit).not.toHaveBeenCalled();
+    finish("");
+    await pending;
+    expect(openPath).toHaveBeenCalledWith("C:/Temp/Calvras.Setup.exe");
+    expect(quit).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the app open when Windows refuses or cancels setup", async () => {
+    const quit = vi.fn();
+    await expect(launchInstaller("setup.exe", { openPath: async () => "Access denied", quit })).rejects.toThrow(/Access denied/);
+    await expect(launchInstaller("setup.exe", { openPath: async () => { throw new Error("cancelled"); }, quit })).rejects.toThrow(/cancelled/);
+    expect(quit).not.toHaveBeenCalled();
+  });
+
+  it("packages the downloader used by the real desktop process", () => {
+    const builder = JSON.parse(require("node:fs").readFileSync(path.resolve(process.cwd(), "electron-builder.kraken.json"), "utf8"));
+    expect(builder.files).toContain("electron/update-core.cjs");
+  });
+});
+
 describe("downloading the installer", () => {
+  it("discards a truncated response even when it exceeds minimum size", async () => {
+    const { dir, file } = await tmp();
+    const partial = response([EXE]);
+    const getHeader = partial.headers.get;
+    partial.headers.get = name => name === "content-length" ? "1000" : getHeader(name);
+    await expect(downloadInstaller("https://example.test/a.exe", file, { fetchImpl: async () => partial, minimumBytes: 100 })).rejects.toThrow(/incomplete/);
+    expect(await stat(file).catch(() => null)).toBeNull();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("verifies the GitHub checksum before running downloaded bytes", async () => {
+    const { dir, file } = await tmp();
+    await expect(downloadInstaller("https://example.test/a.exe", file, { fetchImpl: async () => response([EXE]), minimumBytes: 100, sha256: "0".repeat(64) })).rejects.toThrow(/checksum/);
+    expect(await stat(file).catch(() => null)).toBeNull();
+    const sha256 = require("node:crypto").createHash("sha256").update(EXE).digest("hex");
+    await expect(downloadInstaller("https://example.test/a.exe", file, { fetchImpl: async () => response([EXE]), minimumBytes: 100, sha256 })).resolves.toMatchObject({ bytes: EXE.length });
+    await rm(dir, { recursive: true, force: true });
+  });
+
   it("writes a Windows program and reports real progress", async () => {
     const { dir, file } = await tmp();
     const progress: { percent: number }[] = [];

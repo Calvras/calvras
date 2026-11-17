@@ -69,14 +69,8 @@
     </div>
     <span class="titlebar-spacer"></span>
     <div class="header-right">
-      <button class="update-badge" id="update-badge" style="display:none;" title="A new version is ready — click to install">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="23 4 23 10 17 10"></polyline>
-          <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
-        </svg>
-        <span id="update-badge-label">Update ready</span>
-      </button>
-      <div class="update-progress-wrap" id="update-progress-wrap" style="display:none;">
+      <button class="update-badge" id="update-badge" type="button" style="display:none;" title="Download the latest version and open setup">upgrade</button>
+      <div class="update-progress-wrap" id="update-progress-wrap" role="status" style="display:none;">
         <span class="update-progress-text" id="update-progress-text">Downloading…</span>
         <div class="update-progress-track"><div class="update-progress-fill" id="update-progress-fill"></div></div>
       </div>

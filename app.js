@@ -8203,141 +8203,71 @@ document.addEventListener('DOMContentLoaded', init);
   }
 })();
 (function initAutoUpdater() {
-  // Runs in Electron or browser
-  let ipcRenderer;
-  try { ipcRenderer = require('electron').ipcRenderer; } catch {}
-
-  const badge        = document.getElementById('update-badge');
-  const badgeLabel   = document.getElementById('update-badge-label');
+  const ipc = getElectronIpc();
+  const badge = document.getElementById('update-badge');
+  if (!ipc || !badge) return;
   const progressWrap = document.getElementById('update-progress-wrap');
   const progressFill = document.getElementById('update-progress-fill');
   const progressText = document.getElementById('update-progress-text');
+  let busy = false;
+  let failed = false;
 
-  function isNewerVersion(remote, local) {
-    if (!remote || !local) return false;
-    const r = remote.replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
-    const l = local.replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
-    for (let i = 0; i < Math.max(r.length, l.length); i++) {
-      const rv = r[i] || 0;
-      const lv = l[i] || 0;
-      if (rv > lv) return true;
-      if (rv < lv) return false;
-    }
-    return false;
+  function showProgress(text, percent, error = false) {
+    progressWrap.style.display = 'flex';
+    progressText.textContent = text;
+    progressFill.parentElement.style.display = error ? 'none' : '';
+    progressFill.style.width = percent + '%';
   }
 
-  let currentVer = '9.4.0';
-  let isDownloading = false;
-  if (ipcRenderer) {
-    ipcRenderer.invoke('app:get-version').then(ver => {
-      if (ver) currentVer = ver;
-    }).catch(() => {});
+  function showError(message) {
+    busy = false;
+    failed = true;
+    badge.disabled = false;
+    badge.style.display = 'inline-flex';
+    badge.title = message;
+    showProgress('Setup could not open. Click upgrade to retry.', 0, true);
   }
 
-  function showAvailable(ver, url) {
-    if (isDownloading) return;
-    if (progressWrap) progressWrap.style.display = 'none';
-    if (badge) {
-      badge.style.display = 'inline-flex';
-      if (badgeLabel) badgeLabel.textContent = 'Update to v' + ver;
-      badge.title = 'Click to download and install Calvras v' + ver;
-      badge.onclick = async (e) => {
-        e.stopPropagation();
-        if (isDownloading) return;
-        isDownloading = true;
-        showDownloading(ver);
-        if (ipcRenderer) {
-          try {
-            await ipcRenderer.invoke('updater:download-and-install', { version: ver, url: url });
-          } catch (err) {
-            console.error('Update failed:', err);
-            isDownloading = false;
-            if (badge) badge.style.display = 'inline-flex';
-            if (badgeLabel) badgeLabel.textContent = 'Retry Update (v' + ver + ')';
-            if (progressWrap) progressWrap.style.display = 'none';
-          }
-        }
-      };
-    }
-  }
-
-  function showDownloaded(ver) {
-    isDownloading = false;
-    if (progressWrap) progressWrap.style.display = 'none';
-    if (badge) {
-      badge.style.display = 'inline-flex';
-      if (badgeLabel) badgeLabel.textContent = 'v' + ver + ' ready - restart';
-      badge.onclick = (e) => {
-        e.stopPropagation();
-        if (ipcRenderer) ipcRenderer.invoke('updater:install');
-      };
-    }
-  }
-
-  function showDownloading(ver) {
-    if (progressWrap) progressWrap.style.display = 'flex';
-    if (badge) badge.style.display = 'none';
-    if (progressFill) progressFill.style.width = '0%';
-    if (progressText) progressText.textContent = 'Downloading v' + ver + '...';
-  }
-
-  if (ipcRenderer) {
-    ipcRenderer.on('updater:status', (_event, data) => {
-      if (!badge) return;
-      switch (data.status) {
-        case 'available':
-          showAvailable(data.version, data.downloadUrl);
-          break;
-        case 'downloading':
-          showDownloading(data.version || '9.4.0');
-          break;
-        case 'installing':
-          // Installer is launching — show a clear "Restarting…" message.
-          // The app should quit in ~1s; if it doesn't, at least the user sees the right state.
-          if (progressWrap) progressWrap.style.display = 'flex';
-          if (badge) badge.style.display = 'none';
-          if (progressText) progressText.textContent = 'Installing v' + (data.version || '9.4.0') + ' — restarting…';
-          if (progressFill) progressFill.style.width = '100%';
-          break;
-        case 'downloaded':
-          showDownloaded(data.version);
-          break;
-        case 'error':
-          isDownloading = false;
-          if (progressWrap) progressWrap.style.display = 'none';
-          if (badge) {
-            badge.style.display = 'inline-flex';
-            if (badgeLabel) badgeLabel.textContent = 'Retry Update (v' + (data.version || currentVer) + ')';
-          }
-          console.warn('Updater error:', data.message);
-          break;
-        default:
-          break;
-      }
-    });
-
-    ipcRenderer.on('updater:progress', (_event, data) => {
-      if (progressFill) progressFill.style.width = data.percent + '%';
-      if (progressText) progressText.textContent = 'Downloading... ' + data.percent + '%';
-    });
-  }
-
-  // Also directly check GitHub releases as guaranteed fallback
-  async function checkGithubRelease() {
+  badge.onclick = async event => {
+    event.stopPropagation();
+    if (busy) return;
+    busy = true;
+    failed = false;
+    badge.disabled = true;
+    showProgress('Preparing download…', 0);
     try {
-      const res = await fetch('https://api.github.com/repos/Calvras/calvras/releases/latest');
-      if (!res.ok) return;
-      const rel = await res.json();
-      const latestTag = (rel.tag_name || '').replace(/^v/, '');
-      if (latestTag && isNewerVersion(latestTag, currentVer)) {
-        const asset = (rel.assets || []).find(a => a.name && a.name.endsWith('.exe'));
-        const targetUrl = asset ? asset.browser_download_url : ('https://github.com/Calvras/calvras/releases/download/v' + latestTag + '/Calvras.Setup.' + latestTag + '.exe');
-        showAvailable(latestTag, targetUrl);
+      const result = await ipc.invoke('updater:download-and-install');
+      if (result.status === 'latest') {
+        busy = false;
+        badge.disabled = false;
+        badge.style.display = 'none';
+        progressWrap.style.display = 'none';
       }
-    } catch {}
+    } catch (error) {
+      showError(error.message);
+    }
+  };
+
+  ipc.on('updater:status', (_event, data) => {
+    if (data.status === 'downloading') showProgress('Downloading…', 0);
+    if (data.status === 'installing') showProgress('Opening setup…', 100);
+    if (data.status === 'error') showError(data.message);
+  });
+  ipc.on('updater:progress', (_event, data) => showProgress('Downloading… ' + data.percent + '%', data.percent));
+
+  async function checkForUpgrade() {
+    if (busy) return;
+    try {
+      const release = await ipc.invoke('updater:check');
+      if (busy || failed) return;
+      badge.style.display = release ? 'inline-flex' : 'none';
+      if (release) badge.title = 'Download Calvras ' + release.version + ' and open setup';
+    } catch (error) {
+      console.warn('Update check failed:', error.message);
+    }
   }
-  checkGithubRelease();
-  setInterval(checkGithubRelease, 60 * 1000);
+  checkForUpgrade();
+  setInterval(checkForUpgrade, 5 * 60 * 1000);
 })();
 (function initSettingsDialog() {
   const modal = document.getElementById("settings-modal");

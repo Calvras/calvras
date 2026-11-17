@@ -3,7 +3,7 @@
   "productName": "Calvras",
   "extraMetadata": {
     "main": "main.cjs",
-    "version": "9.7.2",
+    "version": "9.7.3",
     "name": "calvras",
     "author": "Kracton"
   },
@@ -18,6 +18,7 @@
     "app.js",
     "main.cjs",
     "electron/browser-tools.cjs",
+    "electron/update-core.cjs",
     "electron/document-tools.cjs",
     "electron/pdf-text.cjs",
     "electron/vendor/fflate.cjs",
