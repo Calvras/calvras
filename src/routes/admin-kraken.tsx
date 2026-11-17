@@ -5,7 +5,7 @@ import { siteApiBase } from "@/lib/site-session";
 
 /**
  * The owner's console. It reads only what the site's own ledger holds — who has signed in, which plan
- * each address carries, what each of them asked the agent to do, and what RevenueCat's webhooks
+ * each address carries, what each of them asked the agent to do, and what Payments AI's webhooks
  * recorded as sold — and it speaks to /api/site/admin with a bearer token that never leaves this
  * browser.
  *
@@ -15,7 +15,7 @@ import { siteApiBase } from "@/lib/site-session";
  */
 
 const TOKEN_KEY = "kraken_admin_token";
-const PLANS = ["free", "pro", "ultra"] as const;
+const PLANS = ["free", "lite", "pro"] as const;
 const REV_POLL_MS = 4_000;
 
 export const Route = createFileRoute("/admin-kraken")({
@@ -360,13 +360,13 @@ export function AdminConsole() {
       </section>
 
       <section className="admin-panel" aria-label="Sales">
-        <div className="admin-panel-heading"><h2>Sales</h2><span>{data?.sales?.configured ? `${sales.length} subscription${sales.length === 1 ? "" : "s"} recorded from RevenueCat` : "Store not connected"}</span></div>
+        <div className="admin-panel-heading"><h2>Sales</h2><span>{data?.sales?.configured ? `${sales.length} subscription${sales.length === 1 ? "" : "s"} recorded from Payments AI` : "Store not connected"}</span></div>
         {!data?.sales?.configured ? (
-          <p className="admin-empty">{data?.sales?.note || "RevenueCat webhooks have not recorded a sale here yet. Grants below are made by hand."}</p>
+          <p className="admin-empty">{data?.sales?.note || "Payments AI webhooks have not recorded a sale here yet. Grants below are made by hand."}</p>
         ) : data?.sales?.error ? (
           <p className="admin-empty">{data.sales.error}</p>
         ) : !sales.length ? (
-          <p className="admin-empty">{data?.sales?.note || "RevenueCat has not sent a purchase to this site yet."}</p>
+          <p className="admin-empty">{data?.sales?.note || "Payments AI has not sent a purchase to this site yet."}</p>
         ) : (
           <div className="admin-scroll">
             <table>
@@ -381,8 +381,8 @@ export function AdminConsole() {
                   <td data-label="When">{sale.at ? when(Date.parse(sale.at)) : "—"}</td>
                   <td data-label="Action">
                     <div className="admin-row-actions">
-                      {sale.email && accounts.some((account) => account.email === sale.email) && /pro|ultra/i.test(sale.plan) && (
-                        <button type="button" className="admin-control" disabled={busy} onClick={() => void act("/api/site/admin/grant", { email: sale.email, plan: sale.plan.toLowerCase().includes("ultra") ? "ultra" : "pro" })}>Give {/ultra/i.test(sale.plan) ? "ultra" : "pro"}</button>
+                      {sale.email && accounts.some((account) => account.email === sale.email) && /pro|lite/i.test(sale.plan) && (
+                        <button type="button" className="admin-control" disabled={busy} onClick={() => void act("/api/site/admin/grant", { email: sale.email, plan: sale.plan.toLowerCase().includes("pro") ? "pro" : "lite" })}>Give {/pro/i.test(sale.plan) ? "pro" : "lite"}</button>
                       )}
                     </div>
                   </td>

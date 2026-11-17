@@ -37,7 +37,7 @@ beforeAll(async () => {
   // The same person signing in from a second city a day later: the console must show both places,
   // newest first, rather than making it look like they moved.
   await recordSignIn(env.CALVRAS_DB!, { email: "shikari@calvras.com", name: "shikari", subject: "sub-0", platform: "Win32", version: "10.0.3", city: "Karachi", country: "PK", at: now + 60_000 });
-  await grantPlan(env.CALVRAS_DB!, "ada@calvras.com", "ultra", "owner", now);
+  await grantPlan(env.CALVRAS_DB!, "ada@calvras.com", "pro", "owner", now);
   // Two finished turns and one that never landed — the console's usage column, its "did not finish"
   // tile and the Tasks drawer all read these rows, and asks group two of them under one heading.
   for (const [index, task] of ([
@@ -90,7 +90,7 @@ describe("the owner console in a browser", { timeout: 120_000 }, () => {
       expect((await page.locator(".admin-live").innerText()).toLowerCase()).toContain("live — checked");
       expect(await page.locator(".admin-live i.is-off").count()).toBe(0);
       const accounts = page.locator("table.admin-accounts");
-      expect(await accounts.filter({ hasText: "ada@calvras.com" }).getByText("ultra", { exact: false }).first().isVisible()).toBe(true);
+      expect(await accounts.filter({ hasText: "ada@calvras.com" }).getByText("pro", { exact: false }).first().isVisible()).toBe(true);
       // The owner reads where each account signed in from: city plus country, country alone, nothing at
       // all, and both cities for the one account that used Calvras from two places.
       for (const [email, place] of [["shikari@calvras.com", ["Karachi, PK", "Lahore, PK"]], ["ada@calvras.com", ["DE"]], ["linus@calvras.com", []]] as [string, string[]][]) {

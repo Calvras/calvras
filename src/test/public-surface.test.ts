@@ -40,10 +40,10 @@ describe("public site surface", () => {
 
   it("sends a buyer to the hosted RevenueCat checkout, never to a credential in the page", async () => {
     const { checkoutFor, paidPlans, CHECKOUT_ORIGIN } = await import("@/lib/plans");
-    expect(paidPlans.map((plan) => plan.name)).toEqual(["Pro", "Ultra"]);
+    expect(paidPlans.map((plan) => plan.name)).toEqual(["Lite", "Pro"]);
     // The link carries the plan, the billing period and the email the webhook matches the account on.
     expect(checkoutFor("Pro", "month", "hello@calvras.com")).toBe(`${CHECKOUT_ORIGIN}/checkout?plan=pro&billing=month&email=hello%40calvras.com`);
-    expect(checkoutFor("Ultra", "year", "hello@calvras.com")).toBe(`${CHECKOUT_ORIGIN}/checkout?plan=ultra&billing=year&email=hello%40calvras.com`);
+    expect(checkoutFor("Lite", "year", "hello@calvras.com")).toBe(`${CHECKOUT_ORIGIN}/checkout?plan=lite&billing=year&email=hello%40calvras.com`);
     // A plan the store does not sell has no checkout rather than one that cannot take money.
     expect(checkoutFor("nothing")).toBe("");
     expect(checkoutFor("Pro", "month", "")).toBe(`${CHECKOUT_ORIGIN}/checkout?plan=pro&billing=month`);

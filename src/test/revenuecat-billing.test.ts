@@ -47,8 +47,8 @@ const event = (type: string, input: {
 } = {}) => ({
   type,
   app_user_id: input.email ?? "buyer@calvras.com",
-  product_id: input.productId ?? PRODUCT_IDS.pro.month,
-  entitlement_ids: input.entitlements ?? ["pro"],
+  product_id: input.productId ?? PRODUCT_IDS.lite.month,
+  entitlement_ids: input.entitlements ?? ["lite"],
   original_transaction_id: input.transactionId ?? "txn_1",
   transaction_id: input.transactionId ?? "txn_1",
   expiration_at_ms: input.expiresAt ?? LATER,
@@ -64,30 +64,30 @@ describe("RevenueCat purchases", () => {
     const response = await deliver(event("INITIAL_PURCHASE", { email: "Buyer@Calvras.com" }));
     expect(response?.status).toBe(200);
     const account = await findByEmail(db, "buyer@calvras.com");
-    expect(account?.plan).toBe("pro");
+    expect(account?.plan).toBe("lite");
     expect(account?.plan_set_by).toBe("revenuecat");
   });
 
   it("understands a yearly package the same way", async () => {
     await recordSignIn(db, { email: "buyer@calvras.com", at: 1 });
-    await deliver(event("INITIAL_PURCHASE", { productId: PRODUCT_IDS.ultra.year, entitlements: ["ultra"], expiresAt: Date.now() + 365 * DAY }));
-    expect((await findByEmail(db, "buyer@calvras.com"))?.plan).toBe("ultra");
+    await deliver(event("INITIAL_PURCHASE", { productId: PRODUCT_IDS.pro.year, entitlements: ["pro"], expiresAt: Date.now() + 365 * DAY }));
+    expect((await findByEmail(db, "buyer@calvras.com"))?.plan).toBe("pro");
   });
 
   it("keeps access when a subscription is cancelled, until the paid time runs out", async () => {
     await recordSignIn(db, { email: "buyer@calvras.com", at: 1 });
-    await deliver(event("INITIAL_PURCHASE", { productId: PRODUCT_IDS.ultra.month, entitlements: ["ultra"] }));
-    await deliver(event("CANCELLATION", { productId: PRODUCT_IDS.ultra.month, entitlements: ["ultra"] }));
-    expect((await findByEmail(db, "buyer@calvras.com"))?.plan).toBe("ultra");
+    await deliver(event("INITIAL_PURCHASE", { productId: PRODUCT_IDS.pro.month, entitlements: ["pro"] }));
+    await deliver(event("CANCELLATION", { productId: PRODUCT_IDS.pro.month, entitlements: ["pro"] }));
+    expect((await findByEmail(db, "buyer@calvras.com"))?.plan).toBe("pro");
     // The clock passing the paid-through date takes the plan back.
-    await deliver(event("EXPIRATION", { productId: PRODUCT_IDS.ultra.month, entitlements: ["ultra"], expiresAt: Date.now() - 1000 }));
+    await deliver(event("EXPIRATION", { productId: PRODUCT_IDS.pro.month, entitlements: ["pro"], expiresAt: Date.now() - 1000 }));
     expect((await findByEmail(db, "buyer@calvras.com"))?.plan).toBe("free");
   });
 
   it("takes an expired row out of the plan even while the event says active", async () => {
     await recordSignIn(db, { email: "buyer@calvras.com", at: 1 });
     await deliver(event("INITIAL_PURCHASE"));
-    expect((await findByEmail(db, "buyer@calvras.com"))?.plan).toBe("pro");
+    expect((await findByEmail(db, "buyer@calvras.com"))?.plan).toBe("lite");
     // A renewal recorded with a paid-through date already in the past must not keep the plan alive.
     await deliver(event("RENEWAL", { expiresAt: Date.now() - 1000 }));
     expect((await findByEmail(db, "buyer@calvras.com"))?.plan).toBe("free");
@@ -95,18 +95,18 @@ describe("RevenueCat purchases", () => {
 
   it("keeps access while a renewal is past due, and restores it when it is paid", async () => {
     await recordSignIn(db, { email: "buyer@calvras.com", at: 1 });
-    await deliver(event("INITIAL_PURCHASE", { productId: PRODUCT_IDS.ultra.month, entitlements: ["ultra"] }));
-    await deliver(event("BILLING_ISSUE", { productId: PRODUCT_IDS.ultra.month, entitlements: ["ultra"] }));
-    expect((await findByEmail(db, "buyer@calvras.com"))?.plan).toBe("ultra");
-    await deliver(event("RENEWAL", { productId: PRODUCT_IDS.ultra.month, entitlements: ["ultra"] }));
-    expect((await findByEmail(db, "buyer@calvras.com"))?.plan).toBe("ultra");
+    await deliver(event("INITIAL_PURCHASE", { productId: PRODUCT_IDS.pro.month, entitlements: ["pro"] }));
+    await deliver(event("BILLING_ISSUE", { productId: PRODUCT_IDS.pro.month, entitlements: ["pro"] }));
+    expect((await findByEmail(db, "buyer@calvras.com"))?.plan).toBe("pro");
+    await deliver(event("RENEWAL", { productId: PRODUCT_IDS.pro.month, entitlements: ["pro"] }));
+    expect((await findByEmail(db, "buyer@calvras.com"))?.plan).toBe("pro");
   });
 
   it("lets an owner's grant outrank a cancelled subscription", async () => {
     await recordSignIn(db, { email: "buyer@calvras.com", at: 1 });
-    await grantPlan(db, "buyer@calvras.com", "ultra", "owner", 2);
+    await grantPlan(db, "buyer@calvras.com", "pro", "owner", 2);
     await deliver(event("CANCELLATION", { expiresAt: Date.now() - 1000 }));
-    expect((await findByEmail(db, "buyer@calvras.com"))?.plan).toBe("ultra");
+    expect((await findByEmail(db, "buyer@calvras.com"))?.plan).toBe("pro");
     expect((await findByEmail(db, "buyer@calvras.com"))?.plan_set_by).toBe("owner");
   });
 
@@ -116,7 +116,7 @@ describe("RevenueCat purchases", () => {
     await deliver(event("INITIAL_PURCHASE"));
     const rows = sqlite.prepare("SELECT COUNT(*) AS count FROM subscriptions").get() as { count: number };
     expect(rows.count).toBe(1);
-    expect((await findByEmail(db, "buyer@calvras.com"))?.plan).toBe("pro");
+    expect((await findByEmail(db, "buyer@calvras.com"))?.plan).toBe("lite");
   });
 
   it("refuses a body it did not sign, and changes nothing", async () => {
@@ -130,7 +130,7 @@ describe("RevenueCat purchases", () => {
     await recordSignIn(db, { email: "buyer@calvras.com", at: 1 });
     const response = await deliver(event("INITIAL_PURCHASE"), { signature: null, authorization: "rc-auth-fixture" });
     expect(response?.status).toBe(200);
-    expect((await findByEmail(db, "buyer@calvras.com"))?.plan).toBe("pro");
+    expect((await findByEmail(db, "buyer@calvras.com"))?.plan).toBe("lite");
     expect((await deliver(event("INITIAL_PURCHASE", { transactionId: "txn_2" }), { signature: null, authorization: "wrong" }))?.status).toBe(401);
   });
 
@@ -163,7 +163,7 @@ describe("RevenueCat purchases", () => {
     const session = await issueSession(await signingKey(db), "late@calvras.com", Date.now());
     const response = await handleSiteApi(new Request("https://calvras.com/api/site/pulse", { method: "POST", body: JSON.stringify({ session }) }), { CALVRAS_DB: db });
     expect(response?.status).toBe(200);
-    expect((await response!.json() as { plan?: string }).plan).toBe("pro");
+    expect((await response!.json() as { plan?: string }).plan).toBe("lite");
   });
 });
 
@@ -177,19 +177,19 @@ describe("RevenueCat config and sales", () => {
     const payload = (await response!.json()) as { apiKey?: string; offering?: string; packages?: { packageId: string; price: string }[] };
     expect(payload.apiKey).toBe("rcb_public_fixture");
     expect(payload.offering).toBe("calvras");
-    expect(payload.packages?.map((row) => row.packageId)).toEqual([PACKAGE_IDS.pro.month, PACKAGE_IDS.pro.year, PACKAGE_IDS.ultra.month, PACKAGE_IDS.ultra.year]);
+    expect(payload.packages?.map((row) => row.packageId)).toEqual([PACKAGE_IDS.lite.month, PACKAGE_IDS.lite.year, PACKAGE_IDS.pro.month, PACKAGE_IDS.pro.year]);
     expect(JSON.stringify(payload)).not.toContain(SECRET);
   });
 
   it("shows delivered subscriptions in the console with the plan's list price", async () => {
     await recordSignIn(db, { email: "buyer@calvras.com", at: 1 });
-    await deliver(event("INITIAL_PURCHASE", { productId: PRODUCT_IDS.ultra.year, entitlements: ["ultra"] }));
+    await deliver(event("INITIAL_PURCHASE", { productId: PRODUCT_IDS.pro.year, entitlements: ["pro"] }));
     const response = await handleSiteApi(
       new Request("https://calvras.com/api/site/admin/summary", { headers: { authorization: "Bearer k" } }),
       { CALVRAS_DB: db, CALVRAS_ADMIN_TOKEN: "k" },
     );
     const body = (await response!.json()) as { sales?: { configured?: boolean; sales?: { email: string; plan: string; amount: string; currency: string; billing: string }[] } };
     expect(body.sales?.configured).toBe(true);
-    expect(body.sales?.sales?.[0]).toMatchObject({ email: "buyer@calvras.com", plan: "Ultra", amount: "179.00", currency: "USD", billing: "year" });
+    expect(body.sales?.sales?.[0]).toMatchObject({ email: "buyer@calvras.com", plan: "Pro", amount: "179.00", currency: "USD", billing: "year" });
   });
 });

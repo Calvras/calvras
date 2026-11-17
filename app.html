@@ -10,6 +10,105 @@
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
+  <div class="app-splash" id="app-splash" aria-hidden="true">
+    <img class="app-splash-mark" src="calvras-logo.png" alt="Calvras">
+  </div>
+  <nav class="app-menubar" id="app-menubar" aria-label="Application menu">
+    <div class="header-left">
+      <button class="icon-btn uncollapse-btn" id="sidebar-uncollapse-btn" title="Expand sidebar" style="display: flex;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+          <line x1="9" y1="3" x2="9" y2="21"></line>
+          <path d="m14 10 2 2-2 2"></path>
+        </svg>
+      </button>
+      <div class="menubar-item">
+        <button class="menubar-btn" data-menu="menu-file" type="button">File</button>
+        <div class="menubar-dropdown" id="menu-file">
+          <button class="menubar-action" data-action="new-chat">New chat<span class="menubar-kbd">Ctrl+N</span></button>
+          <button class="menubar-action" data-action="open-folder">Open folder…<span class="menubar-kbd">Ctrl+O</span></button>
+          <button class="menubar-action" data-action="open-diff">Open diff viewer</button>
+          <div class="menubar-divider"></div>
+          <button class="menubar-action" data-action="commit-all">Commit all changes…</button>
+          <button class="menubar-action" data-action="push">Push current branch</button>
+          <div class="menubar-divider"></div>
+          <button class="menubar-action" data-action="settings">Settings<span class="menubar-kbd">Ctrl+,</span></button>
+        </div>
+      </div>
+      <div class="menubar-item">
+        <button class="menubar-btn" data-menu="menu-edit" type="button">Edit</button>
+        <div class="menubar-dropdown" id="menu-edit">
+          <button class="menubar-action" data-action="undo">Undo<span class="menubar-kbd">Ctrl+Z</span></button>
+          <button class="menubar-action" data-action="redo">Redo<span class="menubar-kbd">Ctrl+Y</span></button>
+          <div class="menubar-divider"></div>
+          <button class="menubar-action" data-action="cut">Cut<span class="menubar-kbd">Ctrl+X</span></button>
+          <button class="menubar-action" data-action="copy">Copy<span class="menubar-kbd">Ctrl+C</span></button>
+          <button class="menubar-action" data-action="paste">Paste<span class="menubar-kbd">Ctrl+V</span></button>
+          <button class="menubar-action" data-action="select-all">Select all<span class="menubar-kbd">Ctrl+A</span></button>
+        </div>
+      </div>
+      <div class="menubar-item">
+        <button class="menubar-btn" data-menu="menu-view" type="button">View</button>
+        <div class="menubar-dropdown" id="menu-view">
+          <button class="menubar-action" data-action="toggle-sidebar">Toggle sidebar</button>
+          <button class="menubar-action" data-action="toggle-terminal">Toggle terminal<span class="menubar-kbd">Ctrl+`</span></button>
+          <button class="menubar-action" data-action="open-preview">Open live preview</button>
+          <button class="menubar-action" data-action="open-env">Environment panel</button>
+        </div>
+      </div>
+      <div class="menubar-item">
+        <button class="menubar-btn" data-menu="menu-help" type="button">Help</button>
+        <div class="menubar-dropdown" id="menu-help">
+          <button class="menubar-action" data-action="shortcuts">Keyboard shortcuts</button>
+          <button class="menubar-action" data-action="release-notes">Release notes</button>
+          <button class="menubar-action" data-action="report-issue">Report an issue</button>
+          <div class="menubar-divider"></div>
+          <button class="menubar-action" data-action="about">About Calvras</button>
+        </div>
+      </div>
+    </div>
+    <span class="titlebar-spacer"></span>
+    <div class="header-right">
+      <button class="update-badge" id="update-badge" style="display:none;" title="A new version is ready — click to install">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 4 23 10 17 10"></polyline>
+          <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+        </svg>
+        <span id="update-badge-label">Update ready</span>
+      </button>
+      <div class="update-progress-wrap" id="update-progress-wrap" style="display:none;">
+        <span class="update-progress-text" id="update-progress-text">Downloading…</span>
+        <div class="update-progress-track"><div class="update-progress-fill" id="update-progress-fill"></div></div>
+      </div>
+      <div class="codex-top-actions" id="codex-top-actions" style="display:none;">
+        <div class="codex-top-menu-wrap">
+          <button class="icon-btn top-icon-btn" id="top-more-btn" title="More actions">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"></circle><circle cx="12" cy="12" r="1.7"></circle><circle cx="19" cy="12" r="1.7"></circle></svg>
+          </button>
+          <div class="codex-top-menu" id="top-more-menu" style="display:none;">
+            <button class="codex-top-menu-item" id="top-open-explorer">Open folder in Explorer</button>
+            <button class="codex-top-menu-item" id="top-open-preview">Open Live Preview</button>
+            <button class="codex-top-menu-item" id="top-open-terminal">Open Terminal</button>
+            <div class="codex-menu-divider"></div>
+            <button class="codex-top-menu-item" id="top-commit-all">Commit all changes…</button>
+            <button class="codex-top-menu-item" id="top-push-btn">Push current branch</button>
+            <button class="codex-top-menu-item" id="top-open-diff">Open diff viewer</button>
+          </div>
+        </div>
+        <button class="icon-btn top-icon-btn" id="top-diff-btn" title="View changes">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"></line><circle cx="9" cy="7" r="2.5" fill="#181818"></circle><line x1="4" y1="17" x2="20" y2="17"></line><circle cx="15" cy="17" r="2.5" fill="#181818"></circle></svg>
+        </button>
+        <button class="diff-stats-badge" id="diff-stats-badge" style="display:none;" title="Open uncommitted changes">
+          <span class="diff-stat-add" id="diff-stat-add">+0</span>
+          <span class="diff-stat-del" id="diff-stat-del">-0</span>
+        </button>
+        <span class="top-divider"></span>
+        <button class="icon-btn top-icon-btn" id="env-toggle-btn" title="Environment">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+        </button>
+      </div>
+    </div>
+  </nav>
   <div class="app-layout">
     <!-- SIDEBAR -->
     <aside class="sidebar collapsed" id="sidebar">
@@ -25,7 +124,7 @@
         </button>
         <span class="sidebar-topbar-spacer"></span>
         <button class="icon-btn" id="sidebar-toggle-btn" title="Collapse sidebar">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line><path d="m15 10-2 2 2 2"></path></svg>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line><path d="m16 10-2 2 2 2"></path></svg>
         </button>
       </div>
       <div class="notif-popover" id="notif-popover" style="display:none;">
@@ -73,62 +172,27 @@
       <div class="sidebar-scrollable" id="chat-history-list">
         <!-- Dynamic Projects + Recents sections rendered here -->
       </div>
+
+      <!-- Settings footer -->
+      <div class="sidebar-footer">
+        <button class="nav-item sidebar-settings-btn" id="btn-settings-nav" type="button" title="Settings">
+          <svg class="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+          <span>Settings</span>
+        </button>
+      </div>
     </aside>
     <div class="sidebar-scrim" id="sidebar-scrim"></div>
 
     <!-- MAIN CHAT CONTAINER -->
     <main class="main-content">
+
       <!-- Top Action Bar -->
       <header class="main-header">
-        <div class="header-left">
-          <button class="icon-btn uncollapse-btn" id="sidebar-uncollapse-btn" title="Expand sidebar" style="display: flex;">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-              <line x1="9" y1="3" x2="9" y2="21"></line>
-            </svg>
-          </button>
-        </div>
-        <!-- Header right: Terminal toggle -->
+        <div class="header-left"></div>
         <div class="header-right">
-          <!-- Auto-updater badge — hidden until update available -->
-          <button class="update-badge" id="update-badge" style="display:none;" title="A new version is ready — click to install">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="23 4 23 10 17 10"></polyline>
-              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
-            </svg>
-            <span id="update-badge-label">Update ready</span>
-          </button>
-          <div class="update-progress-wrap" id="update-progress-wrap" style="display:none;">
-            <span class="update-progress-text" id="update-progress-text">Downloading…</span>
-            <div class="update-progress-track"><div class="update-progress-fill" id="update-progress-fill"></div></div>
-          </div>
-          <div class="codex-top-actions" id="codex-top-actions" style="display:none;">
-            <div class="codex-top-menu-wrap">
-              <button class="icon-btn top-icon-btn" id="top-more-btn" title="More actions">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"></circle><circle cx="12" cy="12" r="1.7"></circle><circle cx="19" cy="12" r="1.7"></circle></svg>
-              </button>
-              <div class="codex-top-menu" id="top-more-menu" style="display:none;">
-                <button class="codex-top-menu-item" id="top-open-explorer">Open folder in Explorer</button>
-                <button class="codex-top-menu-item" id="top-open-preview">Open Live Preview</button>
-                <button class="codex-top-menu-item" id="top-open-terminal">Open Terminal</button>
-                <div class="codex-menu-divider"></div>
-                <button class="codex-top-menu-item" id="top-commit-all">Commit all changes…</button>
-                <button class="codex-top-menu-item" id="top-push-btn">Push current branch</button>
-                <button class="codex-top-menu-item" id="top-open-diff">Open diff viewer</button>
-              </div>
-            </div>
-            <button class="icon-btn top-icon-btn" id="top-diff-btn" title="View changes">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"></line><circle cx="9" cy="7" r="2.5" fill="#181818"></circle><line x1="4" y1="17" x2="20" y2="17"></line><circle cx="15" cy="17" r="2.5" fill="#181818"></circle></svg>
-            </button>
-            <button class="diff-stats-badge" id="diff-stats-badge" style="display:none;" title="Open uncommitted changes">
-              <span class="diff-stat-add" id="diff-stat-add">+0</span>
-              <span class="diff-stat-del" id="diff-stat-del">-0</span>
-            </button>
-            <span class="top-divider"></span>
-            <button class="icon-btn top-icon-btn" id="env-toggle-btn" title="Environment">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
-            </button>
-          </div>
           <button class="icon-btn terminal-toggle-btn" id="terminal-toggle-btn" title="Open Terminal (Ctrl+`)">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="4 17 10 11 4 5"></polyline>
@@ -191,15 +255,13 @@
           </div>
 
           <div class="codex-home-composer">
-            <div class="choose-project-bar" id="tag-folder" title="Click to choose workspace folder or work without one">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-                </svg>
-                <span id="folder-name-label">No Folder</span>
-                <svg class="chevron-small" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="6 9 12 15 18 9"></polyline>
-                </svg>
-              </div>
+          <div class="usage-limit-banner" hidden>
+            <div class="usage-limit-copy">
+              <p class="usage-limit-title">You're out of Calvras usage</p>
+              <p class="usage-limit-sub">Upgrade for more now, or wait <span class="usage-limit-days"></span> — unlocks <span class="usage-limit-reset"></span></p>
+            </div>
+            <button type="button" class="usage-limit-upgrade">✦ Upgrade</button>
+          </div>
               <input type="file" id="workspace-folder-picker" webkitdirectory directory style="display: none;">
 
               <!-- Workspace Folder Selection Popover -->
@@ -281,7 +343,7 @@
               <textarea
                 id="prompt-input"
                 class="prompt-textarea dark-textarea"
-                placeholder="Message..."
+                placeholder="Build something…"
                 rows="1"
               ></textarea>
 
@@ -343,6 +405,15 @@
               </div>
             </div>
             </div>
+            <div class="choose-project-bar" id="tag-folder" title="Click to choose workspace folder or work without one">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+              </svg>
+              <span id="folder-name-label">No Folder</span>
+              <svg class="chevron-small" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </div>
           </div>
         </div>
 
@@ -358,6 +429,13 @@
 
           <!-- Bottom Floating Input Capsule Bar -->
           <div class="capsule-input-container">
+            <div class="usage-limit-banner" hidden>
+              <div class="usage-limit-copy">
+                <p class="usage-limit-title">You're out of Calvras usage</p>
+                <p class="usage-limit-sub">Upgrade for more now, or wait <span class="usage-limit-days"></span> — unlocks <span class="usage-limit-reset"></span></p>
+              </div>
+              <button type="button" class="usage-limit-upgrade">✦ Upgrade</button>
+            </div>
             <details class="composer-task-dock" id="composer-task-dock" hidden>
               <summary><span class="task-dock-count" id="task-dock-count"></span><span class="task-dock-current" id="task-dock-current"></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 9 6 6 6-6"/></svg></summary>
               <div class="task-dock-list" id="task-dock-list"></div>
@@ -368,7 +446,7 @@
               <textarea
                 id="capsule-prompt-input"
                 class="capsule-text-input"
-                placeholder="Message..."
+                placeholder="Build something…"
                 rows="1"
               ></textarea>
 

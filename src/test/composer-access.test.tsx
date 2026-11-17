@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { AccessSelector, ComposerApproval } from "../components/ui/composer-access";
-import { PromptInput } from "../components/ui/ai-chat-input";
+import { PromptInput } from "../components/ui/composer-input";
 
 describe("composer permissions", () => {
   it("selects full access with an original permission menu", () => {

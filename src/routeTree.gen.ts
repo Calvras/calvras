@@ -16,7 +16,6 @@ import { Route as AdminKrakenRouteImport } from './routes/admin-kraken'
 import { Route as AppRouteImport } from './routes/app'
 import { Route as CapabilitiesRouteImport } from './routes/capabilities'
 import { Route as ChangelogRouteImport } from './routes/changelog'
-import { Route as CheckoutRouteImport } from './routes/checkout'
 import { Route as DocsRouteImport } from './routes/docs'
 import { Route as LandingRouteImport } from './routes/landing'
 import { Route as PartnerRouteImport } from './routes/partner'
@@ -59,11 +58,6 @@ const CapabilitiesRoute = CapabilitiesRouteImport.update({
 const ChangelogRoute = ChangelogRouteImport.update({
   id: '/changelog',
   path: '/changelog',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CheckoutRoute = CheckoutRouteImport.update({
-  id: '/checkout',
-  path: '/checkout',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DocsRoute = DocsRouteImport.update({
@@ -115,7 +109,6 @@ export interface FileRoutesByFullPath {
   '/app': typeof AppRoute
   '/capabilities': typeof CapabilitiesRoute
   '/changelog': typeof ChangelogRoute
-  '/checkout': typeof CheckoutRoute
   '/docs': typeof DocsRoute
   '/landing': typeof LandingRoute
   '/partner': typeof PartnerRoute
@@ -133,7 +126,6 @@ export interface FileRoutesByTo {
   '/app': typeof AppRoute
   '/capabilities': typeof CapabilitiesRoute
   '/changelog': typeof ChangelogRoute
-  '/checkout': typeof CheckoutRoute
   '/docs': typeof DocsRoute
   '/landing': typeof LandingRoute
   '/partner': typeof PartnerRoute
@@ -152,7 +144,6 @@ export interface FileRoutesById {
   '/app': typeof AppRoute
   '/capabilities': typeof CapabilitiesRoute
   '/changelog': typeof ChangelogRoute
-  '/checkout': typeof CheckoutRoute
   '/docs': typeof DocsRoute
   '/landing': typeof LandingRoute
   '/partner': typeof PartnerRoute
@@ -172,7 +163,6 @@ export interface FileRouteTypes {
     | '/app'
     | '/capabilities'
     | '/changelog'
-    | '/checkout'
     | '/docs'
     | '/landing'
     | '/partner'
@@ -190,7 +180,6 @@ export interface FileRouteTypes {
     | '/app'
     | '/capabilities'
     | '/changelog'
-    | '/checkout'
     | '/docs'
     | '/landing'
     | '/partner'
@@ -208,7 +197,6 @@ export interface FileRouteTypes {
     | '/app'
     | '/capabilities'
     | '/changelog'
-    | '/checkout'
     | '/docs'
     | '/landing'
     | '/partner'
@@ -227,7 +215,6 @@ export interface RootRouteChildren {
   AppRoute: typeof AppRoute
   CapabilitiesRoute: typeof CapabilitiesRoute
   ChangelogRoute: typeof ChangelogRoute
-  CheckoutRoute: typeof CheckoutRoute
   DocsRoute: typeof DocsRoute
   LandingRoute: typeof LandingRoute
   PartnerRoute: typeof PartnerRoute
@@ -287,13 +274,6 @@ declare module '@tanstack/react-router' {
       path: '/changelog'
       fullPath: '/changelog'
       preLoaderRoute: typeof ChangelogRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/checkout': {
-      id: '/checkout'
-      path: '/checkout'
-      fullPath: '/checkout'
-      preLoaderRoute: typeof CheckoutRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/docs': {
@@ -363,7 +343,6 @@ const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRoute,
   CapabilitiesRoute: CapabilitiesRoute,
   ChangelogRoute: ChangelogRoute,
-  CheckoutRoute: CheckoutRoute,
   DocsRoute: DocsRoute,
   LandingRoute: LandingRoute,
   PartnerRoute: PartnerRoute,

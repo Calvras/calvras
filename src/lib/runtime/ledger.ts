@@ -17,6 +17,7 @@ export type AccountRow = {
   signins: number; platform: string; version: string; city: string; country: string; places: string;
   blocked: number; blocked_at: number; blocked_by: string; last_used: number;
   daily_tokens: number; tokens_used: number; tokens_reset_at: number;
+  lock_until: number; lock_days: number;
 };
 export type EventRow = { id: number; email: string; kind: string; detail: string; at: number };
 export type UsageRow = {
@@ -48,7 +49,9 @@ CREATE TABLE IF NOT EXISTS accounts (
   last_used INTEGER NOT NULL DEFAULT 0,
   daily_tokens INTEGER NOT NULL DEFAULT 0,
   tokens_used INTEGER NOT NULL DEFAULT 0,
-  tokens_reset_at INTEGER NOT NULL DEFAULT 0
+  tokens_reset_at INTEGER NOT NULL DEFAULT 0,
+  lock_until INTEGER NOT NULL DEFAULT 0,
+  lock_days INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -89,10 +92,24 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   updated_at INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS subscriptions_email_idx ON subscriptions (email, updated_at DESC);
+CREATE TABLE IF NOT EXISTS pai_customers (
+  customer_id TEXT PRIMARY KEY,
+  email TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pai_events (
+  event_id TEXT PRIMARY KEY,
+  event_type TEXT NOT NULL,
+  customer_id TEXT NOT NULL DEFAULT '',
+  payload TEXT NOT NULL,
+  processed INTEGER NOT NULL DEFAULT 0,
+  received_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS pai_events_customer_idx ON pai_events (customer_id, processed);
 `;
 
-const PLAN_NAMES = ["free", "pro", "ultra"];
-export const paidPlans = ["pro", "ultra"];
+const PLAN_NAMES = ["free", "lite", "pro"];
+export const paidPlans = ["lite", "pro"];
 
 export function normalizePlan(value: unknown): string | null {
   const plan = String(value ?? "").trim().toLowerCase();
@@ -149,7 +166,7 @@ export async function note(db: D1Database, email: string, kind: string, detail: 
 /** Move someone up (or back down) by hand. The writer is kept so the table can say who did it. */
 export async function grantPlan(db: D1Database, email: string, plan: string, by: string, at: number): Promise<AccountRow> {
   const wanted = normalizePlan(plan);
-  if (!wanted) throw new Error("A plan is one of free, pro, or ultra.");
+  if (!wanted) throw new Error("A plan is one of free, lite, or pro.");
   const target = accountEmail(email);
   const changes = await db.prepare("UPDATE accounts SET plan = ?, plan_set_by = ?, plan_set_at = ? WHERE email = ?").bind(wanted, text(by, 200), at, target).run();
   if (!changes.meta?.changes) throw new Error(`No account is signed in as ${target} yet, so there is nothing to change.`);
@@ -174,7 +191,7 @@ export async function findByEmail(db: D1Database, email: string): Promise<Accoun
 
 export type SubscriptionRow = { id: string; email: string; plan: string; price_id: string; product_id: string; status: string; customer_id: string; currency: string; expires_at: number; updated_at: number };
 
-/** RevenueCat's own record of a subscription, kept here so a later cancellation or failed renewal can
+/** Payments AI's own record of a subscription, kept here so a later cancellation or failed renewal can
  *  be matched to the account even though the store never learned our account's email. */
 export async function saveSubscription(db: D1Database, input: { id: string; email: string; plan: string; productId?: string; status?: string; customerId?: string; currency?: string; expiresAt?: number; at: number }): Promise<void> {
   const id = text(input.id, 120);
@@ -197,13 +214,13 @@ export async function listSubscriptions(db: D1Database, limit = 100): Promise<Su
 }
 
 // A canceled or paused subscription keeps its access until expires_at, so it counts as entitled while
-// the clock has not passed. RevenueCat only moves it to EXPIRED when the time is up.
+// the clock has not passed. Payments AI only moves it to inactive when the time is up.
 const ENTITLED = ["active", "past_due", "canceled", "paused"];
-const PLAN_RANK: Record<string, number> = { free: 0, pro: 1, ultra: 2 };
+const PLAN_RANK: Record<string, number> = { free: 0, lite: 1, pro: 2 };
 
 /**
  * The plan an account holds is whatever its subscriptions say, unless the owner set it by hand —
- * an owner's grant outranks a checkout. Called after every sign-in and every RevenueCat event, so a
+ * an owner's grant outranks a checkout. Called after every sign-in and every Payments AI event, so a
  * purchase made before the person ever signed in lands the moment they do, and an expired plan
  * falls back to free without anybody pressing anything.
  */
@@ -211,8 +228,8 @@ export async function syncPlanFromSubscriptions(db: D1Database, email: string, a
   const account = await findByEmail(db, email);
   if (!account) return null;
   if (account.plan_set_by === "owner") return account;
-  // The highest live plan wins: somebody who bought Pro and later Ultra holds Ultra, and a leftover
-  // Pro row from an older checkout cannot drag them back down.
+  // The highest live plan wins: somebody who bought Pro and later Lite holds Pro, and a leftover
+  // Lite row from an older checkout cannot drag them back down.
   const rows = await db.prepare("SELECT plan FROM subscriptions WHERE email = ? AND status IN (?, ?, ?, ?) AND (expires_at = 0 OR expires_at > ?)")
     .bind(account.email, ...ENTITLED, at).all<{ plan: string }>();
   let target = "free";
@@ -223,8 +240,8 @@ export async function syncPlanFromSubscriptions(db: D1Database, email: string, a
   if (account.plan === target) return account;
   // A plan this ledger never set from a subscription (the free default, or a legacy grant) is not
   // ours to take away just because no live subscription exists.
-  if (target === "free" && account.plan_set_by !== "revenuecat") return account;
-  return grantPlan(db, account.email, target, "revenuecat", at);
+  if (target === "free" && account.plan_set_by !== "payments-ai") return account;
+  return grantPlan(db, account.email, target, "payments-ai", at);
 }
 
 /** One finished turn, as the app describes it. The prompt is whatever the person typed, truncated to
@@ -368,7 +385,7 @@ export async function summarize(db: D1Database, at: number): Promise<LedgerSumma
   const fresh = await one<{ count: number }>("SELECT COUNT(*) AS count FROM accounts WHERE first_seen >= ?", [week]);
   const active = await one<{ count: number }>("SELECT COUNT(*) AS count FROM accounts WHERE last_seen >= ? OR last_used >= ?", [week, week]);
   const plans = await db.prepare("SELECT plan, COUNT(*) AS count FROM accounts GROUP BY plan").all<{ plan: string; count: number }>();
-  const byPlan: Record<string, number> = { free: 0, pro: 0, ultra: 0 };
+  const byPlan: Record<string, number> = { free: 0, lite: 0, pro: 0 };
   for (const row of plans.results) byPlan[row.plan] = row.count;
   return {
     accounts: totals?.accounts ?? 0, paid: totals?.paid ?? 0, blocked: totals?.blocked ?? 0, byPlan,
@@ -386,10 +403,20 @@ export async function deleteAccount(db: D1Database, email: string): Promise<void
   if (!gone.meta?.changes) throw new Error(`No account matched ${target}.`);
 }
 
-// ── Daily token quota ─────────────────────────────────────────────────────
+// ── Daily token quota + multi-day lock ────────────────────────────────────
 
-export const DEFAULT_DAILY_TOKENS = 2_000_000;
-const QUOTA_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const DEFAULT_DAILY_TOKENS = 100_000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const TOKEN_WINDOW_MS = DAY_MS;
+export const PLAN_DAILY_TOKENS: Record<string, number> = { free: 100_000, lite: 200_000, pro: 400_000 };
+export const LOCK_DAYS_MIN = 3;
+export const LOCK_DAYS_MAX = 10;
+
+/** Hitting the limit locks the account for a random whole number of days, drawn once and stored,
+ *  so the countdown the app shows survives restarts and cannot be re-rolled by refreshing. */
+export function randomLockDays(rand: () => number = Math.random): number {
+  return LOCK_DAYS_MIN + Math.floor(rand() * (LOCK_DAYS_MAX - LOCK_DAYS_MIN + 1));
+}
 
 export type QuotaStatus = {
   allowed: boolean;
@@ -398,41 +425,77 @@ export type QuotaStatus = {
   percent: number;
   resetAt: number;
   exhausted: boolean;
+  lockDays: number;
+  lockedUntil: number;
 };
+
+function tokenLimit(account: AccountRow, serverDefault: number): number {
+  if (account.daily_tokens > 0) return account.daily_tokens;
+  return PLAN_DAILY_TOKENS[account.plan] ?? serverDefault;
+}
 
 export async function quotaStatus(db: D1Database, email: string, at: number, serverDefault = DEFAULT_DAILY_TOKENS): Promise<QuotaStatus> {
   const account = await findByEmail(db, email);
-  if (!account) return { allowed: false, used: 0, limit: serverDefault, percent: 0, resetAt: 0, exhausted: false };
-  const limit = account.daily_tokens > 0 ? account.daily_tokens : serverDefault;
+  if (!account) return { allowed: false, used: 0, limit: serverDefault, percent: 0, resetAt: 0, exhausted: false, lockDays: 0, lockedUntil: 0 };
+  const limit = tokenLimit(account, serverDefault);
   let used = account.tokens_used;
   let resetAt = account.tokens_reset_at;
-  if (resetAt > 0 && at >= resetAt + QUOTA_WINDOW_MS) {
+  let lockUntil = account.lock_until;
+  let lockDays = account.lock_days;
+  if (lockUntil > 0 && at >= lockUntil) {
+    await db.prepare("UPDATE accounts SET tokens_used = 0, tokens_reset_at = 0, lock_until = 0, lock_days = 0 WHERE email = ?").bind(account.email).run();
+    used = 0; resetAt = 0; lockUntil = 0; lockDays = 0;
+  } else if (lockUntil === 0 && resetAt > 0 && at >= resetAt + TOKEN_WINDOW_MS) {
     await db.prepare("UPDATE accounts SET tokens_used = 0, tokens_reset_at = 0 WHERE email = ?").bind(account.email).run();
-    used = 0;
-    resetAt = 0;
+    used = 0; resetAt = 0;
   }
-  const exhausted = used >= limit;
-  return { allowed: !exhausted && !account.blocked, used, limit, percent: Math.min(100, Math.round((used / limit) * 100)), resetAt: exhausted ? resetAt + QUOTA_WINDOW_MS : 0, exhausted };
+  if (used >= limit && lockUntil === 0) {
+    lockDays = randomLockDays();
+    lockUntil = at + lockDays * DAY_MS;
+    await db.prepare("UPDATE accounts SET lock_until = ?, lock_days = ? WHERE email = ?").bind(lockUntil, lockDays, account.email).run();
+    await note(db, account.email, "quota_locked", `${used}/${limit} tokens — locked ${lockDays} days`, at);
+  }
+  const exhausted = used >= limit || lockUntil > 0;
+  return {
+    allowed: !exhausted && !account.blocked, used, limit,
+    percent: Math.min(100, Math.round((used / limit) * 100)),
+    resetAt: exhausted ? lockUntil : 0, exhausted,
+    lockDays: lockUntil > 0 ? lockDays : 0, lockedUntil: lockUntil,
+  };
 }
 
+/** A finished turn debits the tokens the model provider reported for it. Crossing the limit draws
+ *  and stores the random lock. */
 export async function debitTokens(db: D1Database, email: string, tokens: number, at: number, serverDefault = DEFAULT_DAILY_TOKENS): Promise<QuotaStatus> {
   const target = accountEmail(email);
   const account = await findByEmail(db, target);
   if (!account) throw new Error("No account to debit.");
-  const limit = account.daily_tokens > 0 ? account.daily_tokens : serverDefault;
-  const debit = Math.max(0, Math.round(tokens));
+  const spent = Math.max(0, Math.round(Number(tokens) || 0));
+  const limit = tokenLimit(account, serverDefault);
   let resetAt = account.tokens_reset_at;
-  if (resetAt === 0 || at >= resetAt + QUOTA_WINDOW_MS) {
-    resetAt = at;
-    await db.prepare("UPDATE accounts SET tokens_used = ?, tokens_reset_at = ? WHERE email = ?").bind(debit, at, target).run();
+  let used: number;
+  if (account.lock_until === 0 && (resetAt === 0 || at >= resetAt + TOKEN_WINDOW_MS)) {
+    resetAt = at; used = spent;
+    await db.prepare("UPDATE accounts SET tokens_used = ?, tokens_reset_at = ? WHERE email = ?").bind(spent, at, target).run();
   } else {
-    await db.prepare("UPDATE accounts SET tokens_used = tokens_used + ? WHERE email = ?").bind(debit, target).run();
+    used = account.tokens_used + spent;
+    await db.prepare("UPDATE accounts SET tokens_used = tokens_used + ? WHERE email = ?").bind(spent, target).run();
   }
-  const updated = await findByEmail(db, target);
-  const used = updated?.tokens_used ?? debit;
-  const exhausted = used >= limit;
-  if (exhausted) await note(db, target, "quota_exhausted", `${used}/${limit} tokens`, at);
-  return { allowed: !exhausted, used, limit, percent: Math.min(100, Math.round((used / limit) * 100)), resetAt: exhausted ? resetAt + QUOTA_WINDOW_MS : 0, exhausted };
+  let lockUntil = account.lock_until;
+  let lockDays = account.lock_days;
+  if (used >= limit && lockUntil === 0) {
+    lockDays = randomLockDays();
+    lockUntil = at + lockDays * DAY_MS;
+    await db.prepare("UPDATE accounts SET lock_until = ?, lock_days = ? WHERE email = ?").bind(lockUntil, lockDays, target).run();
+    await note(db, target, "quota_locked", `${used}/${limit} tokens — locked ${lockDays} days`, at);
+  }
+  const exhausted = used >= limit || lockUntil > 0;
+  return {
+    allowed: !exhausted && !account.blocked, used, limit,
+    percent: Math.min(100, Math.round((used / limit) * 100)),
+    resetAt: exhausted ? lockUntil : 0, exhausted,
+    lockDays: lockUntil > 0 ? lockDays : 0, lockedUntil: lockUntil,
+  };
 }
 
 export async function setDailyTokens(db: D1Database, email: string, tokens: number): Promise<void> {
@@ -440,4 +503,41 @@ export async function setDailyTokens(db: D1Database, email: string, tokens: numb
   const value = Math.max(0, Math.round(tokens));
   const changes = await db.prepare("UPDATE accounts SET daily_tokens = ? WHERE email = ?").bind(value, target).run();
   if (!changes.meta?.changes) throw new Error(`No account matched ${target}.`);
+}
+
+// ── Payments AI deliveries ────────────────────────────────────────────────
+// The store tells us a customer id, not our account's email: the email arrives on customer.created,
+// which can land after the payment it belongs to. Events are kept until their customer is known.
+
+export async function savePaiCustomer(db: D1Database, customerId: string, email: string, at: number): Promise<void> {
+  const id = text(customerId, 120);
+  if (!id) return;
+  await db.prepare(`INSERT INTO pai_customers (customer_id, email, updated_at) VALUES (?, ?, ?)
+    ON CONFLICT(customer_id) DO UPDATE SET email = excluded.email, updated_at = excluded.updated_at`)
+    .bind(id, accountEmail(email), at).run();
+}
+
+export async function paiCustomerEmail(db: D1Database, customerId: string): Promise<string> {
+  const row = await db.prepare("SELECT email FROM pai_customers WHERE customer_id = ?").bind(text(customerId, 120)).first<{ email: string }>();
+  return row?.email ?? "";
+}
+
+/** Keeps the delivery once: a retry of the same eventId is dropped, not applied twice. */
+export async function recordPaiEvent(db: D1Database, input: { eventId: string; eventType: string; customerId?: string; payload: string; at: number }): Promise<boolean> {
+  const id = text(input.eventId, 120);
+  if (!id) return false;
+  const inserted = await db.prepare(`INSERT INTO pai_events (event_id, event_type, customer_id, payload, processed, received_at)
+    VALUES (?, ?, ?, ?, 0, ?) ON CONFLICT(event_id) DO NOTHING`)
+    .bind(id, text(input.eventType, 60), text(input.customerId, 120), input.payload, input.at).run();
+  return Boolean(inserted.meta?.changes);
+}
+
+export async function pendingPaiEvents(db: D1Database, customerId: string): Promise<{ event_id: string; event_type: string; payload: string }[]> {
+  const { results } = await db.prepare("SELECT event_id, event_type, payload FROM pai_events WHERE customer_id = ? AND processed = 0 ORDER BY received_at ASC")
+    .bind(text(customerId, 120)).all<{ event_id: string; event_type: string; payload: string }>();
+  return results ?? [];
+}
+
+export async function markPaiEventProcessed(db: D1Database, eventId: string): Promise<void> {
+  await db.prepare("UPDATE pai_events SET processed = 1 WHERE event_id = ?").bind(text(eventId, 120)).run();
 }

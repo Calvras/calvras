@@ -6,11 +6,22 @@ const { pathToFileURL } = require('node:url');
 const PET_WIDTH = 230;
 const PET_HEIGHT = 265;
 
-function createPetWindow({ BrowserWindow, ipcMain, Menu, screen, getMainWindow, onEnabledChange, positionPath }) {
+function createPetWindow({ BrowserWindow, ipcMain, Menu, screen, getMainWindow, onEnabledChange, positionPath, typePath }) {
   let window = null;
   let activity = { working: false, text: 'Ready when you are' };
   const page = path.join(__dirname, 'pet.html');
-  function status() { return { enabled: Boolean(window && !window.isDestroyed()), ...activity }; }
+  function readType() {
+    if (!typePath) return 'ghost';
+    try { return JSON.parse(fs.readFileSync(typePath, 'utf8')).type === 'robot' ? 'robot' : 'ghost'; }
+    catch { return 'ghost'; }
+  }
+  let petType = readType();
+  function writeType(t) {
+    petType = t;
+    if (!typePath) return;
+    try { fs.mkdirSync(path.dirname(typePath), { recursive: true }); fs.writeFileSync(typePath, JSON.stringify({ type: t })); } catch { /* best effort */ }
+  }
+  function status() { return { enabled: Boolean(window && !window.isDestroyed()), type: petType, ...activity }; }
   function publish() { onEnabledChange(status()); }
   function clampToDisplay(x, y) {
     const area = screen.getDisplayMatching({ x, y, width: PET_WIDTH, height: PET_HEIGHT }).workArea;
@@ -48,7 +59,7 @@ function createPetWindow({ BrowserWindow, ipcMain, Menu, screen, getMainWindow, 
     created.on('blur', reassertTopmost);
     created.webContents.once('did-finish-load', () => { if (!created.isDestroyed()) { created.webContents.send('pet:state', activity); created.showInactive(); reassertTopmost(); } });
     created.once('closed', () => { if (window === created) window = null; publish(); });
-    created.loadFile(page);
+    created.loadFile(page, { query: { pet: petType } });
     publish();
     return status();
   }
@@ -56,14 +67,23 @@ function createPetWindow({ BrowserWindow, ipcMain, Menu, screen, getMainWindow, 
     return Boolean(window && !window.isDestroyed()
       && event.sender === window.webContents
       && event.senderFrame === window.webContents.mainFrame
-      && event.senderFrame.url === pathToFileURL(page).href);
+      && event.senderFrame.url.split('?')[0] === pathToFileURL(page).href);
   }
   function requirePet(event) {
     if (!isPetSender(event)) throw new Error('Only the desktop pet can use this action.');
   }
+  function switchType(t) {
+    writeType(t);
+    if (window && !window.isDestroyed()) window.loadFile(page, { query: { pet: t } });
+  }
   function menu(event) {
     requirePet(event);
-    Menu.buildFromTemplate([{ label: 'Off pet', click: () => setEnabled(false) }]).popup({ window });
+    Menu.buildFromTemplate([
+      { label: 'Ghost pet', type: 'radio', checked: petType === 'ghost', click: () => switchType('ghost') },
+      { label: 'Robot pet', type: 'radio', checked: petType === 'robot', click: () => switchType('robot') },
+      { type: 'separator' },
+      { label: 'Off pet', click: () => setEnabled(false) },
+    ]).popup({ window });
   }
   function restore(event) {
     requirePet(event);
@@ -74,7 +94,7 @@ function createPetWindow({ BrowserWindow, ipcMain, Menu, screen, getMainWindow, 
     if (!isPetSender(event) || !Number.isFinite(dx) || !Number.isFinite(dy)) return;
     const [x, y] = window.getPosition();
     const next = clampToDisplay(x + dx, y + dy);
-    window.setPosition(next.x, next.y);
+    window.setBounds({ x: next.x, y: next.y, width: PET_WIDTH, height: PET_HEIGHT });
   }
   function dragEnd(event) {
     if (!isPetSender(event) || !positionPath) return;

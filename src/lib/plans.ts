@@ -1,25 +1,23 @@
-import { isBillingCycle, isPlanKey, type BillingCycle } from "./billing";
+import { CHECKOUT_URLS, type PlanKey } from "./billing";
 
 /**
  * The plans Calvras sells, and where a buyer pays for them.
  *
- * Payment runs on calvras.com through RevenueCat Web Billing, so the app only ever needs a URL: no
- * SDK key and no card details travel to the desktop. The package ids live in the site's own code
- * (see ./billing), and every paid plan on the page has a checkout rather than one that cannot bill.
+ * Payment runs on Payments AI's hosted checkout, so the app only ever needs a URL: no SDK key and no
+ * card details travel to the desktop. The plan ids live in the site's own code (see ./billing), and
+ * every paid plan on the page has a checkout rather than one that cannot bill.
  */
-export const CHECKOUT_ORIGIN = "https://calvras.com";
 
-export type PaidPlan = { name: "Pro" | "Ultra"; key: "pro" | "ultra" };
+export type PaidPlan = { name: "Lite" | "Pro"; key: PlanKey };
 
 export const paidPlans: PaidPlan[] = [
+  { name: "Lite", key: "lite" },
   { name: "Pro", key: "pro" },
-  { name: "Ultra", key: "ultra" },
 ];
 
-/** The checkout page for a plan, carrying the signed-in email so the webhook can find the account. */
-export function checkoutFor(name: string, billing: BillingCycle = "month", email = ""): string {
+/** The hosted checkout for a plan. The buyer enters the email they sign in to Calvras with there,
+ *  and the store's customer.created webhook is what ties the payment back to that account. */
+export function checkoutFor(name: string): string {
   const plan = paidPlans.find((entry) => entry.name.toLowerCase() === name.toLowerCase());
-  if (!plan || !isPlanKey(plan.key) || !isBillingCycle(billing)) return "";
-  const query = `plan=${plan.key}&billing=${billing}${email ? `&email=${encodeURIComponent(email)}` : ""}`;
-  return `${CHECKOUT_ORIGIN}/checkout?${query}`;
+  return plan ? CHECKOUT_URLS[plan.key] : "";
 }

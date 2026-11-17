@@ -18,7 +18,7 @@ import { blockReason, urlHost } from "@/lib/policy-rules";
 import { fidelityNote } from "@/lib/image-fidelity";
 import { recordUsage } from "@/lib/telemetry";
 import { reportTask } from "@/lib/site-session";
-import { PromptInput } from "@/components/ui/ai-chat-input";
+import { PromptInput } from "@/components/ui/composer-input";
 import { LinkifiedText } from "@/components/ui/markdown-content";
 import {
   type AgentPhase,

@@ -114,12 +114,12 @@ describe("the sign-in loop over HTTP", () => {
   });
 
   it("counts a second sign-in without resetting the plan", async () => {
-    sqlite.prepare("UPDATE accounts SET plan = 'ultra', plan_set_by = 'owner' WHERE email = ?").run(EMAIL);
+    sqlite.prepare("UPDATE accounts SET plan = 'pro', plan_set_by = 'owner' WHERE email = ?").run(EMAIL);
     const now = Math.floor(Date.now() / 1000);
     const answer = await postJson("/api/site/session", {
       idToken: await signedToken({ iss: "https://accounts.google.com", aud: CLIENT_ID, sub: "112233", exp: now + 3600, iat: now, email: EMAIL, email_verified: true, name: "Shikari" }),
     });
-    expect(answer.body).toMatchObject({ plan: "ultra", signins: 2 });
+    expect(answer.body).toMatchObject({ plan: "pro", signins: 2 });
     // The second request came in with no geolocation headers at all, so the console still shows the
     // place the account was last seen rather than a blank.
     expect(sqlite.prepare("SELECT city, country FROM accounts WHERE email = ?").get(EMAIL)).toEqual(expect.objectContaining({ city: "Lahore", country: "PK" }));
@@ -129,7 +129,7 @@ describe("the sign-in loop over HTTP", () => {
     const before = await getJson("/api/site/admin/summary", admin);
     expect(before.status).toBe(200);
     expect(before.body.summary).toMatchObject({ accounts: 1, paid: 1 });
-    expect(before.body.accounts[0]).toMatchObject({ email: EMAIL, plan: "ultra", city: "Lahore", country: "PK" });
+    expect(before.body.accounts[0]).toMatchObject({ email: EMAIL, plan: "pro", city: "Lahore", country: "PK" });
 
     const granted = await postJson("/api/site/admin/grant", { email: EMAIL, plan: "pro" }, admin);
     expect(granted.body).toMatchObject({ ok: true, account: { plan: "pro", plan_set_by: "owner" } });

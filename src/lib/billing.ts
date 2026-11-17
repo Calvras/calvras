@@ -1,117 +1,69 @@
 /**
- * RevenueCat Web Billing: what Calvras sells, which package each plan is bought as, and how the site
- * proves a webhook came from RevenueCat.
+ * Payments AI, the merchant of record: what Calvras sells and how the site proves a webhook came
+ * from the store. The checkout URLs are public — every buyer can read them — so they live in code.
+ * The webhook signing secret is a Worker secret and never reaches a browser.
  *
- * The public SDK key and the product ids are public — they ride in the checkout page every buyer can
- * read — so they live in code. The webhook secret is a Worker secret and never reaches a browser.
- *
- * Setup that has to exist in the RevenueCat dashboard for these ids to resolve:
- *   entitlement "pro"   → calvras_pro_month, calvras_pro_year
- *   entitlement "ultra" → calvras_ultra_month, calvras_ultra_year
- *   offering "calvras"  → packages pro_month, pro_year, ultra_month, ultra_year
+ * Setup that has to exist in the Payments AI dashboard for these ids to resolve:
+ *   product "calvras" → plan Lite $12/month and plan Pro $30/month, recurring, billed every 1 month.
  */
 
-export type PlanKey = "pro" | "ultra";
-export type BillingCycle = "month" | "year";
+export type PlanKey = "lite" | "pro";
 
-export const PLAN_LABELS: Record<PlanKey, string> = { pro: "Pro", ultra: "Ultra" };
+export const PLAN_LABELS: Record<PlanKey, string> = { lite: "Lite", pro: "Pro" };
 
-export const BILLING_OFFERING = "calvras";
-
-export const PACKAGE_IDS: Record<PlanKey, Record<BillingCycle, string>> = {
-  pro: { month: "pro_month", year: "pro_year" },
-  ultra: { month: "ultra_month", year: "ultra_year" },
+/** The hosted checkout for each plan, exactly as the dashboard created it. */
+export const CHECKOUT_URLS: Record<PlanKey, string> = {
+  lite: "https://mor.payments.ai/payment/01a1e81a-f39f-792d-b320-8a32c2c49905",
+  pro: "https://mor.payments.ai/payment/01a1e81d-0489-740f-89e4-4c477f0d58cc",
 };
 
-/** The product identifiers the dashboard's web catalog has to carry, in the same shape. */
-export const PRODUCT_IDS: Record<PlanKey, Record<BillingCycle, string>> = {
-  pro: { month: "calvras_pro_month", year: "calvras_pro_year" },
-  ultra: { month: "calvras_ultra_month", year: "calvras_ultra_year" },
-};
+/** What the pricing page prints: the amount each dashboard plan was created with, in USD. */
+export const LIST_PRICES: Record<PlanKey, number> = { lite: 12, pro: 30 };
 
-/** What the pricing page prints. RevenueCat charges what the dashboard says, so this is the same
- *  list price the product was created with — not a figure read back from a receipt. */
-export const LIST_PRICES: Record<PlanKey, Record<BillingCycle, string>> = {
-  pro: { month: "9.00", year: "79.00" },
-  ultra: { month: "20.00", year: "179.00" },
-};
+export const isPlanKey = (value: unknown): value is PlanKey => value === "lite" || value === "pro";
 
-export const isPlanKey = (value: unknown): value is PlanKey => value === "pro" || value === "ultra";
-export const isBillingCycle = (value: unknown): value is BillingCycle => value === "month" || value === "year";
-
-export function packageKey(plan: unknown, billing: unknown): string {
-  if (!isPlanKey(plan)) return "";
-  return PACKAGE_IDS[plan][isBillingCycle(billing) ? billing : "month"];
+export function listPrice(plan: PlanKey): string {
+  return LIST_PRICES[plan].toFixed(2);
 }
 
-export function listPrice(plan: PlanKey, billing: BillingCycle): string {
-  return LIST_PRICES[plan][billing];
-}
-
-/** RevenueCat names the product, not the plan. The catalog above is the only place that knows how
- *  a product id becomes a plan, and an id it does not recognize is left alone rather than guessed. */
-export function planForProduct(productId: unknown): { plan: PlanKey; billing: BillingCycle } | null {
-  const wanted = String(productId ?? "").trim().toLowerCase();
-  if (!wanted) return null;
-  for (const plan of Object.keys(PRODUCT_IDS) as PlanKey[]) {
-    for (const billing of ["month", "year"] as BillingCycle[]) {
-      if (PRODUCT_IDS[plan][billing].toLowerCase() === wanted) return { plan, billing };
-    }
-  }
+/** Payments AI deliveries carry no plan id, only what was charged, so the amount is the catalog key.
+ *  An amount the store does not sell is left alone rather than guessed at. */
+export function planForAmount(amount: unknown): PlanKey | null {
+  const value = Number(amount);
+  if (value === LIST_PRICES.lite) return "lite";
+  if (value === LIST_PRICES.pro) return "pro";
   return null;
 }
 
-/** Entitlements are the durable thing RevenueCat tracks. A person can hold both if they upgraded
- *  before the old plan lapsed, and the higher plan is what they are paying for. */
-export function planForEntitlements(ids: unknown): PlanKey | null {
-  const list = Array.isArray(ids) ? ids.map((id) => String(id).toLowerCase()) : [];
-  if (list.includes("ultra")) return "ultra";
-  if (list.includes("pro")) return "pro";
-  return null;
+/** Every plan on sale, in the shape the pricing page and the console read. */
+export function packageCatalog(): { plan: PlanKey; label: string; price: string; checkout: string }[] {
+  return (Object.keys(CHECKOUT_URLS) as PlanKey[]).map((plan) => ({ plan, label: PLAN_LABELS[plan], price: listPrice(plan), checkout: CHECKOUT_URLS[plan] }));
 }
 
-/** Every package the checkout page needs to find, in the shape it reads. */
-export function packageCatalog(): { plan: PlanKey; label: string; billing: BillingCycle; packageId: string; productId: string; price: string }[] {
-  const rows: { plan: PlanKey; label: string; billing: BillingCycle; packageId: string; productId: string; price: string }[] = [];
-  for (const plan of Object.keys(PACKAGE_IDS) as PlanKey[]) {
-    for (const billing of ["month", "year"] as BillingCycle[]) {
-      rows.push({ plan, label: PLAN_LABELS[plan], billing, packageId: PACKAGE_IDS[plan][billing], productId: PRODUCT_IDS[plan][billing], price: LIST_PRICES[plan][billing] });
-    }
-  }
-  return rows;
-}
-
-/** The account a purchase belongs to. Checkout configures the SDK with the signed-in email as the
- *  app user id, so that is the field every event carries. */
+/** The account a purchase belongs to. Payments AI sends the buyer's email on customer.created; the
+ *  payment and subscription events carry the customer id that points at it. */
 export function buyerEmail(event: Record<string, unknown>): string {
-  const identity = (event["identity"] || {}) as Record<string, unknown>;
-  const raw = event["app_user_id"] ?? identity["app_user_id"] ?? event["original_app_user_id"];
-  return String(raw ?? "").trim().toLowerCase();
+  return String(event["email"] ?? "").trim().toLowerCase();
 }
 
 /**
- * RevenueCat signs each delivery as `t=<seconds>,v1=<hex hmac>` over `<t>.<raw body>` with SHA-256.
- * The signature is opt-in in the dashboard; the plain Authorization header it also sends is checked
- * separately. The timestamp is bounded so a captured request cannot be replayed forever — but the
- * bound is a day, not minutes, because RevenueCat retries a delivery after a deploy and a replay only
- * rewrites the same ledger row.
+ * Payments AI signs each delivery as `sha256=<hex hmac>` over `<timestamp>.<raw body>` with SHA-256,
+ * the timestamp arriving in X-Webhook-Timestamp as whole seconds. The body is verified before it is
+ * parsed, because re-serializing JSON changes the bytes the signature covers. The timestamp bound is
+ * a day, not minutes: the store retries a delivery up to 15 minutes later and a replay of a signed
+ * event only rewrites the same ledger row, which the eventId dedupe already drops.
  */
-export async function verifyRevenueCatSignature(header: string | null, rawBody: string, secret: string, nowMs: number, toleranceMs = 24 * 60 * 60 * 1000): Promise<boolean> {
-  const raw = String(header ?? "").trim();
-  if (!raw || !secret) return false;
-  const parts = raw.split(",").map((piece) => piece.trim()).filter(Boolean);
-  const ts = Number(parts.find((piece) => piece.startsWith("t="))?.slice(2));
-  const signatures = parts.filter((piece) => piece.startsWith("v1=")).map((piece) => piece.slice(3)).filter(Boolean);
-  if (!Number.isFinite(ts) || !signatures.length) return false;
+export async function verifyPaymentsAiSignature(signatureHeader: string | null, timestampHeader: string | null, rawBody: string, secret: string, nowMs: number, toleranceMs = 24 * 60 * 60 * 1000): Promise<boolean> {
+  const signature = String(signatureHeader ?? "").trim();
+  const ts = Number(String(timestampHeader ?? "").trim());
+  if (!signature.startsWith("sha256=") || !secret || !Number.isFinite(ts)) return false;
   if (Math.abs(nowMs - ts * 1000) > toleranceMs) return false;
+  const digest = signature.slice(7);
+  const bytes = hexBytes(digest);
+  if (!bytes) return false;
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
-  const message = encoder.encode(`${ts}.${rawBody}`);
-  for (const signature of signatures) {
-    const bytes = hexBytes(signature);
-    if (bytes && await crypto.subtle.verify("HMAC", key, bytes.buffer as ArrayBuffer, message)) return true;
-  }
-  return false;
+  return await crypto.subtle.verify("HMAC", key, bytes.buffer as ArrayBuffer, encoder.encode(`${ts}.${rawBody}`));
 }
 
 function hexBytes(value: string): Uint8Array | null {

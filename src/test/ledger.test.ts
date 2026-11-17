@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { LEDGER_SCHEMA, accountEmail, deleteAccount, findByEmail, grantPlan, listAccounts, normalizePlan, recentEvents, recordSignIn, saveSubscription, summarize, quotaStatus, debitTokens, setDailyTokens, DEFAULT_DAILY_TOKENS, type D1Database } from "../lib/runtime/ledger";
+import { LEDGER_SCHEMA, accountEmail, deleteAccount, findByEmail, grantPlan, listAccounts, normalizePlan, recentEvents, recordSignIn, saveSubscription, summarize, quotaStatus, debitChat, setDailyChats, DEFAULT_DAILY_CHATS, randomLockDays, LOCK_DAYS_MIN, LOCK_DAYS_MAX, type D1Database } from "../lib/runtime/ledger";
 import { PRODUCT_IDS } from "../lib/billing";
 import { handleSiteApi, platformBindings } from "../lib/site-api";
 import { d1Shim } from "./sqlite-d1";
@@ -24,7 +24,7 @@ describe("ledger schema", () => {
   it("is the SQL the deployed migrations apply", () => {
     const read = (name: string) => readFileSync(resolve(process.cwd(), "migrations", name), "utf8");
     const deployed = new DatabaseSync(":memory:");
-    for (const file of ["0001_ledger.sql", "0002_account_location.sql", "0003_block_and_usage.sql", "0004_account_places.sql", "0005_subscriptions.sql", "0006_subscription_expiry.sql", "0007_daily_quota.sql"]) deployed.exec(read(file));
+    for (const file of ["0001_ledger.sql", "0002_account_location.sql", "0003_block_and_usage.sql", "0004_account_places.sql", "0005_subscriptions.sql", "0006_subscription_expiry.sql", "0007_daily_quota.sql", "0008_chats_and_lock.sql"]) deployed.exec(read(file));
     const shape = (handle: DatabaseSync) =>
       [
         ...["accounts", "events", "usage", "meta", "subscriptions"].flatMap((table) => (handle.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((column) => `${table}.${column["name"]}`)),
@@ -35,7 +35,8 @@ describe("ledger schema", () => {
   });
 
   it("names plans in the three the app sells", () => {
-    expect(normalizePlan("ULTRA")).toBe("ultra");
+    expect(normalizePlan("LITE")).toBe("lite");
+    expect(normalizePlan("ultra")).toBeNull();
     expect(normalizePlan("enterprise")).toBeNull();
     expect(normalizePlan("")).toBeNull();
   });
@@ -59,9 +60,9 @@ describe("sign-ins", () => {
 
   it("keeps the plan and first-seen when the same person returns", async () => {
     await recordSignIn(db, { email: "dev@calvras.com", name: "Dev", at: 1_000 });
-    await grantPlan(db, "dev@calvras.com", "ultra", "owner", 1_500);
+    await grantPlan(db, "dev@calvras.com", "pro", "owner", 1_500);
     const again = await recordSignIn(db, { email: "dev@calvras.com", name: "Dev Renamed", at: 2_000 });
-    expect(again.plan).toBe("ultra");
+    expect(again.plan).toBe("pro");
     expect(again.plan_set_by).toBe("owner");
     expect(again.first_seen).toBe(1_000);
     expect(again.last_seen).toBe(2_000);
@@ -96,7 +97,7 @@ describe("grants", () => {
 
   it("refuses a plan the store does not sell", async () => {
     await recordSignIn(db, { email: "dev@calvras.com", at: 1 });
-    await expect(grantPlan(db, "dev@calvras.com", "diamond", "owner", 2)).rejects.toThrow(/free, pro, or ultra/);
+    await expect(grantPlan(db, "dev@calvras.com", "diamond", "owner", 2)).rejects.toThrow(/free, lite, or pro/);
   });
 
   it("records who set it and downgrades too", async () => {
@@ -117,7 +118,7 @@ describe("summaries and forgetting", () => {
     await recordSignIn(db, { email: "b@calvras.com", at: now - 40 * 86_400_000 });
     await grantPlan(db, "a@calvras.com", "pro", "owner", now);
     const summary = await summarize(db, now);
-    expect(summary).toMatchObject({ accounts: 2, paid: 1, byPlan: { free: 1, pro: 1, ultra: 0 }, newThisWeek: 1, activeThisWeek: 1 });
+    expect(summary).toMatchObject({ accounts: 2, paid: 1, byPlan: { free: 1, lite: 0, pro: 1 }, newThisWeek: 1, activeThisWeek: 1 });
     expect(summary.lastSeen).toBe(now);
   });
 
@@ -172,8 +173,8 @@ describe("the site API in front of the ledger", () => {
     expect(summary.sales.sales).toEqual([]);
     expect(summary.sales.note).toMatch(/RevenueCat/);
 
-    const granted = await (await handleSiteApi(request("/api/site/admin/grant", jsonInit({ email: "ada@calvras.com", plan: "ultra" }, headers)), env))?.json();
-    expect(granted.account.plan).toBe("ultra");
+    const granted = await (await handleSiteApi(request("/api/site/admin/grant", jsonInit({ email: "ada@calvras.com", plan: "pro" }, headers)), env))?.json();
+    expect(granted.account.plan).toBe("pro");
 
     const refused = await handleSiteApi(request("/api/site/admin/grant", jsonInit({ email: "ada@calvras.com", plan: "diamond" }, headers)), env);
     expect(refused?.status).toBe(400);
@@ -200,7 +201,7 @@ describe("the site API in front of the ledger", () => {
     expect(text).toContain("txn_1");
     expect(text).toContain("ada@calvras.com");
     expect(text).toContain("Pro");
-    expect(text).toContain("9.00");
+    expect(text).toContain("20.00");
   });
 });
 
@@ -237,58 +238,90 @@ describe("the bindings the deployed Worker actually hands over", () => {
   });
 });
 
-describe("daily token quota", () => {
+describe("daily chat quota and multi-day lock", () => {
+  const DAY = 24 * 60 * 60 * 1000;
   it("starts at zero and allows inference", async () => {
     await recordSignIn(db, { email: "dev@calvras.com", at: 1_000 });
     const status = await quotaStatus(db, "dev@calvras.com", 2_000);
     expect(status.allowed).toBe(true);
     expect(status.used).toBe(0);
-    expect(status.limit).toBe(DEFAULT_DAILY_TOKENS);
+    expect(status.limit).toBe(DEFAULT_DAILY_CHATS);
     expect(status.percent).toBe(0);
   });
 
-  it("debits tokens and reports percentage", async () => {
+  it("debits one chat per turn and reports percentage", async () => {
     await recordSignIn(db, { email: "dev@calvras.com", at: 1_000 });
-    const after = await debitTokens(db, "dev@calvras.com", 500_000, 2_000);
-    expect(after.used).toBe(500_000);
-    expect(after.percent).toBe(25);
+    const after = await debitChat(db, "dev@calvras.com", 2_000);
+    expect(after.used).toBe(1);
+    expect(after.percent).toBe(Math.round((1 / DEFAULT_DAILY_CHATS) * 100));
     expect(after.allowed).toBe(true);
     expect(after.exhausted).toBe(false);
   });
 
-  it("locks at 100% and reports a 24h reset", async () => {
+  it("draws a random 3-10 day lock when the limit is hit and stores it", async () => {
     await recordSignIn(db, { email: "dev@calvras.com", at: 1_000 });
-    await debitTokens(db, "dev@calvras.com", DEFAULT_DAILY_TOKENS, 5_000);
+    for (let i = 0; i < DEFAULT_DAILY_CHATS; i++) await debitChat(db, "dev@calvras.com", 5_000 + i);
     const status = await quotaStatus(db, "dev@calvras.com", 6_000);
     expect(status.allowed).toBe(false);
     expect(status.exhausted).toBe(true);
     expect(status.percent).toBe(100);
-    expect(status.resetAt).toBe(5_000 + 24 * 60 * 60 * 1000);
+    expect(status.lockDays).toBeGreaterThanOrEqual(LOCK_DAYS_MIN);
+    expect(status.lockDays).toBeLessThanOrEqual(LOCK_DAYS_MAX);
+    expect(status.lockedUntil).toBe(5_000 + (DEFAULT_DAILY_CHATS - 1) + status.lockDays * DAY);
+    expect(status.resetAt).toBe(status.lockedUntil);
+    // The drawn lock is persisted, not re-rolled on the next read.
+    const again = await quotaStatus(db, "dev@calvras.com", 7_000);
+    expect(again.lockDays).toBe(status.lockDays);
+    expect(again.lockedUntil).toBe(status.lockedUntil);
   });
 
-  it("resets after 24 hours", async () => {
+  it("stays locked through the old 24h window and opens after the drawn days", async () => {
     await recordSignIn(db, { email: "dev@calvras.com", at: 1_000 });
-    await debitTokens(db, "dev@calvras.com", DEFAULT_DAILY_TOKENS, 5_000);
-    const later = 5_000 + 24 * 60 * 60 * 1000 + 1;
+    for (let i = 0; i < DEFAULT_DAILY_CHATS; i++) await debitChat(db, "dev@calvras.com", 5_000 + i);
+    const locked = await quotaStatus(db, "dev@calvras.com", 6_000);
+    const stillLocked = await quotaStatus(db, "dev@calvras.com", 5_000 + DAY + 1);
+    expect(stillLocked.allowed).toBe(false);
+    const later = locked.lockedUntil + 1;
     const status = await quotaStatus(db, "dev@calvras.com", later);
     expect(status.allowed).toBe(true);
     expect(status.used).toBe(0);
     expect(status.exhausted).toBe(false);
+    expect(status.lockDays).toBe(0);
   });
 
   it("respects a per-account override", async () => {
     await recordSignIn(db, { email: "dev@calvras.com", at: 1_000 });
-    await setDailyTokens(db, "dev@calvras.com", 1000);
-    const after = await debitTokens(db, "dev@calvras.com", 1000, 2_000);
-    expect(after.limit).toBe(1000);
+    await setDailyChats(db, "dev@calvras.com", 2);
+    await debitChat(db, "dev@calvras.com", 2_000);
+    const after = await debitChat(db, "dev@calvras.com", 3_000);
+    expect(after.limit).toBe(2);
     expect(after.exhausted).toBe(true);
   });
 
-  it("accumulates across multiple debits in the same window", async () => {
+  it("accumulates across multiple chats in the same window", async () => {
     await recordSignIn(db, { email: "dev@calvras.com", at: 1_000 });
-    await debitTokens(db, "dev@calvras.com", 100, 2_000);
-    await debitTokens(db, "dev@calvras.com", 200, 3_000);
+    await debitChat(db, "dev@calvras.com", 2_000);
+    await debitChat(db, "dev@calvras.com", 3_000);
     const status = await quotaStatus(db, "dev@calvras.com", 4_000);
-    expect(status.used).toBe(300);
+    expect(status.used).toBe(2);
+  });
+
+  it("scales the allowance by plan: lite 2x, pro 4x", async () => {
+    await recordSignIn(db, { email: "lite@calvras.com", at: 1 });
+    await grantPlan(db, "lite@calvras.com", "lite", "owner", 2);
+    await recordSignIn(db, { email: "pro@calvras.com", at: 1 });
+    await grantPlan(db, "pro@calvras.com", "pro", "owner", 2);
+    expect((await quotaStatus(db, "lite@calvras.com", 3)).limit).toBe(DEFAULT_DAILY_CHATS * 2);
+    expect((await quotaStatus(db, "pro@calvras.com", 3)).limit).toBe(DEFAULT_DAILY_CHATS * 4);
+  });
+
+  it("randomLockDays stays inside the 3-10 band", () => {
+    for (const r of [0, 0.5, 0.999]) {
+      const days = randomLockDays(() => r);
+      expect(days).toBeGreaterThanOrEqual(LOCK_DAYS_MIN);
+      expect(days).toBeLessThanOrEqual(LOCK_DAYS_MAX);
+    }
+    expect(randomLockDays(() => 0)).toBe(LOCK_DAYS_MIN);
+    expect(randomLockDays(() => 0.999)).toBe(LOCK_DAYS_MAX);
   });
 });

@@ -191,14 +191,14 @@ try {
     }));
     return { cards, note: document.querySelector(".pricing-note")?.innerText.trim() || "" };
   });
-  // Every paid card has a RevenueCat package behind it, so all of them must be sellable out of the box.
-  const paid = pricing.cards.filter((card) => card.name !== "Starter");
+  // Every paid card has a Payments AI checkout behind it, so all of them must be sellable out of the box.
+  const paid = pricing.cards.filter((card) => card.name !== "Free");
   const buyable = paid.every((card) => card.badge === "In the store");
-  checks.push([`the pricing page sells the plans RevenueCat really has, monthly (${JSON.stringify(pricing.cards).slice(0, 200)} | note: ${pricing.note.slice(0, 80)})`,
+  checks.push([`the pricing page sells the plans Payments AI really has, monthly (${JSON.stringify(pricing.cards).slice(0, 200)} | note: ${pricing.note.slice(0, 80)})`,
     pricing.cards.length === 3
       && buyable
       && paid.every((card) => /^Upgrade to/.test(card.button))
-      && /RevenueCat/.test(pricing.note)]);
+      && /Payments AI/.test(pricing.note)]);
   if (buyable) {
     // The click hands the buyer to the browser; the app window must stay on the pricing page.
     const before = page.url();

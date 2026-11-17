@@ -286,7 +286,7 @@ export function SettingsPanel({ open, onOpenChange }: { open: boolean; onOpenCha
   }, [open]);
 
   // Payment belongs to the website, not to this window: the pill hands the buyer to the pricing page
-  // in their browser, where Upgrade opens the RevenueCat checkout.
+  // in their browser, where Upgrade opens the Payments AI checkout.
   const openPricing = () => { const bridge = desktop(); onOpenChange(false); if (bridge?.openExternal) void bridge.openExternal("https://calvras.com/pricing"); else window.location.href = "https://calvras.com/pricing"; };
   const openCheckout = (url: string) => { const bridge = desktop(); if (bridge?.openExternal) void bridge.openExternal(url); else window.location.href = url; };
 
@@ -584,11 +584,11 @@ export function SettingsPanel({ open, onOpenChange }: { open: boolean; onOpenCha
           {route.page === "usage" && <>
             <Group label="Plan">
               <Card>
-                <Row title={`Your plan: ${profile.plan ? planLabel(profile.plan) : "Calvras Local"}`} description={profile.plan ? `Set on calvras.com for ${profile.email || "this account"} by your subscription. Signing in again refreshes it.` : "This install runs on this computer. Paid tiers are billed through RevenueCat on calvras.com."}>
+                <Row title={`Your plan: ${profile.plan ? planLabel(profile.plan) : "Calvras Local"}`} description={profile.plan ? `Set on calvras.com for ${profile.email || "this account"} by your subscription. Signing in again refreshes it.` : "This install runs on this computer. Paid tiers are billed through Payments AI on calvras.com."}>
                   <button type="button" className="settings-milk" onClick={openPricing}>Upgrade plan</button>
                 </Row>
-                {paidPlans.map((plan) => { const checkout = checkoutFor(plan.name, "month", profile.email || ""); return (
-                  <Row key={plan.name} title={plan.name} description={checkout ? "Billed through RevenueCat. Opening checkout does not charge you." : "Not on sale in the store yet."}>
+                {paidPlans.map((plan) => { const checkout = checkoutFor(plan.name); return (
+                  <Row key={plan.name} title={plan.name} description={checkout ? "Billed through Payments AI. Opening checkout does not charge you." : "Not on sale in the store yet."}>
                     {checkout ? <button type="button" className="settings-control" onClick={() => openCheckout(checkout)}>Open checkout</button> : null}
                   </Row>
                 ); })}
@@ -621,7 +621,7 @@ export function SettingsPanel({ open, onOpenChange }: { open: boolean; onOpenCha
 
             <Group label="Billing">
               <Card>
-                <Row title="Payment method" description="Cards, renewals and receipts are handled by RevenueCat on calvras.com. No payment credential is saved on this computer." />
+                <Row title="Payment method" description="Cards, renewals and receipts are handled by Payments AI on calvras.com. No payment credential is saved on this computer." />
               </Card>
             </Group>
           </>}

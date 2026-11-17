@@ -212,18 +212,21 @@ Roughly 70 tools are callable in a turn (`src/lib/tool-catalog.ts` and the runti
 
 ## Not shipped yet (stated honestly)
 
-- **Checkout is wired to RevenueCat, and waits on the store's own catalog.** The pricing page's
-  Monthly/Yearly toggle sends a buyer to `/checkout` with the package for that period; RevenueCat
-  renders the payment there, and a paid purchase reaches the account through the signed webhook at
-  `/api/site/billing/webhook`. Until `REVENUECAT_PUBLIC_KEY` and `REVENUECAT_WEBHOOK_SECRET` are set
-  on the Worker — and the `calvras` offering carries packages `pro_month`, `pro_year`, `ultra_month`
-  and `ultra_year` — the page says checkout is not switched on rather than taking money it cannot
-  record. Yearly prices are $79 for Pro and $179 for Ultra.
-- **Owner console: sales come from RevenueCat's webhooks.** `/admin-calvras` runs live on calvras.com
+- **Checkout is wired to Payments AI, the merchant of record.** The pricing page sells Lite at
+  $12/month and Pro at $30/month; Upgrade opens the store's hosted checkout
+  (`mor.payments.ai/payment/…`) in the buyer's browser, so no card detail touches Calvras. A paid
+  purchase reaches the account through the signed webhook at `POST /pricing` (the destination
+  registered in the Payments AI dashboard): the signature is HMAC-SHA256 over
+  `<timestamp>.<raw body>` with the `PAI_WEBHOOK_SECRET` Worker secret, deliveries are deduped on
+  `eventId`, and the plan is inferred from the amount charged ($12 → Lite, $30 → Pro).
+  `customer.created` carries the buyer's email and ties the payment to the account that signs in
+  with it; until that secret is set on the Worker the endpoint answers 503 rather than trusting an
+  unsigned delivery.
+- **Owner console: sales come from Payments AI's webhooks.** `/admin-calvras` runs live on calvras.com
   against the account ledger — plans, blocks, per-account usage, the daily report and the chat over the
-  ledger. Its Sales panel lists the subscription rows RevenueCat delivered, with each plan's list
-  price; it holds no secret key and never calls RevenueCat's API, so a sale that never reached the
-  webhook is a question for the RevenueCat dashboard.
+  ledger. Its Sales panel lists the subscription rows Payments AI delivered, with each plan's list
+  price; it holds no secret key and never calls Payments AI's API, so a sale that never reached the
+  webhook is a question for the Payments AI dashboard.
 - **Old sign-ins hold no session token.** An account that signed in before 10.0.7 cannot be blocked or
   report usage until it signs in through Google or GitHub once more.
 - **Sign-in values travel with the installer.** Both OAuth apps' client ids and secrets are staged

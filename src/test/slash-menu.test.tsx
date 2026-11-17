@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { PromptInput } from "../components/ui/ai-chat-input";
+import { PromptInput } from "../components/ui/composer-input";
 
 // Directive commands attach a removable chip and keep the textarea empty; the hidden
 // directive is only sent on submit, never shown as a sentence.

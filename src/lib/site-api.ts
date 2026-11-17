@@ -1,8 +1,8 @@
 import { verifyGoogleIdentity } from "./runtime/google-identity";
 import { verifyGitHubIdentity } from "./runtime/github-identity";
-import { accountEvents, accountUsage, deleteAccount, findByEmail, grantPlan, ledgerRevision, listAccounts, listSubscriptions, note, readMeta, recentEvents, recentPrompts, recordSignIn, recordTask, saveSubscription, setBlocked, summarize, syncPlanFromSubscriptions, touchUsed, usageBoard, writeMeta, quotaStatus, debitTokens, setDailyTokens, DEFAULT_DAILY_TOKENS, type D1Database } from "./runtime/ledger";
+import { accountEvents, accountUsage, deleteAccount, findByEmail, grantPlan, ledgerRevision, listAccounts, listSubscriptions, note, readMeta, recentEvents, recentPrompts, recordSignIn, recordTask, saveSubscription, setBlocked, summarize, syncPlanFromSubscriptions, touchUsed, usageBoard, writeMeta, quotaStatus, debitTokens, setDailyTokens, DEFAULT_DAILY_TOKENS, savePaiCustomer, paiCustomerEmail, recordPaiEvent, pendingPaiEvents, markPaiEventProcessed, subscriptionById, type D1Database } from "./runtime/ledger";
 import { issueSession, readSession, signingKey } from "./runtime/session-token";
-import { BILLING_OFFERING, buyerEmail, isPlanKey, listPrice, packageCatalog, PLAN_LABELS, planForEntitlements, planForProduct, verifyRevenueCatSignature } from "./billing";
+import { buyerEmail, isPlanKey, listPrice, packageCatalog, PLAN_LABELS, planForAmount, verifyPaymentsAiSignature, CHECKOUT_URLS } from "./billing";
 
 /**
  * The public site's own API: who has signed in, what plan they hold, and what the owner can do about
@@ -14,12 +14,9 @@ export type SiteEnv = {
   CALVRAS_DB?: D1Database;
   CALVRAS_ADMIN_TOKEN?: string;
   GOOGLE_CLIENT_ID?: string;
-  /** RevenueCat Web Billing: the public SDK key opens a checkout in the buyer's browser, the webhook
-   *  secret (or the plain Authorization value set in the dashboard) is what makes a delivery
-   *  trustworthy. Neither can read the project or move money. */
-  REVENUECAT_PUBLIC_KEY?: string;
-  REVENUECAT_WEBHOOK_SECRET?: string;
-  REVENUECAT_WEBHOOK_AUTH?: string;
+  /** Payments AI, the merchant of record: the checkout URLs are public, the webhook signing secret
+   *  is what makes a delivery trustworthy. It can read nothing else and move no money. */
+  PAI_WEBHOOK_SECRET?: string;
   /** The console's own analyst. Left unset, the daily report is still written from the ledger's
    * numbers and only the chat panel says it needs a key — nothing else depends on it. */
   CALVRAS_AI_KEY?: string;
@@ -79,7 +76,7 @@ function signInLocation(request: Request): { city: string; country: string } {
 }
 
 /**
- * Sales are read from the ledger, not from RevenueCat's API. Every purchase, renewal and cancellation
+ * Sales are read from the ledger, not from the store's API. Every purchase, renewal and cancellation
  * arrives here as a webhook and is kept in the subscriptions table, so the console shows what was
  * actually recorded for this site — and the amount shown is the plan's list price, not a receipt.
  */
@@ -90,19 +87,18 @@ async function fetchSales(db: D1Database): Promise<Record<string, unknown>> {
       configured: true,
       source: "webhooks",
       sales: [],
-      note: "No RevenueCat purchase has reached this site yet. Each purchase, renewal and cancellation is recorded here as its webhook arrives.",
+      note: "No Payments AI purchase has reached this site yet. Each purchase, renewal and cancellation is recorded here as its webhook arrives.",
     };
   }
   const sales = rows.map((row) => {
-    const match = planForProduct(row.product_id);
     return {
       reference: row.id,
       email: row.email,
-      amount: match ? listPrice(match.plan, match.billing) : "",
+      amount: isPlanKey(row.plan) ? listPrice(row.plan) : "",
       currency: row.currency || "USD",
       status: row.status,
       plan: isPlanKey(row.plan) ? PLAN_LABELS[row.plan] : "",
-      billing: match?.billing ?? "",
+      billing: "month",
       at: row.updated_at ? new Date(row.updated_at).toISOString() : "",
       expires: row.expires_at ? new Date(row.expires_at).toISOString() : "",
     };
@@ -110,63 +106,111 @@ async function fetchSales(db: D1Database): Promise<Record<string, unknown>> {
   return { configured: true, source: "webhooks", sales, total: sales.length };
 }
 
-/** RevenueCat's statuses, in the words the ledger and the console already use. A cancellation keeps
- *  its access until expiration, which is why "canceled" still counts as entitled in the ledger. */
-function subscriptionStatus(kind: string): string {
-  if (kind === "EXPIRATION") return "expired";
-  if (kind === "CANCELLATION") return "canceled";
-  if (kind === "BILLING_ISSUE") return "past_due";
-  if (kind === "SUBSCRIPTION_PAUSED") return "paused";
+/** Payments AI's billing state, in the words the ledger and the console already use. A cancellation
+ *  keeps its access until the period it already paid for ends. */
+function subscriptionStatus(state: unknown): string {
+  const status = String(state ?? "");
+  if (status === "inactive") return "expired";
+  if (status === "canceling") return "canceled";
   return "active";
 }
 
-/**
- * One RevenueCat delivery, applied to the ledger. RevenueCat says what happened; this site decides
- * what it means, and only a product id from its own catalog or a known entitlement can hand out a
- * plan. Every branch is idempotent, because RevenueCat retries a delivery it did not see answered.
- */
-async function applyRevenueCatEvent(db: D1Database, event: Record<string, unknown>, at: number): Promise<void> {
-  const kind = String(event["type"] || "").toUpperCase();
-  if (kind === "TEST") return;
-  const email = buyerEmail(event);
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return;
+const periodEnd = (value: unknown): number => {
+  const parsed = Date.parse(String(value ?? ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+};
 
-  if (kind === "TRANSFER") {
-    // Purchases moved to a different app user id. The ledger keys on the signed-in email, so the rows
-    // follow the transfer rather than leaving the new owner unentitled until their next renewal.
-    const from = Array.isArray(event["transferred_from"]) ? (event["transferred_from"] as unknown[]).map((id) => String(id).trim().toLowerCase()) : [];
-    for (const old of from) {
-      if (!old || old === email) continue;
-      await db.prepare("UPDATE subscriptions SET email = ?, updated_at = ? WHERE email = ?").bind(email, at, old).run();
-      await syncPlanFromSubscriptions(db, old, at);
+/**
+ * One Payments AI delivery, applied to the ledger. The store says what happened; this site decides
+ * what it means, and only an amount from its own catalog can hand out a plan. The buyer's email is
+ * not on payment events, so a delivery whose customer is not known yet stays in pai_events until
+ * customer.created lands and flushes it. Every branch is idempotent: the store retries a delivery it
+ * did not see answered, and the eventId dedupe drops the repeat before any of this runs.
+ */
+async function applyPaymentsAiEvent(db: D1Database, eventType: string, event: Record<string, unknown>, at: number): Promise<void> {
+  const customerId = String(event["customerId"] || "").trim();
+
+  if (eventType === "customer.created") {
+    const email = buyerEmail(event);
+    if (!customerId || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return;
+    await savePaiCustomer(db, customerId, email, at);
+    for (const pending of await pendingPaiEvents(db, customerId)) {
+      let parsed: Record<string, unknown>;
+      try { parsed = JSON.parse(pending.payload) as Record<string, unknown>; } catch { continue; }
+      await applyPaymentsAiEvent(db, pending.event_type, parsed, at);
+      await markPaiEventProcessed(db, pending.event_id);
     }
-    await syncPlanFromSubscriptions(db, email, at);
     return;
   }
 
-  const productId = String(event["product_id"] || "").trim();
-  const matched = planForProduct(productId);
-  const plan = planForEntitlements(event["entitlement_ids"]) ?? matched?.plan ?? null;
-  const id = String(event["original_transaction_id"] || event["transaction_id"] || "").trim();
-  // No id or no plan means this delivery cannot be tied to something Calvras sells; leave it alone
-  // rather than inventing a subscription the dashboard never had.
-  if (!id || !plan) return;
-  const status = subscriptionStatus(kind);
-  const expired = kind === "EXPIRATION";
+  const email = await paiCustomerEmail(db, customerId);
+  if (!email) return;
 
-  await saveSubscription(db, {
-    id,
-    email,
-    plan,
-    productId,
-    status,
-    customerId: String(event["app_user_id"] || ""),
-    currency: String(event["currency"] || "").toUpperCase(),
-    expiresAt: expired ? 0 : Number(event["expiration_at_ms"]) || 0,
-    at,
-  });
-  await syncPlanFromSubscriptions(db, email, at);
-  await note(db, email, "billing", `${PLAN_LABELS[plan]} ${status} (${productId || kind})`, at);
+  if (eventType === "payment.completed" || eventType === "payment.refunded") {
+    const id = String(event["subscriptionId"] || event["transactionId"] || "").trim();
+    if (!id) return;
+    const existing = await subscriptionById(db, id);
+    const plan = planForAmount(event["amount"]) ?? (isPlanKey(existing?.plan) ? existing.plan : null);
+    if (!plan) return;
+    const refunded = eventType === "payment.refunded";
+    await saveSubscription(db, {
+      id,
+      email,
+      plan,
+      productId: CHECKOUT_URLS[plan],
+      status: refunded ? "refunded" : "active",
+      customerId,
+      currency: String(event["currency"] || "").toUpperCase(),
+      expiresAt: refunded ? at : (existing?.expires_at ?? 0),
+      at,
+    });
+    await syncPlanFromSubscriptions(db, email, at);
+    await note(db, email, "billing", `${PLAN_LABELS[plan]} ${refunded ? "refunded" : "active"} (Payments AI)`, at);
+    return;
+  }
+
+  if (eventType.startsWith("subscription.")) {
+    const id = String(event["subscriptionId"] || "").trim();
+    if (!id || eventType === "subscription.payment_method_updated") return;
+    const existing = await subscriptionById(db, id);
+    const status = subscriptionStatus(event["status"]);
+    await saveSubscription(db, {
+      id,
+      email,
+      plan: isPlanKey(existing?.plan) ? existing.plan : "",
+      productId: existing?.product_id ?? "",
+      status,
+      customerId,
+      currency: existing?.currency ?? "USD",
+      expiresAt: periodEnd(event["currentPeriodEnd"]) || existing?.expires_at || 0,
+      at,
+    });
+    await syncPlanFromSubscriptions(db, email, at);
+    await note(db, email, "billing", `subscription ${status} (Payments AI)`, at);
+  }
+}
+
+/** The destination registered in the Payments AI dashboard is the pricing page's own URL, so the
+ *  delivery arrives as POST /pricing. Only a signed body is read; the page itself is untouched. */
+async function handlePaymentsAiWebhook(request: Request, db: D1Database, env: SiteEnv): Promise<Response> {
+  const secret = String(env.PAI_WEBHOOK_SECRET || "").trim();
+  if (!secret) return json({ ok: false, error: "No Payments AI webhook secret is set on the site." }, 503);
+  const raw = await request.text();
+  const at = Date.now();
+  if (!await verifyPaymentsAiSignature(request.headers.get("x-webhook-signature"), request.headers.get("x-webhook-timestamp"), raw, secret, at)) {
+    return json({ ok: false, error: "That delivery did not come from Payments AI." }, 401);
+  }
+  let payload: Record<string, unknown>;
+  try { payload = JSON.parse(raw) as Record<string, unknown>; } catch { return json({ ok: false, error: "The delivery was not JSON." }, 400); }
+  if (payload["type"] === "webhook.test") return json({ ok: true, test: true });
+  const eventId = String(payload["eventId"] || "").trim();
+  const eventType = String(payload["eventType"] || "").trim();
+  if (!eventId || !eventType) return json({ ok: false, error: "The delivery carried no event id." }, 400);
+  const fresh = await recordPaiEvent(db, { eventId, eventType, customerId: String(payload["customerId"] || ""), payload: raw, at });
+  if (!fresh) return json({ ok: true, duplicate: true });
+  await applyPaymentsAiEvent(db, eventType, payload, at);
+  await markPaiEventProcessed(db, eventId);
+  return json({ ok: true });
 }
 
 const AI_BASE = "https://openrouter.ai/api/v1/chat/completions";
@@ -233,35 +277,20 @@ function numberDigest(board: Awaited<ReturnType<typeof usageBoard>>, summary: Aw
 
 export async function handleSiteApi(request: Request, env: SiteEnv): Promise<Response | null> {
   const url = new URL(request.url);
+  const db = env.CALVRAS_DB;
+  // Payments AI posts its deliveries to the URL registered in the dashboard: the pricing page itself.
+  if (url.pathname === "/pricing" && request.method === "POST") {
+    if (!db) return json({ ok: false, error: "The account ledger is not attached to this deployment." }, 503);
+    return await handlePaymentsAiWebhook(request, db, env);
+  }
   if (!url.pathname.startsWith("/api/site/")) return null;
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
-  const db = env.CALVRAS_DB;
   if (!db) return json({ ok: false, error: "The account ledger is not attached to this deployment." }, 503);
 
-  // RevenueCat posts here on every purchase, renewal and cancellation. The signature (or the plain
-  // Authorization value configured in the dashboard) is the only proof of origin, so the raw body is
-  // verified before it is parsed, and a delivery with no secret set is refused rather than trusted.
-  if (url.pathname === "/api/site/billing/webhook" && request.method === "POST") {
-    const secret = String(env.REVENUECAT_WEBHOOK_SECRET || "").trim();
-    const auth = String(env.REVENUECAT_WEBHOOK_AUTH || "").trim();
-    if (!secret && !auth) return json({ ok: false, error: "No RevenueCat webhook secret is set on the site." }, 503);
-    const raw = await request.text();
-    const at = Date.now();
-    const header = String(request.headers.get("authorization") || "").trim();
-    const delivered = (Boolean(secret) && await verifyRevenueCatSignature(request.headers.get("x-revenuecat-webhook-signature"), raw, secret, at))
-      || (Boolean(auth) && (sameToken(header, auth) || sameToken(header.replace(/^Bearer\s+/i, "").trim(), auth)));
-    if (!delivered) return json({ ok: false, error: "That delivery did not come from RevenueCat." }, 401);
-    let payload: Record<string, unknown>;
-    try { payload = JSON.parse(raw) as Record<string, unknown>; } catch { return json({ ok: false, error: "The delivery was not JSON." }, 400); }
-    const event = (payload["event"] || {}) as Record<string, unknown>;
-    await applyRevenueCatEvent(db, event, at);
-    return json({ ok: true });
-  }
-
-  // The checkout page needs the public SDK key and the package ids, both of which are public by
-  // design. The webhook secret is not here and never reaches a browser.
+  // The pricing page and the console read what is on sale. The checkout URLs are public by design;
+  // the webhook secret is not here and never reaches a browser.
   if (url.pathname === "/api/site/billing/config" || url.pathname === "/api/site/plans") {
-    return json({ ok: true, apiKey: String(env.REVENUECAT_PUBLIC_KEY || "").trim(), offering: BILLING_OFFERING, packages: packageCatalog() });
+    return json({ ok: true, packages: packageCatalog() });
   }
 
   if (url.pathname === "/api/site/session" && request.method === "POST") {
@@ -375,7 +404,7 @@ export async function handleSiteApi(request: Request, env: SiteEnv): Promise<Res
     if (account.blocked) return json({ ok: false, blocked: true, error: "This account has been blocked." }, 403);
     const serverDefault = Number(env.CALVRAS_DAILY_TOKENS) || DEFAULT_DAILY_TOKENS;
     const quota = await quotaStatus(db, claims.email, Date.now(), serverDefault);
-    if (!quota.allowed) return json({ ok: false, exhausted: true, quota, error: "Daily usage limit reached. Try again after the reset." }, 429);
+    if (!quota.allowed) return json({ ok: false, exhausted: true, quota, error: quota.lockDays ? `Daily token limit reached. Your usage unlocks in ${quota.lockDays} days.` : "Daily token limit reached. Try again after the reset." }, 429);
 
     const key = String(env.CALVRAS_AI_KEY || "").trim();
     if (!key) return json({ ok: false, error: "No model key is configured on the server." }, 503);
@@ -386,7 +415,7 @@ export async function handleSiteApi(request: Request, env: SiteEnv): Promise<Res
     const upstream = await fetch(AI_BASE, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
-      body: JSON.stringify({ model, messages, stream: true, max_tokens: Math.min(Number(payload["max_tokens"]) || 4096, 16384), temperature: Number(payload["temperature"]) ?? 0.7 }),
+      body: JSON.stringify({ model, messages, stream: true, stream_options: { include_usage: true }, max_tokens: Math.min(Number(payload["max_tokens"]) || 4096, 16384), temperature: Number(payload["temperature"]) ?? 0.7 }),
       signal: AbortSignal.timeout(120_000),
     }).catch(() => null);
     if (!upstream || !upstream.ok) {
@@ -394,14 +423,14 @@ export async function handleSiteApi(request: Request, env: SiteEnv): Promise<Res
       return json({ ok: false, error: `Model provider error: ${reason}` }, 502);
     }
 
-    // Stream SSE back to the client, accumulating token usage from the final chunk.
-    let totalTokens = 0;
+    // Stream SSE back to the client; the turn debits the tokens the provider reports for it.
     const reader = upstream.body?.getReader();
     const decoder = new TextDecoder();
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
         let buffer = "";
+        let spent = 0;
         try {
           while (reader) {
             const { done, value } = await reader.read();
@@ -415,15 +444,15 @@ export async function handleSiteApi(request: Request, env: SiteEnv): Promise<Res
               if (data === "[DONE]") { controller.enqueue(encoder.encode("data: [DONE]\n\n")); continue; }
               try {
                 const parsed = JSON.parse(data);
-                if (parsed.usage) totalTokens = (parsed.usage.prompt_tokens || 0) + (parsed.usage.completion_tokens || 0);
+                const usage = parsed?.usage;
+                if (usage) spent = Math.max(spent, Number(usage.total_tokens) || (Number(usage.prompt_tokens) || 0) + (Number(usage.completion_tokens) || 0));
                 controller.enqueue(encoder.encode(`data: ${data}\n\n`));
               } catch { controller.enqueue(encoder.encode(`data: ${data}\n\n`)); }
             }
           }
         } catch { /* upstream interrupted */ }
-        // Debit after stream completes; estimate if provider didn't report usage.
-        if (!totalTokens) totalTokens = Math.ceil(JSON.stringify(messages).length / 4) + 500;
-        const finalQuota = await debitTokens(db, claims.email, totalTokens, Date.now(), serverDefault).catch(() => quota);
+        // Debit after stream completes so an interrupted turn still counts what it spent.
+        const finalQuota = await debitTokens(db, claims.email, spent, Date.now(), serverDefault).catch(() => quota);
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ quota: finalQuota })}\n\n`));
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         controller.close();

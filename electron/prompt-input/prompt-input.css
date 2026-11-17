@@ -1,0 +1,84 @@
+@layer theme, base, components, utilities;
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+@import "tw-animate-css";
+
+@source "./entry.tsx";
+@source "../../src/components/ui/ai-chat-input.tsx";
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+}
+
+:root {
+  --background: #181818;
+  --foreground: #f2f2f2;
+  --card: #303030;
+  --card-foreground: #f2f2f2;
+  --popover: #262626;
+  --popover-foreground: #f2f2f2;
+  --primary: #f2f2f2;
+  --primary-foreground: #181818;
+  --secondary: #262626;
+  --secondary-foreground: #f2f2f2;
+  --muted: #262626;
+  --muted-foreground: #9a9a9a;
+  --accent: #3a3a3a;
+  --accent-foreground: #f2f2f2;
+  --destructive: #ef4444;
+  --border: #3f3f3f;
+  --input: #3f3f3f;
+  --ring: #10b981;
+}
+
+/* Scoped stand-in for Tailwind preflight: the vanilla shell must not be reset. */
+@layer base {
+  :where(.react-prompt-host) *,
+  :where(.react-prompt-host) *::before,
+  :where(.react-prompt-host) *::after {
+    box-sizing: border-box;
+    border-width: 0;
+    border-style: solid;
+    border-color: var(--border);
+  }
+  :where(.react-prompt-host) button {
+    background: transparent;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+  }
+  :where(.react-prompt-host) textarea {
+    font: inherit;
+    color: inherit;
+    background: transparent;
+  }
+  :where(.react-prompt-host) img,
+  :where(.react-prompt-host) svg {
+    display: block;
+    vertical-align: middle;
+  }
+  :where(.react-prompt-host) img {
+    max-width: 100%;
+    height: auto;
+  }
+}

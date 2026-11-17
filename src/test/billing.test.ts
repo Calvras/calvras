@@ -7,34 +7,34 @@ describe("RevenueCat catalog", () => {
   it("maps every product id back to the plan and period it sells", () => {
     expect(planForProduct(PRODUCT_IDS.pro.month)).toEqual({ plan: "pro", billing: "month" });
     expect(planForProduct(PRODUCT_IDS.pro.year)).toEqual({ plan: "pro", billing: "year" });
-    expect(planForProduct(PRODUCT_IDS.ultra.month)).toEqual({ plan: "ultra", billing: "month" });
-    expect(planForProduct(PRODUCT_IDS.ultra.year)).toEqual({ plan: "ultra", billing: "year" });
+    expect(planForProduct(PRODUCT_IDS.lite.month)).toEqual({ plan: "lite", billing: "month" });
+    expect(planForProduct(PRODUCT_IDS.lite.year)).toEqual({ plan: "lite", billing: "year" });
     // The dashboard is case-insensitive about identifiers; a delivery may echo it in any case.
-    expect(planForProduct(PRODUCT_IDS.ultra.year.toUpperCase())?.plan).toBe("ultra");
+    expect(planForProduct(PRODUCT_IDS.lite.year.toUpperCase())?.plan).toBe("lite");
     expect(planForProduct("calvras_something_else")).toBeNull();
     expect(planForProduct("")).toBeNull();
   });
 
   it("names the package the checkout page has to look up", () => {
     expect(packageKey("pro", "month")).toBe(PACKAGE_IDS.pro.month);
-    expect(packageKey("ultra", "year")).toBe(PACKAGE_IDS.ultra.year);
+    expect(packageKey("lite", "year")).toBe(PACKAGE_IDS.lite.year);
     expect(packageKey("pro", "weekly")).toBe(PACKAGE_IDS.pro.month);
     expect(packageKey("starter", "month")).toBe("");
   });
 
   it("prints exactly the prices the dashboard products were created with", () => {
     for (const row of packageCatalog()) expect(row.price).toBe(LIST_PRICES[row.plan][row.billing]);
-    expect(listPrice("pro", "month")).toBe("9.00");
-    expect(listPrice("pro", "year")).toBe("79.00");
-    expect(listPrice("ultra", "month")).toBe("20.00");
-    expect(listPrice("ultra", "year")).toBe("179.00");
+    expect(listPrice("lite", "month")).toBe("10.00");
+    expect(listPrice("lite", "year")).toBe("89.00");
+    expect(listPrice("pro", "month")).toBe("20.00");
+    expect(listPrice("pro", "year")).toBe("179.00");
     expect(packageCatalog()).toHaveLength(4);
   });
 
   it("lets the higher entitlement win when a delivery carries both", () => {
     expect(planForEntitlements(["pro"])).toBe("pro");
-    expect(planForEntitlements(["pro", "ultra"])).toBe("ultra");
-    expect(planForEntitlements(["ULTRA"])).toBe("ultra");
+    expect(planForEntitlements(["lite", "pro"])).toBe("pro");
+    expect(planForEntitlements(["PRO"])).toBe("pro");
     expect(planForEntitlements([])).toBeNull();
     expect(planForEntitlements(["something"])).toBeNull();
   });

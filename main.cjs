@@ -24,7 +24,7 @@ const REDIRECT_URI = `http://127.0.0.1:${REDIRECT_PORT}/callback`;
 let mainWindow = null;
 let authServer = null;
 
-const APP_VERSION = '9.6.0';
+const APP_VERSION = '9.7.0';
 const previousUserData = app.getPath('userData');
 app.setName('Calvras');
 if (!app.commandLine.hasSwitch('user-data-dir')) {
@@ -104,7 +104,7 @@ function postSession(payload) {
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(payload),
-        'User-Agent': 'Calvras/9.6.0',
+        'User-Agent': 'Calvras/9.7.0',
       },
       timeout: 12000,
     }, (res) => {
@@ -244,6 +244,7 @@ let desktopPet;
 function getDesktopPet() {
   if (!desktopPet) desktopPet = createPetWindow({ BrowserWindow, ipcMain, Menu, screen, getMainWindow: () => mainWindow,
     positionPath: path.join(app.getPath('userData'), 'pet-position.json'),
+    typePath: path.join(app.getPath('userData'), 'pet-type.json'),
     onEnabledChange: state => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('pet:status', state); } });
   return desktopPet;
 }
@@ -646,7 +647,7 @@ function downloadFileWithRedirects(fileUrl, destPath, onProgress) {
       }
       const req = client.get(parsed, {
         headers: {
-          'User-Agent': 'Calvras-Updater/9.6.0',
+          'User-Agent': 'Calvras-Updater/9.7.0',
           'Accept': 'application/octet-stream, */*'
         }
       }, (res) => {
@@ -761,13 +762,13 @@ async function performDirectUpdate(targetUrl, targetVersion) {
     }
 
     if (!urlToDownload) {
-      urlToDownload = 'https://github.com/Calvras/calvras/releases/download/v9.6.0/Calvras.Setup.9.6.0.exe';
+      urlToDownload = 'https://github.com/Calvras/calvras/releases/download/v9.7.0/Calvras.Setup.9.7.0.exe';
     }
 
-    const tempInstaller = path.join(app.getPath('temp'), `Calvras-Setup-${targetVersion || '9.6.0'}-${Date.now()}.exe`);
+    const tempInstaller = path.join(app.getPath('temp'), `Calvras-Setup-${targetVersion || '9.7.0'}-${Date.now()}.exe`);
 
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('updater:status', { status: 'downloading', version: targetVersion || '9.6.0' });
+      mainWindow.webContents.send('updater:status', { status: 'downloading', version: targetVersion || '9.7.0' });
     }
 
     await downloadFileWithRedirects(urlToDownload, tempInstaller, (percent) => {
@@ -779,7 +780,7 @@ async function performDirectUpdate(targetUrl, targetVersion) {
     updateDownloadedPath = tempInstaller;
 
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('updater:status', { status: 'installing', version: targetVersion || '9.6.0' });
+      mainWindow.webContents.send('updater:status', { status: 'installing', version: targetVersion || '9.7.0' });
     }
 
     // Don't wrap in try/catch here — runInstallerAndExit handles its own fallbacks
@@ -983,13 +984,13 @@ async function fetchUserInfo(accessToken) {
 }
 
 // ── Window helpers ────────────────────────────────────────────────────────
-function windowDefaults() {
+function windowDefaults(extra = {}) {
   return {
     width: 1380,
     height: 880,
     minWidth: 1000,
     minHeight: 650,
-    backgroundColor: '#f7f6f3',
+    backgroundColor: '#181818',
     title: 'Calvras',
     center: true,
     show: false,
@@ -1001,6 +1002,7 @@ function windowDefaults() {
       webviewTag: true,
     },
     autoHideMenuBar: true,
+    ...extra,
   };
 }
 
@@ -1020,7 +1022,10 @@ function loadSignIn() {
 
 function loadMainApp(user) {
   if (!mainWindow || mainWindow.isDestroyed()) {
-    mainWindow = new BrowserWindow(windowDefaults());
+    mainWindow = new BrowserWindow(windowDefaults({
+      titleBarStyle: 'hidden',
+      titleBarOverlay: { color: '#181818', symbolColor: '#e5e4e2', height: 34 },
+    }));
     Menu.setApplicationMenu(null);
     mainWindow.on('closed', () => { commandGeneration++; executionPolicy.cancel(); desktopPet?.dispose(); desktopPet = null; githubConnection?.dispose(); githubConnection = null; browserTools?.dispose(); browserTools = null; mainWindow = null; });
   }
