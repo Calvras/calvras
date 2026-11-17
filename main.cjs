@@ -24,7 +24,7 @@ const REDIRECT_URI = `http://127.0.0.1:${REDIRECT_PORT}/callback`;
 let mainWindow = null;
 let authServer = null;
 
-const APP_VERSION = '9.7.0';
+const APP_VERSION = app.isPackaged ? app.getVersion() : require('./electron-builder.kraken.json').extraMetadata.version;
 const previousUserData = app.getPath('userData');
 app.setName('Calvras');
 if (!app.commandLine.hasSwitch('user-data-dir')) {

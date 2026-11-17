@@ -43,6 +43,11 @@ describe("the published release", () => {
     expect(RELEASE_VERSION).toBe(config.extraMetadata.version);
   });
 
+  it("reports the packaged version instead of a stale hardcoded runtime version", () => {
+    const runtime = require("node:fs").readFileSync(path.resolve(process.cwd(), "main.cjs"), "utf8") as string;
+    expect(runtime).toContain("const APP_VERSION = app.isPackaged ? app.getVersion() : require('./electron-builder.kraken.json').extraMetadata.version;");
+  });
+
   it("feeds the landing page and the app from one source", () => {
     const manifest = updateManifest();
     const release = readRelease(manifest);
