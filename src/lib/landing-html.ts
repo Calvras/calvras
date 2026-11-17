@@ -92,6 +92,7 @@ hr{margin-top:32px;border:0;border-top:1px solid oklch(0.15 0 0 / 0.2);}
 .glass-product .rate{margin-top:8px;display:inline-flex;align-items:center;gap:4px;border-radius:9999px;background:var(--card);padding:2px 8px;font-size:14px;font-weight:600;}
 .glass-product .rate svg{height:12px;width:12px;fill:currentColor;}
 .logos{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-around;gap:24px;padding:40px 32px;font-size:24px;font-weight:800;letter-spacing:-0.025em;}
+.colophon{padding:0 32px 28px;text-align:center;font-size:12px;color:#6f6a63;}
 @media (min-width:768px){
   nav{display:flex;}
   .vdiv{display:block;}
@@ -116,7 +117,7 @@ hr{margin-top:32px;border:0;border-top:1px solid oklch(0.15 0 0 / 0.2);}
       <div class="head-right">
         <span class="vdiv"></span>
         <a href="/signin">Log in</a>
-        <a href="https://github.com/Calvras/calvras/releases/download/v9.7.0/Calvras.Setup.9.7.0.exe" class="pill-outline">Get it Now <span class="light">— It's Free</span></a>
+        <a href="/download" class="pill-outline">Get it Now <span class="light">— It's Free</span></a>
       </div>
     </header>
 
@@ -139,7 +140,7 @@ hr{margin-top:32px;border:0;border-top:1px solid oklch(0.15 0 0 / 0.2);}
           <span class="rate"><svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>4.9</span>
         </div>
         <div class="cta">
-          <a href="https://github.com/Calvras/calvras/releases/download/v9.7.0/Calvras.Setup.9.7.0.exe" class="pill-black">Download <span class="light">— It's Free</span></a>
+          <a href="/download" class="pill-black">Download <span class="light">— It's Free</span></a>
           <a href="/pricing" class="pricing">Our Pricing <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h10v10"/><path d="M7 17 17 7"/></svg></a>
         </div>
       </div>
@@ -172,6 +173,7 @@ hr{margin-top:32px;border:0;border-top:1px solid oklch(0.15 0 0 / 0.2);}
       <span>Library</span>
       <span>Plugins</span>
     </div>
+    <footer class="colophon">© 2026 Kracton. Calvras is a Kracton product.</footer>
   </div>
 </div>
 </body>

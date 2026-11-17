@@ -55,7 +55,7 @@ describe("the published release", () => {
 
   it("routes every landing-page download button through the current release", () => {
     const page = new DOMParser().parseFromString(LANDING_HTML, "text/html");
-    const links = [...page.querySelectorAll("a")].filter(link => /Download Calvras/i.test(link.textContent || ""));
+    const links = [...page.querySelectorAll("a")].filter(link => /download|get it now/i.test(link.textContent || ""));
     expect(links.length).toBeGreaterThan(0);
     expect(links.every(link => link.getAttribute("href") === "/download")).toBe(true);
     expect(page.title).toContain("Calvras");
