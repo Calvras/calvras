@@ -38,17 +38,14 @@ describe("public site surface", () => {
     expect(response.headers.get("content-type")).toContain("application/json");
   });
 
-  it("sends a buyer to the hosted RevenueCat checkout, never to a credential in the page", async () => {
-    const { checkoutFor, paidPlans, CHECKOUT_ORIGIN } = await import("@/lib/plans");
+  it("sends buyers to the exact hosted Payments AI checkouts", async () => {
+    const { checkoutFor, paidPlans } = await import("@/lib/plans");
     expect(paidPlans.map((plan) => plan.name)).toEqual(["Lite", "Pro"]);
-    // The link carries the plan, the billing period and the email the webhook matches the account on.
-    expect(checkoutFor("Pro", "month", "hello@calvras.com")).toBe(`${CHECKOUT_ORIGIN}/checkout?plan=pro&billing=month&email=hello%40calvras.com`);
-    expect(checkoutFor("Lite", "year", "hello@calvras.com")).toBe(`${CHECKOUT_ORIGIN}/checkout?plan=lite&billing=year&email=hello%40calvras.com`);
-    // A plan the store does not sell has no checkout rather than one that cannot take money.
+    expect(checkoutFor("Pro")).toBe("https://mor.payments.ai/payment/01a1e81d-0489-740f-89e4-4c477f0d58cc");
+    expect(checkoutFor("Lite")).toBe("https://mor.payments.ai/payment/01a1e81a-f39f-792d-b320-8a32c2c49905");
     expect(checkoutFor("nothing")).toBe("");
-    expect(checkoutFor("Pro", "month", "")).toBe(`${CHECKOUT_ORIGIN}/checkout?plan=pro&billing=month`);
     const pricing = source("src/routes/pricing.tsx");
-    expect(pricing).toContain('checkoutFor(name, billing)');
+    expect(pricing).toContain('checkoutFor(name)');
     expect(pricing).not.toMatch(/\/api\/agent\/payments/);
     expect(pricing).not.toMatch(/merchantId|apiKey|pai_live|pdl_live|rcb_live/);
   });

@@ -2537,7 +2537,7 @@ function setupEventListeners() {
       modal.innerHTML = `
         <div class="upgrade-card">
           <div class="upgrade-title">More Calvras usage</div>
-          <p class="upgrade-body">Lite doubles your daily chats and Pro quadruples them, plus the bigger capabilities. Upgrade to keep building now.</p>
+          <p class="upgrade-body">Lite doubles your daily tokens and Pro quadruples them, plus the bigger capabilities. Upgrade to keep building now.</p>
           <p class="upgrade-reset" id="upgrade-reset-note"></p>
           <div class="upgrade-actions">
             <button type="button" class="settings-btn-primary" id="upgrade-checkout-btn">Upgrade now</button>
@@ -2551,8 +2551,8 @@ function setupEventListeners() {
       document.getElementById('upgrade-checkout-btn').addEventListener('click', () => { openPricingPage(); });
     }
     document.getElementById('upgrade-reset-note').textContent = quotaLockedUntil && Date.now() < quotaLockedUntil
-      ? 'Your daily chat limit is reached. Locked for ' + quotaLockDays + ' days — unlocks ' + new Date(quotaLockedUntil).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + '.'
-      : 'Your account has a daily chat limit that resets every 24 hours.';
+      ? 'Your daily token limit is reached. Locked for ' + quotaLockDays + ' days — unlocks ' + new Date(quotaLockedUntil).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + '.'
+      : 'Your account has a daily token allowance that resets every 24 hours.';
     document.getElementById('upgrade-note').textContent = '';
     modal.style.display = 'flex';
   }
@@ -4913,12 +4913,9 @@ async function streamCompletion(messages, { signal, onReasoning, onContent } = {
     if (response.status === 429) {
       const data = await response.json().catch(() => ({}));
       if (data.quota) { calvrasQuota = data.quota; quotaLockedUntil = data.quota.resetAt || 0; quotaLockDays = data.quota.lockDays || 0; }
-      const err = new Error('Daily chat limit reached.');
+      const err = new Error('Daily token limit reached.');
       err.quotaExhausted = true;
       throw err;
-    }
-    if (response.status === 404 || response.status === 502 || response.status === 503) {
-      response = null;
     }
   }
   if (!response) {
@@ -4966,7 +4963,8 @@ async function streamCompletion(messages, { signal, onReasoning, onContent } = {
         const parsed = JSON.parse(payload);
         if (parsed.quota) {
           calvrasQuota = parsed.quota;
-          if (parsed.quota.exhausted) { quotaLockedUntil = parsed.quota.resetAt || 0; quotaLockDays = parsed.quota.lockDays || 0; }
+          quotaLockedUntil = parsed.quota.exhausted ? parsed.quota.resetAt || 0 : 0;
+          quotaLockDays = parsed.quota.exhausted ? parsed.quota.lockDays || 0 : 0;
           updateQuotaDisplay();
           continue;
         }
@@ -5000,7 +4998,8 @@ async function refreshQuota() {
     const result = await ipc.invoke('quota:status');
     if (result.ok && result.signedIn) {
       calvrasQuota = result;
-      if (result.exhausted) { quotaLockedUntil = result.resetAt || 0; quotaLockDays = result.lockDays || 0; }
+      quotaLockedUntil = result.exhausted ? result.resetAt || 0 : 0;
+      quotaLockDays = result.exhausted ? result.lockDays || 0 : 0;
       updateQuotaDisplay();
     }
   } catch {}
@@ -5017,10 +5016,14 @@ function updateQuotaDisplay() {
   const label = document.getElementById('quota-usage-label');
   if (label) {
     label.textContent = calvrasQuota.exhausted
-      ? 'Chat limit reached — unlocks ' + new Date(calvrasQuota.resetAt).toLocaleString([], { month: 'short', day: 'numeric' })
-      : `${calvrasQuota.used || 0} / ${calvrasQuota.limit || 0} chats used today`;
+      ? 'Token limit reached — unlocks ' + new Date(calvrasQuota.resetAt).toLocaleString([], { month: 'short', day: 'numeric' })
+      : `${formatTokens(calvrasQuota.used || 0)} / ${formatTokens(calvrasQuota.limit || 0)} tokens used today`;
   }
   refreshUsageLock();
+}
+
+function formatTokens(n) {
+  return n >= 1000 ? (Math.round(n / 100) / 10).toString().replace(/\.0$/, '') + 'k' : String(n);
 }
 
 // The upgrade path is the website pricing page, opened in the real browser.
@@ -5049,7 +5052,7 @@ function refreshUsageLock() {
     if (days) days.textContent = daysLeft + (daysLeft === 1 ? ' day' : ' days') + ' left';
   });
   if (locked && usageLockPrev === false) {
-    codexToast('Chat limit reached — locked for ' + quotaLockDays + ' days. Upgrade to keep building');
+    codexToast('Token limit reached — locked for ' + quotaLockDays + ' days. Upgrade to keep building');
     window.openUpgradeDialog();
   }
   usageLockPrev = locked;
@@ -7203,7 +7206,7 @@ async function handleSend(rawText) {
   }
 
   if (quotaLockedUntil && Date.now() < quotaLockedUntil) {
-    codexToast('Chat limit reached — locked for ' + quotaLockDays + ' days');
+    codexToast('Token limit reached — locked for ' + quotaLockDays + ' days');
     window.openUpgradeDialog();
     refreshUsageLock();
     return;
@@ -8155,6 +8158,8 @@ document.addEventListener('DOMContentLoaded', init);
     const nameEl = document.getElementById('user-name-display');
     const headingEl = document.getElementById('welcome-heading');
     const firstName = (user.name || user.email || 'there').split(' ')[0];
+    const planName = document.getElementById('account-plan-name');
+    if (planName) planName.textContent = 'Your Plan: Calvras ' + ({ lite: 'Lite', pro: 'Pro' }[user.plan] || 'Free');
 
     if (avatarImg) {
       if (user.picture) {

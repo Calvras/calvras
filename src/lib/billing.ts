@@ -55,12 +55,13 @@ export function buyerEmail(event: Record<string, unknown>): string {
  */
 export async function verifyPaymentsAiSignature(signatureHeader: string | null, timestampHeader: string | null, rawBody: string, secret: string, nowMs: number, toleranceMs = 24 * 60 * 60 * 1000): Promise<boolean> {
   const signature = String(signatureHeader ?? "").trim();
-  const ts = Number(String(timestampHeader ?? "").trim());
-  if (!signature.startsWith("sha256=") || !secret || !Number.isFinite(ts)) return false;
+  const timestamp = String(timestampHeader ?? "").trim();
+  const ts = Number(timestamp);
+  if (!signature.startsWith("sha256=") || !secret || !/^\d+$/.test(timestamp) || !Number.isSafeInteger(ts)) return false;
   if (Math.abs(nowMs - ts * 1000) > toleranceMs) return false;
   const digest = signature.slice(7);
   const bytes = hexBytes(digest);
-  if (!bytes) return false;
+  if (!bytes || bytes.length !== 32) return false;
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
   return await crypto.subtle.verify("HMAC", key, bytes.buffer as ArrayBuffer, encoder.encode(`${ts}.${rawBody}`));

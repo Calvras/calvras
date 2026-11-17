@@ -1,6 +1,3 @@
-// Verifies the out-of-usage banner on the real rendered UI: at the daily limit the
-// composer is replaced by the banner (reset time + Upgrade), Upgrade opens the plan
-// dialog, and the composer returns once the reset time passes.
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -10,72 +7,75 @@ import { _electron as electron } from 'playwright';
 const profile = await fs.mkdtemp(path.join(os.tmpdir(), 'calvras-usage-'));
 const out = path.resolve('.agents/artifacts/usage-banner');
 await fs.mkdir(out, { recursive: true });
-
 const checks = [];
 function check(name, ok) { checks.push({ name, ok: Boolean(ok) }); console.log(`${ok ? 'PASS' : 'FAIL'} ${name}`); }
-
-// Runs an object-expression in the page with a `vis` helper that reports whether a
-// selector actually occupies layout space (accounts for hidden ancestors).
-const state = (page, expr) => page.evaluate(`(() => {
-  const vis = sel => { const el = document.querySelector(sel); if (!el) return false; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
-  return (${expr});
-})()`);
-
 const env = { ...process.env };
 delete env.ELECTRON_RUN_AS_NODE;
-const app = await electron.launch({ executablePath: path.resolve('node_modules/electron/dist/electron.exe'), args: ['main.cjs', '--user-data-dir=' + profile], env, timeout: 60000 });
+const packaged = process.env.CALVRAS_VERIFY_EXE;
+const app = await electron.launch({ executablePath: packaged || path.resolve('node_modules/electron/dist/electron.exe'), args: [...(packaged ? [] : ['main.cjs']), '--user-data-dir=' + profile], env, timeout: 60000 });
 
 try {
+  await app.evaluate(({ ipcMain }) => {
+    global.__quotaFixture = { ok: true, signedIn: true, used: 12345, limit: 100000, percent: 12, exhausted: false, resetAt: 0, lockDays: 0 };
+    ipcMain.removeHandler('quota:status');
+    ipcMain.handle('quota:status', () => global.__quotaFixture);
+    ipcMain.removeHandler('browser:open-external');
+    ipcMain.handle('browser:open-external', (_event, url) => { global.__openedPricing = url; return { ok: true }; });
+  });
   const page = await app.firstWindow();
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
-  await page.goto(pathToFileURL(path.resolve('app.html')).href);
+  if (packaged) await app.evaluate(({ app, BrowserWindow }) => BrowserWindow.getAllWindows()[0].loadFile(app.getAppPath() + '/app.html'));
+  else await page.goto(pathToFileURL(path.resolve('app.html')).href);
   await page.waitForSelector('#prompt-input');
+  await page.waitForSelector('#app-splash', { state: 'detached', timeout: 6000 });
+  await page.evaluate(() => refreshQuota());
+  check('Free meter displays spent tokens, not chat count', await page.locator('#quota-usage-label').textContent() === '12.3k / 100k tokens used today');
+  check('meter percentage reflects 12% token usage', await page.evaluate(() => document.getElementById('quota-usage-bar').style.width === '12%'));
+  check('token formatting preserves 10k, 100k, and sub-1k values', await page.evaluate(() => formatTokens(10000) === '10k' && formatTokens(100000) === '100k' && formatTokens(999) === '999'));
+  check('unlocked composer is visible', await page.locator('#prompt-input').isVisible());
 
-  const baseline = await state(page, `{
-    locked: document.body.classList.contains('usage-locked'),
-    homeBannerHidden: document.querySelector('.codex-home-composer .usage-limit-banner').hidden,
-    projectBarVisible: vis('#tag-folder'),
-    homeInputVisible: vis('#prompt-input'),
-  }`);
-  check('unlocked by default: composer shown, banner hidden', !baseline.locked && baseline.homeBannerHidden && baseline.projectBarVisible && baseline.homeInputVisible);
-
-  // Reach the limit: lock the quota and refresh.
-  await page.evaluate(() => { quotaLockedUntil = Date.now() + 3600_000; refreshUsageLock(); });
-  const lockedState = await state(page, `{
-    locked: document.body.classList.contains('usage-locked'),
-    homeBannerShown: !document.querySelector('.codex-home-composer .usage-limit-banner').hidden,
-    capBannerShown: !document.querySelector('.capsule-input-container .usage-limit-banner').hidden,
-    projectBarHidden: !vis('#tag-folder'),
-    homeInputHidden: !vis('#prompt-input'),
-    capBarHidden: !vis('#capsule-input-bar'),
-    title: document.querySelector('.codex-home-composer .usage-limit-title').textContent,
-    reset: document.querySelector('.codex-home-composer .usage-limit-reset').textContent,
-    upgradeLabel: document.querySelector('.codex-home-composer .usage-limit-upgrade').textContent.trim(),
-  }`);
-  check('limit locks body and shows banner in both layouts', lockedState.locked && lockedState.homeBannerShown && lockedState.capBannerShown);
-  check('composer contents hidden while locked', lockedState.projectBarHidden && lockedState.homeInputHidden && lockedState.capBarHidden);
-  check('banner copy + reset time + Upgrade pill', lockedState.title === "You're out of Calvras usage" && /\w{3} \d{1,2}, \d{1,2}:\d{2} (AM|PM)/.test(lockedState.reset) && lockedState.upgradeLabel.includes('Upgrade'));
+  await app.evaluate(() => { global.__quotaFixture = { ok: true, signedIn: true, used: 100000, limit: 100000, percent: 100, exhausted: true, resetAt: Date.now() + 5 * 86400000, lockDays: 5 }; });
+  await page.evaluate(() => refreshQuota());
+  check('token exhaustion locks both composer layouts', await page.evaluate(() => document.body.classList.contains('usage-locked') && [...document.querySelectorAll('.usage-limit-banner')].every(el => !el.hidden)));
+  check('composer is hidden while locked', !await page.locator('#prompt-input').isVisible());
+  check('meter reports token lock', (await page.locator('#quota-usage-label').textContent()).startsWith('Token limit reached — unlocks'));
+  check('banner shows the five-day countdown', (await page.locator('.codex-home-composer .usage-limit-days').textContent()).includes('5 days'));
+  if (await page.locator('#upgrade-modal').isVisible()) await page.locator('#upgrade-close-btn').click();
   await page.screenshot({ path: path.join(out, 'locked-home.png') });
+  await page.locator('.codex-home-composer .usage-limit-upgrade').click();
+  check('real Upgrade click opens exact website pricing URL', await app.evaluate(() => global.__openedPricing === 'https://calvras.com/pricing'));
 
-  // Upgrade opens the plan dialog.
-  await page.click('.codex-home-composer .usage-limit-upgrade');
-  await page.waitForSelector('#upgrade-modal', { timeout: 5000 });
-  check('Upgrade opens plan dialog', await page.evaluate(() => getComputedStyle(document.getElementById('upgrade-modal')).display !== 'none'));
-  await page.click('#upgrade-close-btn');
+  await page.evaluate(() => { welcomeContainer.style.display = 'none'; conversationThread.style.display = 'flex'; refreshUsageLock(); });
+  const activeUpgrade = page.locator('.capsule-input-container .usage-limit-upgrade');
+  check('active-chat Upgrade is visible', await activeUpgrade.isVisible());
+  await app.evaluate(() => { global.__openedPricing = ''; });
+  await activeUpgrade.click();
+  check('active-chat Upgrade receives the click', await app.evaluate(() => global.__openedPricing === 'https://calvras.com/pricing'));
 
-  // Reset passes: composer returns.
-  await page.evaluate(() => { quotaLockedUntil = 0; refreshUsageLock(); });
-  const restored = await state(page, `{
-    locked: document.body.classList.contains('usage-locked'),
-    homeBannerHidden: document.querySelector('.codex-home-composer .usage-limit-banner').hidden,
-    projectBarVisible: vis('#tag-folder'),
-    homeInputVisible: vis('#prompt-input'),
-  }`);
-  check('after reset composer restored and banner hidden', !restored.locked && restored.homeBannerHidden && restored.projectBarVisible && restored.homeInputVisible);
-  await page.screenshot({ path: path.join(out, 'restored-home.png') });
+  await app.evaluate(() => { global.__quotaFixture = { ok: true, signedIn: true, used: 100000, limit: 200000, percent: 50, exhausted: false, resetAt: 0, lockDays: 0 }; });
+  await page.evaluate(() => refreshQuota());
+  check('Lite refresh clears the old lock and preserves spent tokens', await page.evaluate(() => !document.body.classList.contains('usage-locked') && quotaLockedUntil === 0 && document.getElementById('quota-usage-label').textContent === '100k / 200k tokens used today'));
+  check('active composer returns after upgrade', await page.locator('#capsule-prompt-input').isVisible());
+  await page.screenshot({ path: path.join(out, 'upgraded-active.png') });
 
-  check('no page errors', errors.length === 0);
+  await app.evaluate(() => { global.__quotaFixture = { ok: true, signedIn: true, used: 100000, limit: 400000, percent: 25, exhausted: false, resetAt: 0, lockDays: 0 }; });
+  await page.evaluate(() => refreshQuota());
+  check('Pro displays the 400k allowance', await page.locator('#quota-usage-label').textContent() === '100k / 400k tokens used today');
+  const planCopy = await page.locator('#account-plan-name').locator('..').textContent();
+  check('settings explains 100k, $12 Lite 2x, and $30 Pro 4x', /100k tokens/.test(planCopy) && /\$12\/month/.test(planCopy) && /\$30\/month/.test(planCopy) && !/Starter|Ultra|unlimited/i.test(planCopy));
+
+  await page.route('https://calvras.com/api/site/chat', route => route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"fixture unavailable"}' }));
+  let fallback = false;
+  await page.route('https://api.together.xyz/**', route => { fallback = true; return route.abort(); });
+  const refused = await page.evaluate(async () => {
+    localStorage.setItem('calvras_user', JSON.stringify({ session: 'fixture-session' }));
+    try { await streamCompletion([{ role: 'user', content: 'fixture' }]); return false; }
+    catch (error) { return error.message.includes('503'); }
+    finally { localStorage.removeItem('calvras_user'); }
+  });
+  check('signed-in provider failure cannot bypass token accounting', refused && !fallback);
+  check('no renderer errors', errors.length === 0);
   if (errors.length) console.log('ERRORS', errors);
 } finally {
   await app.close();

@@ -3,7 +3,7 @@
   "productName": "Calvras",
   "extraMetadata": {
     "main": "main.cjs",
-    "version": "9.7.0",
+    "version": "9.7.1",
     "name": "calvras",
     "author": "Kracton"
   },

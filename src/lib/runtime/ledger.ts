@@ -170,6 +170,8 @@ export async function grantPlan(db: D1Database, email: string, plan: string, by:
   const target = accountEmail(email);
   const changes = await db.prepare("UPDATE accounts SET plan = ?, plan_set_by = ?, plan_set_at = ? WHERE email = ?").bind(wanted, text(by, 200), at, target).run();
   if (!changes.meta?.changes) throw new Error(`No account is signed in as ${target} yet, so there is nothing to change.`);
+  await db.prepare("UPDATE accounts SET lock_until = 0, lock_days = 0 WHERE email = ? AND tokens_used < ?")
+    .bind(target, tokenLimit((await findByEmail(db, target))!, DEFAULT_DAILY_TOKENS)).run();
   await note(db, target, "plan", `${by || "admin"} set ${wanted}`, at);
   return (await db.prepare("SELECT * FROM accounts WHERE email = ?").bind(target).first<AccountRow>())!;
 }
@@ -435,32 +437,29 @@ function tokenLimit(account: AccountRow, serverDefault: number): number {
 }
 
 export async function quotaStatus(db: D1Database, email: string, at: number, serverDefault = DEFAULT_DAILY_TOKENS): Promise<QuotaStatus> {
-  const account = await findByEmail(db, email);
+  const target = accountEmail(email);
+  await db.prepare(`UPDATE accounts SET tokens_used = 0, tokens_reset_at = 0, lock_until = 0, lock_days = 0
+    WHERE email = ? AND ((lock_until > 0 AND lock_until <= ?) OR (lock_until = 0 AND tokens_reset_at > 0 AND tokens_reset_at <= ?))`)
+    .bind(target, at, at - TOKEN_WINDOW_MS).run();
+  let account = await findByEmail(db, target);
   if (!account) return { allowed: false, used: 0, limit: serverDefault, percent: 0, resetAt: 0, exhausted: false, lockDays: 0, lockedUntil: 0 };
-  const limit = tokenLimit(account, serverDefault);
-  let used = account.tokens_used;
-  let resetAt = account.tokens_reset_at;
-  let lockUntil = account.lock_until;
-  let lockDays = account.lock_days;
-  if (lockUntil > 0 && at >= lockUntil) {
-    await db.prepare("UPDATE accounts SET tokens_used = 0, tokens_reset_at = 0, lock_until = 0, lock_days = 0 WHERE email = ?").bind(account.email).run();
-    used = 0; resetAt = 0; lockUntil = 0; lockDays = 0;
-  } else if (lockUntil === 0 && resetAt > 0 && at >= resetAt + TOKEN_WINDOW_MS) {
-    await db.prepare("UPDATE accounts SET tokens_used = 0, tokens_reset_at = 0 WHERE email = ?").bind(account.email).run();
-    used = 0; resetAt = 0;
+  let limit = tokenLimit(account, serverDefault);
+  if (account.tokens_used >= limit && account.lock_until === 0) {
+    const lockDays = randomLockDays();
+    const locked = await db.prepare("UPDATE accounts SET lock_until = ?, lock_days = ? WHERE email = ? AND lock_until = 0 AND tokens_used >= ? AND plan = ? AND daily_tokens = ?")
+      .bind(at + lockDays * DAY_MS, lockDays, target, limit, account.plan, account.daily_tokens).run();
+    if (locked.meta?.changes) await note(db, target, "quota_locked", `${account.tokens_used}/${limit} tokens — locked ${lockDays} days`, at);
+    account = (await findByEmail(db, target))!;
+    limit = tokenLimit(account, serverDefault);
   }
-  if (used >= limit && lockUntil === 0) {
-    lockDays = randomLockDays();
-    lockUntil = at + lockDays * DAY_MS;
-    await db.prepare("UPDATE accounts SET lock_until = ?, lock_days = ? WHERE email = ?").bind(lockUntil, lockDays, account.email).run();
-    await note(db, account.email, "quota_locked", `${used}/${limit} tokens — locked ${lockDays} days`, at);
-  }
+  const used = account.tokens_used;
+  const lockUntil = account.lock_until;
   const exhausted = used >= limit || lockUntil > 0;
   return {
     allowed: !exhausted && !account.blocked, used, limit,
     percent: Math.min(100, Math.round((used / limit) * 100)),
     resetAt: exhausted ? lockUntil : 0, exhausted,
-    lockDays: lockUntil > 0 ? lockDays : 0, lockedUntil: lockUntil,
+    lockDays: lockUntil > 0 ? account.lock_days : 0, lockedUntil: lockUntil,
   };
 }
 
@@ -468,34 +467,17 @@ export async function quotaStatus(db: D1Database, email: string, at: number, ser
  *  and stores the random lock. */
 export async function debitTokens(db: D1Database, email: string, tokens: number, at: number, serverDefault = DEFAULT_DAILY_TOKENS): Promise<QuotaStatus> {
   const target = accountEmail(email);
-  const account = await findByEmail(db, target);
-  if (!account) throw new Error("No account to debit.");
-  const spent = Math.max(0, Math.round(Number(tokens) || 0));
-  const limit = tokenLimit(account, serverDefault);
-  let resetAt = account.tokens_reset_at;
-  let used: number;
-  if (account.lock_until === 0 && (resetAt === 0 || at >= resetAt + TOKEN_WINDOW_MS)) {
-    resetAt = at; used = spent;
-    await db.prepare("UPDATE accounts SET tokens_used = ?, tokens_reset_at = ? WHERE email = ?").bind(spent, at, target).run();
-  } else {
-    used = account.tokens_used + spent;
-    await db.prepare("UPDATE accounts SET tokens_used = tokens_used + ? WHERE email = ?").bind(spent, target).run();
-  }
-  let lockUntil = account.lock_until;
-  let lockDays = account.lock_days;
-  if (used >= limit && lockUntil === 0) {
-    lockDays = randomLockDays();
-    lockUntil = at + lockDays * DAY_MS;
-    await db.prepare("UPDATE accounts SET lock_until = ?, lock_days = ? WHERE email = ?").bind(lockUntil, lockDays, target).run();
-    await note(db, target, "quota_locked", `${used}/${limit} tokens — locked ${lockDays} days`, at);
-  }
-  const exhausted = used >= limit || lockUntil > 0;
-  return {
-    allowed: !exhausted && !account.blocked, used, limit,
-    percent: Math.min(100, Math.round((used / limit) * 100)),
-    resetAt: exhausted ? lockUntil : 0, exhausted,
-    lockDays: lockUntil > 0 ? lockDays : 0, lockedUntil: lockUntil,
-  };
+  const spent = Number.isFinite(tokens) ? Math.max(0, Math.round(tokens)) : 0;
+  if (spent === 0) return quotaStatus(db, target, at, serverDefault);
+  const changes = await db.prepare(`UPDATE accounts SET
+    tokens_used = CASE WHEN (lock_until > 0 AND lock_until <= ?) OR (lock_until = 0 AND (tokens_reset_at = 0 OR tokens_reset_at <= ?)) THEN ? ELSE tokens_used + ? END,
+    tokens_reset_at = CASE WHEN (lock_until > 0 AND lock_until <= ?) OR (lock_until = 0 AND (tokens_reset_at = 0 OR tokens_reset_at <= ?)) THEN ? ELSE tokens_reset_at END,
+    lock_days = CASE WHEN lock_until <= ? THEN 0 ELSE lock_days END,
+    lock_until = CASE WHEN lock_until <= ? THEN 0 ELSE lock_until END
+    WHERE email = ?`)
+    .bind(at, at - TOKEN_WINDOW_MS, spent, spent, at, at - TOKEN_WINDOW_MS, at, at, at, target).run();
+  if (!changes.meta?.changes) throw new Error("No account to debit.");
+  return quotaStatus(db, target, at, serverDefault);
 }
 
 export async function setDailyTokens(db: D1Database, email: string, tokens: number): Promise<void> {
@@ -533,7 +515,7 @@ export async function recordPaiEvent(db: D1Database, input: { eventId: string; e
 }
 
 export async function pendingPaiEvents(db: D1Database, customerId: string): Promise<{ event_id: string; event_type: string; payload: string }[]> {
-  const { results } = await db.prepare("SELECT event_id, event_type, payload FROM pai_events WHERE customer_id = ? AND processed = 0 ORDER BY received_at ASC")
+  const { results } = await db.prepare("SELECT event_id, event_type, payload FROM pai_events WHERE (customer_id = ? OR customer_id = '') AND processed = 0 ORDER BY received_at ASC, rowid ASC")
     .bind(text(customerId, 120)).all<{ event_id: string; event_type: string; payload: string }>();
   return results ?? [];
 }

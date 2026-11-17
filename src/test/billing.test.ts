@@ -1,87 +1,65 @@
 // @vitest-environment node
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { LIST_PRICES, PACKAGE_IDS, PRODUCT_IDS, buyerEmail, listPrice, packageCatalog, packageKey, planForEntitlements, planForProduct, verifyRevenueCatSignature } from "../lib/billing";
+import { CHECKOUT_URLS, LIST_PRICES, buyerEmail, listPrice, packageCatalog, planForAmount, verifyPaymentsAiSignature } from "../lib/billing";
 
-describe("RevenueCat catalog", () => {
-  it("maps every product id back to the plan and period it sells", () => {
-    expect(planForProduct(PRODUCT_IDS.pro.month)).toEqual({ plan: "pro", billing: "month" });
-    expect(planForProduct(PRODUCT_IDS.pro.year)).toEqual({ plan: "pro", billing: "year" });
-    expect(planForProduct(PRODUCT_IDS.lite.month)).toEqual({ plan: "lite", billing: "month" });
-    expect(planForProduct(PRODUCT_IDS.lite.year)).toEqual({ plan: "lite", billing: "year" });
-    // The dashboard is case-insensitive about identifiers; a delivery may echo it in any case.
-    expect(planForProduct(PRODUCT_IDS.lite.year.toUpperCase())?.plan).toBe("lite");
-    expect(planForProduct("calvras_something_else")).toBeNull();
-    expect(planForProduct("")).toBeNull();
+describe("Payments AI catalog", () => {
+  it("sells only the two monthly hosted checkouts", () => {
+    expect(packageCatalog()).toEqual([
+      { plan: "lite", label: "Lite", price: "12.00", checkout: CHECKOUT_URLS.lite },
+      { plan: "pro", label: "Pro", price: "30.00", checkout: CHECKOUT_URLS.pro },
+    ]);
+    expect(CHECKOUT_URLS.lite).toBe("https://mor.payments.ai/payment/01a1e81a-f39f-792d-b320-8a32c2c49905");
+    expect(CHECKOUT_URLS.pro).toBe("https://mor.payments.ai/payment/01a1e81d-0489-740f-89e4-4c477f0d58cc");
+    for (const row of packageCatalog()) expect(Number(listPrice(row.plan))).toBe(LIST_PRICES[row.plan]);
   });
 
-  it("names the package the checkout page has to look up", () => {
-    expect(packageKey("pro", "month")).toBe(PACKAGE_IDS.pro.month);
-    expect(packageKey("lite", "year")).toBe(PACKAGE_IDS.lite.year);
-    expect(packageKey("pro", "weekly")).toBe(PACKAGE_IDS.pro.month);
-    expect(packageKey("starter", "month")).toBe("");
+  it("maps major-unit payment amounts without inventing a plan", () => {
+    expect(planForAmount(12)).toBe("lite");
+    expect(planForAmount("12.00")).toBe("lite");
+    expect(planForAmount(30)).toBe("pro");
+    for (const amount of [1200, 3000, 10, 20, 0, -12, null, undefined, "unknown"]) expect(planForAmount(amount)).toBeNull();
   });
 
-  it("prints exactly the prices the dashboard products were created with", () => {
-    for (const row of packageCatalog()) expect(row.price).toBe(LIST_PRICES[row.plan][row.billing]);
-    expect(listPrice("lite", "month")).toBe("10.00");
-    expect(listPrice("lite", "year")).toBe("89.00");
-    expect(listPrice("pro", "month")).toBe("20.00");
-    expect(listPrice("pro", "year")).toBe("179.00");
-    expect(packageCatalog()).toHaveLength(4);
-  });
-
-  it("lets the higher entitlement win when a delivery carries both", () => {
-    expect(planForEntitlements(["pro"])).toBe("pro");
-    expect(planForEntitlements(["lite", "pro"])).toBe("pro");
-    expect(planForEntitlements(["PRO"])).toBe("pro");
-    expect(planForEntitlements([])).toBeNull();
-    expect(planForEntitlements(["something"])).toBeNull();
-  });
-
-  it("reads the buyer out of the identity RevenueCat sends", () => {
-    expect(buyerEmail({ app_user_id: "Buyer@Calvras.com" })).toBe("buyer@calvras.com");
-    expect(buyerEmail({ identity: { app_user_id: "ada@calvras.com" } })).toBe("ada@calvras.com");
-    expect(buyerEmail({ original_app_user_id: "old@calvras.com" })).toBe("old@calvras.com");
-    expect(buyerEmail({})).toBe("");
+  it("normalizes the customer.created email", () => {
+    expect(buyerEmail({ email: " Buyer@Calvras.com " })).toBe("buyer@calvras.com");
+    expect(buyerEmail({ customerId: "cust_1" })).toBe("");
   });
 });
 
-describe("RevenueCat webhook signature", () => {
-  const secret = "rc_webhook_fixture_secret";
-  const body = JSON.stringify({ api_version: "1.0", event: { type: "INITIAL_PURCHASE" } });
+describe("Payments AI webhook signature", () => {
+  const secret = "payments_ai_fixture_key";
+  const body = '{ "eventType": "payment.completed", "amount": 12 }';
   const now = 1_800_000_000_000;
   const stamp = Math.floor(now / 1000);
-  const sign = (ts: number, payload = body, key = secret) => `t=${ts},v1=${createHmac("sha256", key).update(`${ts}.${payload}`).digest("hex")}`;
+  const sign = (ts: number, payload = body, key = secret) => `sha256=${createHmac("sha256", key).update(`${ts}.${payload}`).digest("hex")}`;
 
-  it("accepts a delivery RevenueCat signed", async () => {
-    await expect(verifyRevenueCatSignature(sign(stamp), body, secret, now)).resolves.toBe(true);
+  it("verifies the exact timestamp and raw body", async () => {
+    await expect(verifyPaymentsAiSignature(sign(stamp), String(stamp), body, secret, now)).resolves.toBe(true);
+    await expect(verifyPaymentsAiSignature(sign(stamp), String(stamp), JSON.stringify(JSON.parse(body)), secret, now)).resolves.toBe(false);
   });
 
-  it("accepts when any of the listed v1 signatures matches", async () => {
-    const header = `t=${stamp},v1=${"0".repeat(64)},v1=${createHmac("sha256", secret).update(`${stamp}.${body}`).digest("hex")}`;
-    await expect(verifyRevenueCatSignature(header, body, secret, now)).resolves.toBe(true);
+  it("rejects altered amounts and signatures from another key", async () => {
+    await expect(verifyPaymentsAiSignature(sign(stamp), String(stamp), body.replace("12", "30"), secret, now)).resolves.toBe(false);
+    await expect(verifyPaymentsAiSignature(sign(stamp, body, "other_fixture_key"), String(stamp), body, secret, now)).resolves.toBe(false);
   });
 
-  it("refuses a body that changed after it was signed", async () => {
-    await expect(verifyRevenueCatSignature(sign(stamp), body.replace("INITIAL", "EXPIRATION"), secret, now)).resolves.toBe(false);
-  });
-
-  it("refuses a signature made with another secret", async () => {
-    await expect(verifyRevenueCatSignature(sign(stamp, body, "someone_else"), body, secret, now)).resolves.toBe(false);
-  });
-
-  it("refuses a delivery old enough to be a replay", async () => {
-    await expect(verifyRevenueCatSignature(sign(stamp - 48 * 60 * 60), body, secret, now)).resolves.toBe(false);
-    // A deploy can make RevenueCat retry much later; a day-old delivery is still the same purchase and
-    // its replay only rewrites the same ledger row.
-    await expect(verifyRevenueCatSignature(sign(stamp - 60 * 60), body, secret, now)).resolves.toBe(true);
-  });
-
-  it("refuses malformed headers and a missing secret", async () => {
-    for (const header of ["", "v1=abc", "t=not-a-number,v1=abc", `t=${stamp},v1=zzzz`, `t=${stamp}`]) {
-      await expect(verifyRevenueCatSignature(header, body, secret, now), header).resolves.toBe(false);
+  it("accepts provider retries but rejects stale and future replays", async () => {
+    for (const age of [60, 15 * 60, 60 * 60]) {
+      await expect(verifyPaymentsAiSignature(sign(stamp - age), String(stamp - age), body, secret, now)).resolves.toBe(true);
     }
-    await expect(verifyRevenueCatSignature(sign(stamp), body, "", now)).resolves.toBe(false);
+    for (const age of [-48 * 60 * 60, 48 * 60 * 60]) {
+      await expect(verifyPaymentsAiSignature(sign(stamp - age), String(stamp - age), body, secret, now)).resolves.toBe(false);
+    }
+  });
+
+  it("rejects malformed or missing headers and configuration", async () => {
+    for (const header of [null, "", "v1=abc", "sha256=zzzz", "sha256=aa", `sha256=${"0".repeat(64)}`]) {
+      await expect(verifyPaymentsAiSignature(header, String(stamp), body, secret, now)).resolves.toBe(false);
+    }
+    for (const ts of [null, "", "not-a-number", `${stamp}.5`, `${stamp}e0`]) {
+      await expect(verifyPaymentsAiSignature(sign(stamp), ts, body, secret, now)).resolves.toBe(false);
+    }
+    await expect(verifyPaymentsAiSignature(sign(stamp), String(stamp), body, "", now)).resolves.toBe(false);
   });
 });

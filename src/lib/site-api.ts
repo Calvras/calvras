@@ -127,53 +127,105 @@ const periodEnd = (value: unknown): number => {
  * customer.created lands and flushes it. Every branch is idempotent: the store retries a delivery it
  * did not see answered, and the eventId dedupe drops the repeat before any of this runs.
  */
-async function applyPaymentsAiEvent(db: D1Database, eventType: string, event: Record<string, unknown>, at: number): Promise<void> {
-  const customerId = String(event["customerId"] || "").trim();
+async function paiSubscriptionLink(db: D1Database, event: Record<string, unknown>): Promise<{ id: string; customerId: string }> {
+  let id = String(event["subscriptionId"] || "").trim();
+  let customerId = String(event["customerId"] || "").trim();
+  if ((!id || !customerId) && event["orderId"]) {
+    const links = await db.prepare(`SELECT DISTINCT json_extract(payload, '$.subscriptionId') AS id, json_extract(payload, '$.customerId') AS customer
+      FROM pai_events WHERE event_type LIKE 'subscription.%' AND json_extract(payload, '$.orderId') = ?
+      AND json_extract(payload, '$.subscriptionId') IS NOT NULL AND json_extract(payload, '$.customerId') IS NOT NULL`)
+      .bind(String(event["orderId"])).all<{ id: string; customer: string }>();
+    const link = links.results.length === 1 ? links.results[0] : null;
+    if (link && (!id || id === link.id) && (!customerId || customerId === link.customer)) { id = link.id; customerId = link.customer; }
+  }
+  if ((!id || !customerId) && event["eventType"] === "payment.refunded" && event["transactionId"]) {
+    const original = await db.prepare("SELECT payload FROM pai_events WHERE event_type = 'payment.completed' AND json_extract(payload, '$.transactionId') = ? ORDER BY rowid ASC LIMIT 1")
+      .bind(String(event["transactionId"])).first<{ payload: string }>();
+    if (original) {
+      const link = await paiSubscriptionLink(db, JSON.parse(original.payload));
+      if ((!id || id === link.id) && (!customerId || !link.customerId || customerId === link.customerId)) { id ||= link.id; customerId ||= link.customerId; }
+    }
+  }
+  return { id, customerId };
+}
+
+async function applyPaymentsAiEvent(db: D1Database, eventType: string, event: Record<string, unknown>, at: number): Promise<boolean> {
+  const stored = await db.prepare("SELECT processed FROM pai_events WHERE event_id = ?").bind(String(event["eventId"])).first<{ processed: number }>();
+  if (stored?.processed) return true;
+  let customerId = String(event["customerId"] || "").trim();
+  let id = String(event["subscriptionId"] || "").trim();
 
   if (eventType === "customer.created") {
     const email = buyerEmail(event);
-    if (!customerId || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return;
+    if (!customerId || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return true;
     await savePaiCustomer(db, customerId, email, at);
     for (const pending of await pendingPaiEvents(db, customerId)) {
-      let parsed: Record<string, unknown>;
-      try { parsed = JSON.parse(pending.payload) as Record<string, unknown>; } catch { continue; }
-      await applyPaymentsAiEvent(db, pending.event_type, parsed, at);
-      await markPaiEventProcessed(db, pending.event_id);
+      if (pending.event_type === "customer.created") continue;
+      const parsed = JSON.parse(pending.payload) as Record<string, unknown>;
+      if (await applyPaymentsAiEvent(db, pending.event_type, parsed, at)) await markPaiEventProcessed(db, pending.event_id);
     }
-    return;
+    return true;
   }
 
-  const email = await paiCustomerEmail(db, customerId);
-  if (!email) return;
+  const payment = eventType === "payment.completed" || eventType === "payment.refunded";
+  if (!payment && !eventType.startsWith("subscription.")) return true;
+  if (payment) ({ id, customerId } = await paiSubscriptionLink(db, event));
+  if (!id) return false;
+  const existing = await subscriptionById(db, id);
+  customerId ||= existing?.customer_id || "";
+  const email = existing?.email || (customerId ? await paiCustomerEmail(db, customerId) : "");
+  if (!email) return false;
 
-  if (eventType === "payment.completed" || eventType === "payment.refunded") {
-    const id = String(event["subscriptionId"] || event["transactionId"] || "").trim();
-    if (!id) return;
-    const existing = await subscriptionById(db, id);
-    const plan = planForAmount(event["amount"]) ?? (isPlanKey(existing?.plan) ? existing.plan : null);
-    if (!plan) return;
-    const refunded = eventType === "payment.refunded";
+  if (payment) {
+    if (String(event["currency"] || "").toUpperCase() !== "USD") return true;
+    const transactionId = String(event["transactionId"] || "");
+    if (!transactionId) return false;
+    const history = await db.prepare("SELECT event_type, payload FROM pai_events WHERE event_type IN ('payment.completed', 'payment.refunded') AND json_extract(payload, '$.transactionId') = ?")
+      .bind(transactionId).all<{ event_type: string; payload: string }>();
+    const entries = history.results.map(row => ({ type: row.event_type, event: JSON.parse(row.payload) as Record<string, unknown> })).filter(row => String(row.event["currency"] || "").toUpperCase() === "USD");
+    const charged = Number(entries.find(row => row.type === "payment.completed")?.event["amount"]) || 0;
+    const refundedAmount = entries.filter(row => row.type === "payment.refunded").reduce((sum, row) => sum + (Number(row.event["amount"]) || 0), 0);
+    const refunded = charged > 0 && refundedAmount >= charged;
+    if (eventType === "payment.refunded") {
+      if (!charged) return false;
+      if (!refunded) return true;
+    }
+    const plan = planForAmount(charged);
+    if (!plan) return true;
+    const candidates = await db.prepare(`SELECT payload FROM pai_events WHERE event_type = 'payment.completed'
+      AND LOWER(json_extract(payload, '$.currency')) = 'usd' AND json_extract(payload, '$.amount') IN (12, 30)
+      AND (json_extract(payload, '$.subscriptionId') = ? OR json_extract(payload, '$.orderId') IN (
+        SELECT json_extract(payload, '$.orderId') FROM pai_events WHERE event_type LIKE 'subscription.%' AND json_extract(payload, '$.subscriptionId') = ?
+      )) ORDER BY COALESCE(json_extract(payload, '$.occurredAt'), '') DESC, received_at DESC, rowid DESC`)
+      .bind(id, id).all<{ payload: string }>();
+    for (const row of candidates.results) {
+      const candidate = JSON.parse(row.payload) as Record<string, unknown>;
+      if ((await paiSubscriptionLink(db, candidate)).id !== id) continue;
+      if (candidate["transactionId"] !== transactionId) return true;
+      break;
+    }
+    const expiresAt = existing?.expires_at ?? 0;
+    const status = refunded ? "refunded" : expiresAt ? "active" : "pending";
     await saveSubscription(db, {
       id,
       email,
       plan,
       productId: CHECKOUT_URLS[plan],
-      status: refunded ? "refunded" : "active",
+      status,
       customerId,
       currency: String(event["currency"] || "").toUpperCase(),
-      expiresAt: refunded ? at : (existing?.expires_at ?? 0),
+      expiresAt: refunded ? at : expiresAt,
       at,
     });
     await syncPlanFromSubscriptions(db, email, at);
-    await note(db, email, "billing", `${PLAN_LABELS[plan]} ${refunded ? "refunded" : "active"} (Payments AI)`, at);
-    return;
+    await note(db, email, "billing", `${PLAN_LABELS[plan]} ${status} (Payments AI)`, at);
+    return status !== "pending";
   }
 
   if (eventType.startsWith("subscription.")) {
-    const id = String(event["subscriptionId"] || "").trim();
-    if (!id || eventType === "subscription.payment_method_updated") return;
-    const existing = await subscriptionById(db, id);
-    const status = subscriptionStatus(event["status"]);
+    if (eventType === "subscription.payment_method_updated") return true;
+    const expiresAt = periodEnd(event["currentPeriodEnd"]) || existing?.expires_at || 0;
+    const status = existing?.status === "refunded" ? "refunded" : expiresAt ? subscriptionStatus(event["status"]) : "pending";
     await saveSubscription(db, {
       id,
       email,
@@ -182,12 +234,17 @@ async function applyPaymentsAiEvent(db: D1Database, eventType: string, event: Re
       status,
       customerId,
       currency: existing?.currency ?? "USD",
-      expiresAt: periodEnd(event["currentPeriodEnd"]) || existing?.expires_at || 0,
+      expiresAt,
       at,
     });
     await syncPlanFromSubscriptions(db, email, at);
     await note(db, email, "billing", `subscription ${status} (Payments AI)`, at);
+    for (const pending of await pendingPaiEvents(db, customerId)) {
+      if (pending.event_type !== "payment.completed" && pending.event_type !== "payment.refunded") continue;
+      if (await applyPaymentsAiEvent(db, pending.event_type, JSON.parse(pending.payload), at)) await markPaiEventProcessed(db, pending.event_id);
+    }
   }
+  return true;
 }
 
 /** The destination registered in the Payments AI dashboard is the pricing page's own URL, so the
@@ -202,14 +259,22 @@ async function handlePaymentsAiWebhook(request: Request, db: D1Database, env: Si
   }
   let payload: Record<string, unknown>;
   try { payload = JSON.parse(raw) as Record<string, unknown>; } catch { return json({ ok: false, error: "The delivery was not JSON." }, 400); }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return json({ ok: false, error: "The delivery was not an event." }, 400);
   if (payload["type"] === "webhook.test") return json({ ok: true, test: true });
   const eventId = String(payload["eventId"] || "").trim();
   const eventType = String(payload["eventType"] || "").trim();
-  if (!eventId || !eventType) return json({ ok: false, error: "The delivery carried no event id." }, 400);
+  if (!eventId || eventId.length > 120 || !eventType || eventType.length > 60) return json({ ok: false, error: "The delivery carried no valid event id or type." }, 400);
   const fresh = await recordPaiEvent(db, { eventId, eventType, customerId: String(payload["customerId"] || ""), payload: raw, at });
-  if (!fresh) return json({ ok: true, duplicate: true });
-  await applyPaymentsAiEvent(db, eventType, payload, at);
-  await markPaiEventProcessed(db, eventId);
+  if (!fresh) {
+    const stored = await db.prepare("SELECT processed, payload, event_type FROM pai_events WHERE event_id = ?").bind(eventId).first<{ processed: number; payload: string; event_type: string }>();
+    if (stored!.processed) return json({ ok: true, duplicate: true });
+    payload = JSON.parse(stored!.payload) as Record<string, unknown>;
+  }
+  try {
+    if (await applyPaymentsAiEvent(db, String(payload["eventType"]), payload, at)) await markPaiEventProcessed(db, eventId);
+  } catch {
+    return json({ ok: false, error: "The delivery could not be applied. Please retry." }, 503);
+  }
   return json({ ok: true });
 }
 
@@ -391,6 +456,7 @@ export async function handleSiteApi(request: Request, env: SiteEnv): Promise<Res
     const payload = await body(request);
     const claims = await readSession(await signingKey(db), String(payload["session"] || ""), Date.now());
     if (!claims) return json({ ok: false, error: "Sign in again to check your usage." }, 403);
+    await syncPlanFromSubscriptions(db, claims.email, Date.now());
     const status = await quotaStatus(db, claims.email, Date.now(), Number(env.CALVRAS_DAILY_TOKENS) || DEFAULT_DAILY_TOKENS);
     return json({ ok: true, ...status });
   }
@@ -403,6 +469,7 @@ export async function handleSiteApi(request: Request, env: SiteEnv): Promise<Res
     if (!account) return json({ ok: false, error: "No account record." }, 403);
     if (account.blocked) return json({ ok: false, blocked: true, error: "This account has been blocked." }, 403);
     const serverDefault = Number(env.CALVRAS_DAILY_TOKENS) || DEFAULT_DAILY_TOKENS;
+    await syncPlanFromSubscriptions(db, claims.email, Date.now());
     const quota = await quotaStatus(db, claims.email, Date.now(), serverDefault);
     if (!quota.allowed) return json({ ok: false, exhausted: true, quota, error: quota.lockDays ? `Daily token limit reached. Your usage unlocks in ${quota.lockDays} days.` : "Daily token limit reached. Try again after the reset." }, 429);
 
@@ -427,10 +494,22 @@ export async function handleSiteApi(request: Request, env: SiteEnv): Promise<Res
     const reader = upstream.body?.getReader();
     const decoder = new TextDecoder();
     const encoder = new TextEncoder();
+    let disconnected = false;
     const stream = new ReadableStream({
       async start(controller) {
         let buffer = "";
         let spent = 0;
+        const send = (data: string) => { if (!disconnected) controller.enqueue(encoder.encode(`data: ${data}\n\n`)); };
+        const readLine = (line: string) => {
+          if (!line.startsWith("data:")) return;
+          const data = line.slice(5).trim();
+          if (!data || data === "[DONE]") return;
+          try {
+            const usage = JSON.parse(data)?.usage;
+            if (usage) spent = Math.max(spent, Number(usage.total_tokens) || (Number(usage.prompt_tokens) || 0) + (Number(usage.completion_tokens) || 0));
+          } catch { return; }
+          send(data);
+        };
         try {
           while (reader) {
             const { done, value } = await reader.read();
@@ -438,25 +517,20 @@ export async function handleSiteApi(request: Request, env: SiteEnv): Promise<Res
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split("\n");
             buffer = lines.pop() || "";
-            for (const line of lines) {
-              if (!line.startsWith("data: ")) continue;
-              const data = line.slice(6).trim();
-              if (data === "[DONE]") { controller.enqueue(encoder.encode("data: [DONE]\n\n")); continue; }
-              try {
-                const parsed = JSON.parse(data);
-                const usage = parsed?.usage;
-                if (usage) spent = Math.max(spent, Number(usage.total_tokens) || (Number(usage.prompt_tokens) || 0) + (Number(usage.completion_tokens) || 0));
-                controller.enqueue(encoder.encode(`data: ${data}\n\n`));
-              } catch { controller.enqueue(encoder.encode(`data: ${data}\n\n`)); }
-            }
+            for (const line of lines) readLine(line);
           }
-        } catch { /* upstream interrupted */ }
-        // Debit after stream completes so an interrupted turn still counts what it spent.
-        const finalQuota = await debitTokens(db, claims.email, spent, Date.now(), serverDefault).catch(() => quota);
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ quota: finalQuota })}\n\n`));
-        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-        controller.close();
+          readLine(buffer + decoder.decode());
+        } catch { send(JSON.stringify({ error: { message: "The model stream was interrupted." } })); }
+        finally { reader?.releaseLock(); }
+        // Keep consuming upstream usage after a client disconnect so cancellation cannot erase the charge.
+        try {
+          const finalQuota = await debitTokens(db, claims.email, spent, Date.now(), serverDefault);
+          send(JSON.stringify({ quota: finalQuota }));
+        } catch { send(JSON.stringify({ error: { message: "Usage accounting failed." } })); }
+        send("[DONE]");
+        if (!disconnected) controller.close();
       },
+      cancel() { disconnected = true; },
     });
     return new Response(stream, { headers: { "content-type": "text/event-stream", "cache-control": "no-store", ...cors } });
   }
