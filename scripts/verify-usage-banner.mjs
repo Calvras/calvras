@@ -23,6 +23,8 @@ try {
     ipcMain.handle('browser:open-external', (_event, url) => { global.__openedPricing = url; return { ok: true }; });
   });
   const page = await app.firstWindow();
+  await page.waitForURL('**/signin.html');
+  await page.waitForLoadState('domcontentloaded');
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   if (packaged) await app.evaluate(({ app, BrowserWindow }) => BrowserWindow.getAllWindows()[0].loadFile(app.getAppPath() + '/app.html'));
