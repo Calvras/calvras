@@ -30,7 +30,7 @@ try {
   await page.waitForSelector('#prompt-input');
   await page.waitForSelector('#app-splash', { state: 'detached', timeout: 6000 });
   const version = packaged ? await app.evaluate(({ app }) => app.getVersion()) : JSON.parse(await fs.readFile(path.resolve('electron-builder.kraken.json'), 'utf8')).extraMetadata.version;
-  check('renderer reports the actual build version', await page.evaluate(() => ipc.invoke('app:get-version')) === version);
+  check('renderer reports the actual build version', await page.evaluate(() => getElectronIpc().invoke('app:get-version')) === version);
   await page.evaluate(() => refreshQuota());
   check('Free meter displays spent tokens, not chat count', await page.locator('#quota-usage-label').textContent() === '12.3k / 100k tokens used today');
   check('meter percentage reflects 12% token usage', await page.evaluate(() => document.getElementById('quota-usage-bar').style.width === '12%'));
