@@ -39,6 +39,6 @@
     "command": "npm run build"
   },
   "vars": {
-    "CALVRAS_AI_MODEL": "minimax/minimax-m3.1-flash:free"
+    "CALVRAS_AI_MODEL": "deepseek-ai/DeepSeek-V4.1-Flash-1017"
   }
 }

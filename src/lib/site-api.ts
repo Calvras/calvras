@@ -278,10 +278,8 @@ async function handlePaymentsAiWebhook(request: Request, db: D1Database, env: Si
   return json({ ok: true });
 }
 
-const AI_BASE = "https://openrouter.ai/api/v1/chat/completions";
-/** The same free model the desktop app falls back to, so the console costs nothing to run and needs
- * no second account. A key set as CALVRAS_AI_KEY with CALVRAS_AI_MODEL overrides both. */
-const AI_DEFAULT_MODEL = "google/gemma-4-31b-it:free";
+const AI_BASE = "https://api.together.xyz/v1/chat/completions";
+const AI_DEFAULT_MODEL = "deepseek-ai/DeepSeek-V4.1-Flash-1017";
 
 /** One non-streaming chat call, server-side only. The key is read from the Worker's own environment,
  * so unlike the desktop app's keys it is never held on a computer — and it is never sent to a browser. */
@@ -475,7 +473,7 @@ export async function handleSiteApi(request: Request, env: SiteEnv): Promise<Res
 
     const key = String(env.CALVRAS_AI_KEY || "").trim();
     if (!key) return json({ ok: false, error: "No model key is configured on the server." }, 503);
-    const model = String(payload["model"] || env.CALVRAS_AI_MODEL || "").trim() || AI_DEFAULT_MODEL;
+    const model = String(env.CALVRAS_AI_MODEL || "").trim() || AI_DEFAULT_MODEL;
     const messages = Array.isArray(payload["messages"]) ? payload["messages"] : [];
     if (!messages.length) return json({ ok: false, error: "No messages to send." }, 400);
 

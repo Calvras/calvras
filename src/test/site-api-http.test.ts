@@ -283,7 +283,7 @@ describe("the owner's controls over a live account", () => {
     let seen = "";
     globalThis.fetch = (async (input: any, init: any) => {
       seen = String(input?.url ?? input);
-      if (seen.includes("openrouter.ai")) {
+      if (seen.includes("api.together.xyz")) {
         const body = JSON.parse(String(init?.body));
         const facts = String(body.messages[0].content);
         return new Response(JSON.stringify({ choices: [{ message: { content: `Busiest was ${facts.match(/Busiest accounts: ([^;]*)/)?.[1] ?? "nowhere in the facts"}.` } }] }), { headers: { "content-type": "application/json" } });
@@ -293,11 +293,11 @@ describe("the owner's controls over a live account", () => {
     try {
       // The key has to reach the handler the way Cloudflare hands it over, so this one route is read
       // through the handler rather than the loopback server, which was built with no AI key.
-      const response = await handleSiteApi(new Request("https://calvras.com/api/site/admin/chat", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${ADMIN_TOKEN}` }, body: JSON.stringify({ question: "who used it most today?" }) }), { CALVRAS_DB: d1Shim(sqlite), CALVRAS_ADMIN_TOKEN: ADMIN_TOKEN, CALVRAS_AI_KEY: "sk-or-test" });
+      const response = await handleSiteApi(new Request("https://calvras.com/api/site/admin/chat", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${ADMIN_TOKEN}` }, body: JSON.stringify({ question: "who used it most today?" }) }), { CALVRAS_DB: d1Shim(sqlite), CALVRAS_ADMIN_TOKEN: ADMIN_TOKEN, CALVRAS_AI_KEY: "fixture_together_key" });
       const body = (await response?.json()) as { ok: boolean; text: string; model: string };
-      expect(seen).toContain("openrouter.ai/api/v1/chat/completions");
+      expect(seen).toBe("https://api.together.xyz/v1/chat/completions");
       expect(body.ok).toBe(true);
-      expect(body.model).toBe("google/gemma-4-31b-it:free");
+      expect(body.model).toBe("deepseek-ai/DeepSeek-V4.1-Flash-1017");
       expect(body.text).toContain(email);
     } finally {
       globalThis.fetch = original;

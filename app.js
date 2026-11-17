@@ -4907,7 +4907,7 @@ async function streamCompletion(messages, { signal, onReasoning, onContent } = {
     response = await fetch('https://calvras.com/api/site/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session, model: currentModelId || undefined, messages, stream: true }),
+      body: JSON.stringify({ session, messages, stream: true }),
       signal,
     });
     if (response.status === 429) {

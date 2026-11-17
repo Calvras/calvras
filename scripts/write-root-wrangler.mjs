@@ -32,10 +32,7 @@ const config = {
   // Cloudflare's git build is configured with no build step, only `npx wrangler deploy`, so the
   // config has to trigger the build itself or it uploads an entry point that was never written.
   build: { command: "npm run build" },
-  // The console's analyst runs on a free model, and the free ones come and go with upstream limits,
-  // so the one that answers today is written here rather than left to the code's default. The key
-  // itself is a Cloudflare secret; only this name is public config.
-  vars: { CALVRAS_AI_MODEL: "minimax/minimax-m3.1-flash:free" },
+  vars: { CALVRAS_AI_MODEL: "deepseek-ai/DeepSeek-V4.1-Flash-1017" },
 };
 
 if (existsSync(ledger)) {

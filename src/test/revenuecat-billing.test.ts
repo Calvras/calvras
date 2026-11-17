@@ -278,6 +278,22 @@ describe("Payments AI HTTP boundary", () => {
 });
 
 describe("metered provider streaming", () => {
+  it.each(["deepseek-ai/DeepSeek-V4.1-Flash-1017", "client-selected-model", undefined])("uses the server model instead of the desktop model %s", async (model) => {
+    await recordSignIn(db, { email: EMAIL, at: Date.now() });
+    const session = await issueSession(await signingKey(db), EMAIL, Date.now());
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response('data: {"choices":[{"delta":{"content":"OK"}}]}\n\ndata: [DONE]\n\n'));
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await handleSiteApi(new Request("https://calvras.com/api/site/chat", {
+      method: "POST",
+      body: JSON.stringify({ session, model, messages: [{ role: "user", content: "Hi" }] }),
+    }), { CALVRAS_DB: db, CALVRAS_AI_KEY: "fixture_provider_key", CALVRAS_AI_MODEL: "deepseek-ai/DeepSeek-V4.1-Flash-1017" });
+    expect(response?.status).toBe(200);
+    await response!.text();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]![0]).toBe("https://api.together.xyz/v1/chat/completions");
+    expect(JSON.parse(fetchMock.mock.calls[0]![1]!.body as string).model).toBe("deepseek-ai/DeepSeek-V4.1-Flash-1017");
+  });
+
   it("charges reported input and output tokens and sends quota before one DONE frame", async () => {
     await recordSignIn(db, { email: EMAIL, at: Date.now() });
     const session = await issueSession(await signingKey(db), EMAIL, Date.now());
@@ -285,7 +301,8 @@ describe("metered provider streaming", () => {
     vi.stubGlobal("fetch", fetchMock);
     const response = await handleSiteApi(new Request("https://calvras.com/api/site/chat", { method: "POST", body: JSON.stringify({ session, messages: [{ role: "user", content: "Hi" }] }) }), { CALVRAS_DB: db, CALVRAS_AI_KEY: "fixture_provider_key" });
     const stream = await response!.text();
-    expect(JSON.parse(fetchMock.mock.calls[0]![1]!.body as string).stream_options).toEqual({ include_usage: true });
+    expect(fetchMock.mock.calls[0]![0]).toBe("https://api.together.xyz/v1/chat/completions");
+    expect(JSON.parse(fetchMock.mock.calls[0]![1]!.body as string)).toMatchObject({ model: "deepseek-ai/DeepSeek-V4.1-Flash-1017", stream_options: { include_usage: true } });
     expect((await quotaStatus(db, EMAIL, Date.now())).used).toBe(1234);
     expect(stream).toContain('"used":1234');
     expect(stream.match(/data: \[DONE\]/g)).toHaveLength(1);

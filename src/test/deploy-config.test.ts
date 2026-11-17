@@ -67,10 +67,11 @@ describe("the hosted deploy config", () => {
   /** The console's analyst model is a plain config var, so the hosted build has to regenerate it too —
    * a name that only ever existed on one machine would leave the live report writing itself from
    * numbers with no explanation to anybody but the person who deployed. */
-  it("carries the console's analyst model in the generated config", () => {
+  it("carries the selected Together DeepSeek model in the generated config", () => {
+    const model = "deepseek-ai/DeepSeek-V4.1-Flash-1017";
     const writer = readFileSync(path.resolve(root, "scripts/write-root-wrangler.mjs"), "utf8");
-    expect(writer).toMatch(/CALVRAS_AI_MODEL/);
-    expect(String(config.vars?.["CALVRAS_AI_MODEL"] || "")).toMatch(/:free$/);
+    expect(writer).toContain(`CALVRAS_AI_MODEL: "${model}"`);
+    expect(config.vars?.["CALVRAS_AI_MODEL"]).toBe(model);
   });
 });
 
