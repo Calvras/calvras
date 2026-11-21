@@ -104,7 +104,7 @@ function postSession(payload) {
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(payload),
-        'User-Agent': 'Calvras/9.7.5',
+        'User-Agent': 'Calvras/9.7.6',
       },
       timeout: 12000,
     }, (res) => {
@@ -163,6 +163,28 @@ async function syncAccountWithCalvras(authData) {
 
 // ── IPC ───────────────────────────────────────────────────────────────────
 let currentWorkspaceDir = '';
+
+function getWorkspacePersistPath() {
+  try { return path.join(app.getPath('userData'), 'workspace-dir.json'); } catch { return ''; }
+}
+function loadPersistedWorkspace() {
+  try {
+    const p = getWorkspacePersistPath();
+    if (p && fs.existsSync(p)) {
+      const data = JSON.parse(fs.readFileSync(p, 'utf8'));
+      if (data && data.dir && fs.existsSync(data.dir)) {
+        currentWorkspaceDir = data.dir;
+      }
+    }
+  } catch {}
+}
+function persistWorkspace(dir) {
+  try {
+    const p = getWorkspacePersistPath();
+    if (p) fs.writeFileSync(p, JSON.stringify({ dir: dir || '' }), 'utf8');
+  } catch {}
+}
+loadPersistedWorkspace();
 
 // ── Workspace preview server ──────────────────────────────────────────────
 // Serves the active workspace over loopback so preview:index.html works even
@@ -384,6 +406,7 @@ ipcMain.handle('calvras:pick-folder', async () => {
   });
   if (result.canceled || !result.filePaths.length) return null;
   currentWorkspaceDir = result.filePaths[0];
+  persistWorkspace(currentWorkspaceDir);
   return currentWorkspaceDir;
 });
 
@@ -405,12 +428,14 @@ ipcMain.handle('workspace:open-explorer', async () => {
 ipcMain.handle('workspace:set-folder', async (_event, folderPath) => {
   if (!folderPath) {
     currentWorkspaceDir = '';
+    persistWorkspace('');
     return { selected: false, dir: '', name: '', reachable: true };
   }
   if (!fs.existsSync(folderPath)) {
     throw new Error(`Directory does not exist: ${folderPath}`);
   }
   currentWorkspaceDir = folderPath;
+  persistWorkspace(currentWorkspaceDir);
   return {
     selected: true,
     dir: currentWorkspaceDir,
