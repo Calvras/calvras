@@ -243,18 +243,18 @@ describe("daily spent-token quota and multi-day lock", () => {
   const email = "dev@calvras.com";
   beforeEach(async () => { await recordSignIn(db, { email, at: 1_000 }); });
 
-  it("starts at zero with 100k tokens", async () => {
+  it("starts at zero with 300k tokens", async () => {
     expect(await quotaStatus(db, email, 2_000)).toMatchObject({ allowed: true, used: 0, limit: DEFAULT_DAILY_TOKENS, percent: 0 });
   });
 
   it("debits actual spent tokens, not one chat", async () => {
-    expect(await debitTokens(db, email, 12_345, 2_000)).toMatchObject({ used: 12_345, percent: 12, allowed: true, exhausted: false });
-    expect(await debitTokens(db, email, 7_655, 3_000)).toMatchObject({ used: 20_000, percent: 20 });
+    expect(await debitTokens(db, email, 12_345, 2_000)).toMatchObject({ used: 12_345, percent: 4, allowed: true, exhausted: false });
+    expect(await debitTokens(db, email, 7_655, 3_000)).toMatchObject({ used: 20_000, percent: 7 });
   });
 
   it("persists one random 3-10 day lock when the token limit is crossed", async () => {
-    const status = await debitTokens(db, email, 100_001, 5_000);
-    expect(status).toMatchObject({ allowed: false, exhausted: true, percent: 100, used: 100_001 });
+    const status = await debitTokens(db, email, 300_001, 5_000);
+    expect(status).toMatchObject({ allowed: false, exhausted: true, percent: 100, used: 300_001 });
     expect(status.lockDays).toBeGreaterThanOrEqual(LOCK_DAYS_MIN);
     expect(status.lockDays).toBeLessThanOrEqual(LOCK_DAYS_MAX);
     expect(status.lockedUntil).toBe(5_000 + status.lockDays * DAY);
@@ -263,7 +263,7 @@ describe("daily spent-token quota and multi-day lock", () => {
   });
 
   it("stays locked through 24 hours and resets after the drawn lock", async () => {
-    const locked = await debitTokens(db, email, 100_000, 5_000);
+    const locked = await debitTokens(db, email, 300_000, 5_000);
     expect((await quotaStatus(db, email, 5_000 + DAY + 1)).allowed).toBe(false);
     expect(await quotaStatus(db, email, locked.lockedUntil)).toMatchObject({ allowed: true, used: 0, exhausted: false, lockDays: 0 });
   });
@@ -281,19 +281,19 @@ describe("daily spent-token quota and multi-day lock", () => {
     expect(await debitTokens(db, email, 1_500, 3_000)).toMatchObject({ limit: 2_000, used: 2_000, exhausted: true });
   });
 
-  it("scales to Lite 200k and Pro 400k, lifting a lock within the new allowance", async () => {
-    await debitTokens(db, email, 100_000, 2_000);
+  it("scales to Lite 700k and Pro 1200k, lifting a lock within the new allowance", async () => {
+    await debitTokens(db, email, 300_000, 2_000);
     await grantPlan(db, email, "lite", "owner", 3_000);
-    expect(await quotaStatus(db, email, 4_000)).toMatchObject({ limit: 200_000, used: 100_000, allowed: true, lockDays: 0 });
-    await debitTokens(db, email, 100_000, 5_000);
+    expect(await quotaStatus(db, email, 4_000)).toMatchObject({ limit: 700_000, used: 300_000, allowed: true, lockDays: 0 });
+    await debitTokens(db, email, 400_000, 5_000);
     await grantPlan(db, email, "pro", "owner", 6_000);
-    expect(await quotaStatus(db, email, 7_000)).toMatchObject({ limit: 400_000, used: 200_000, allowed: true, lockDays: 0 });
+    expect(await quotaStatus(db, email, 7_000)).toMatchObject({ limit: 1_200_000, used: 700_000, allowed: true, lockDays: 0 });
   });
 
   it("does not lose simultaneous debits or draw multiple locks", async () => {
-    await Promise.all([60_000, 60_000, 1_000].map(tokens => debitTokens(db, email, tokens, 5_000)));
+    await Promise.all([150_000, 150_000, 1_000].map(tokens => debitTokens(db, email, tokens, 5_000)));
     const status = await quotaStatus(db, email, 6_000);
-    expect(status.used).toBe(121_000);
+    expect(status.used).toBe(301_000);
     expect(status.exhausted).toBe(true);
     expect((await recentEvents(db)).filter(event => event.kind === "quota_locked")).toHaveLength(1);
   });

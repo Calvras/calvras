@@ -280,6 +280,7 @@ async function handlePaymentsAiWebhook(request: Request, db: D1Database, env: Si
 
 const AI_BASE = "https://api.together.xyz/v1/chat/completions";
 const AI_DEFAULT_MODEL = "deepseek-ai/DeepSeek-V4.1-Flash-1017";
+const AI_CHAT_MODEL = "Prism-ML/Ternary-Bonsai-27B";
 
 /** One non-streaming chat call, server-side only. The key is read from the Worker's own environment,
  * so unlike the desktop app's keys it is never held on a computer — and it is never sent to a browser. */
@@ -469,11 +470,16 @@ export async function handleSiteApi(request: Request, env: SiteEnv): Promise<Res
     const serverDefault = Number(env.CALVRAS_DAILY_TOKENS) || DEFAULT_DAILY_TOKENS;
     await syncPlanFromSubscriptions(db, claims.email, Date.now());
     const quota = await quotaStatus(db, claims.email, Date.now(), serverDefault);
-    if (!quota.allowed) return json({ ok: false, exhausted: true, quota, error: quota.lockDays ? `Daily token limit reached. Your usage unlocks in ${quota.lockDays} days.` : "Daily token limit reached. Try again after the reset." }, 429);
+    // Chat mode is the free read-only tier: it never spends the daily build allowance, so a
+    // drawn lock blocks Build only.
+    const chatMode = String(payload["mode"] || "") === "chat";
+    if (!chatMode && !quota.allowed) return json({ ok: false, exhausted: true, quota, error: quota.lockDays ? `Daily token limit reached. Your usage unlocks in ${quota.lockDays} days.` : "Daily token limit reached. Try again after the reset." }, 429);
 
     const key = String(env.CALVRAS_AI_KEY || "").trim();
     if (!key) return json({ ok: false, error: "No model key is configured on the server." }, 503);
-    const model = String(env.CALVRAS_AI_MODEL || "").trim() || AI_DEFAULT_MODEL;
+    const model = chatMode
+      ? String(env.CALVRAS_CHAT_MODEL || "").trim() || AI_CHAT_MODEL
+      : String(env.CALVRAS_AI_MODEL || "").trim() || AI_DEFAULT_MODEL;
     const messages = Array.isArray(payload["messages"]) ? payload["messages"] : [];
     if (!messages.length) return json({ ok: false, error: "No messages to send." }, 400);
 
@@ -522,7 +528,9 @@ export async function handleSiteApi(request: Request, env: SiteEnv): Promise<Res
         finally { reader?.releaseLock(); }
         // Keep consuming upstream usage after a client disconnect so cancellation cannot erase the charge.
         try {
-          const finalQuota = await debitTokens(db, claims.email, spent, Date.now(), serverDefault);
+          const finalQuota = chatMode
+            ? await quotaStatus(db, claims.email, Date.now(), serverDefault)
+            : await debitTokens(db, claims.email, spent, Date.now(), serverDefault);
           send(JSON.stringify({ quota: finalQuota }));
         } catch { send(JSON.stringify({ error: { message: "Usage accounting failed." } })); }
         send("[DONE]");

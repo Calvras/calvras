@@ -15,12 +15,12 @@ const openExternally = (url: string) => {
 };
 
 const plans = [
-  { name: "Free", price: 0, subtitle: "A place to start.", description: "The full desktop with a daily token allowance.", includes: "100k tokens per day", features: ["100k tokens per day", "Read, write and edit project files", "Run local commands and review changes", "Multi-step agent workflow", "Community support"] },
-  { name: "Lite", price: 12, subtitle: "Twice the room to build.", description: "Everything in Free, with double the daily tokens and the bigger capabilities.", includes: "200k tokens per day — 2x Free", features: ["Everything in Free", "200k tokens per day — 2x Free", "Stronger, faster model", "Unlimited web search", "Voice input", "Larger file and PDF uploads", "Priority email support"] },
-  { name: "Pro", price: 30, subtitle: "For the heaviest weeks.", description: "Everything in Lite, with four times the daily tokens and top reasoning.", includes: "400k tokens per day — 4x Free", features: ["Everything in Lite", "400k tokens per day — 4x Free", "Top reasoning model + high effort", "4 concurrent builds", "Full project memory", "Unlimited chat history", "Priority queue and support"] },
+  { name: "Free", price: 0, subtitle: "A place to start.", description: "The full desktop with a daily token allowance.", includes: "200k tokens per day", features: ["200k tokens per day", "Read, write and edit project files", "Run local commands and review changes", "Multi-step agent workflow", "Community support"] },
+  { name: "Lite", price: 12, subtitle: "More room to build.", description: "Everything in Free, with two and a half times the daily tokens and the bigger capabilities.", includes: "500k tokens per day — 2.5x Free", features: ["Everything in Free", "500k tokens per day — 2.5x Free", "Stronger, faster model", "Unlimited web search", "Voice input", "Larger file and PDF uploads", "Priority email support"] },
+  { name: "Pro", price: 30, subtitle: "For the heaviest weeks.", description: "Everything in Lite, with four times the daily tokens and top reasoning.", includes: "800k tokens per day — 4x Free", features: ["Everything in Lite", "800k tokens per day — 4x Free", "Top reasoning model + high effort", "4 concurrent builds", "Full project memory", "Unlimited chat history", "Priority queue and support"] },
 ];
 const comparison = [
-  ["Daily tokens", "100k", "200k (2x)", "400k (4x)"],
+  ["Daily tokens", "200k", "500k (2.5x)", "800k (4x)"],
   ["Read and edit project files", true, true, true],
   ["Local command execution", true, true, true],
   ["Multi-step agent workflow", true, true, true],
@@ -53,7 +53,7 @@ function PricingPage() {
       <motion.div className="pricing-intro" initial={{ opacity: 0, y: reducedMotion ? 0 : 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: reducedMotion ? 0 : .7 }}>
         <span className="landing-eyebrow">A PLAN FOR YOUR NEXT IDEA</span>
         <h1>Start small.<br /><span>Build with clarity.</span></h1>
-        <p>Start free with 100,000 tokens a day. Lite doubles it, Pro quadruples it — plus the capabilities that make heavy builds feel light.</p>
+        <p>Start free with 200,000 tokens a day. Lite raises that to 500,000 and Pro to 800,000 — plus the capabilities that make heavy builds feel light.</p>
       </motion.div>
       <section className="pricing-cards" aria-label="Available plans">
         {plans.map((plan, i) => { const live = Boolean(checkoutFor(plan.name)); const offer = shown(plan); return <motion.article key={plan.name} className={`pricing-card ${i === 1 ? "pricing-card-featured" : ""}`} initial={{ opacity: 0, y: reducedMotion ? 0 : 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: reducedMotion ? 0 : .6, delay: reducedMotion ? 0 : .15 + i * .1 }}>
@@ -74,7 +74,7 @@ function PricingPage() {
       </section>
       <section className="pricing-faq"><div className="pricing-section-heading"><span className="landing-eyebrow">GOOD TO KNOW</span><h2>A little clarity.</h2></div><div>
         <details><summary>How does billing work?</summary><p>Plans renew monthly at $12 for Lite and $30 for Pro until cancelled. Payments AI handles the charge and issues the receipt; you can cancel from the link in your receipt, and the plan stays active until the end of the period you already paid for.</p></details>
-        <details><summary>Can I use Calvras for free?</summary><p>Yes. The free plan includes 100,000 tokens per day with project file actions, local commands, change review and the multi-step agent workflow. Lite raises that to 200,000 tokens a day and Pro to 400,000, alongside the bigger capabilities.</p></details>
+        <details><summary>Can I use Calvras for free?</summary><p>Yes. The free plan includes 200,000 tokens per day with project file actions, local commands, change review and the multi-step agent workflow. Lite raises that to 500,000 tokens a day and Pro to 800,000, alongside the bigger capabilities.</p></details>
         <details><summary>What happens when I reach my daily token limit?</summary><p>Your usage locks for a random 3 to 10 days, drawn once and shown as a countdown in the app, then opens again automatically with a fresh allowance. Upgrading to Lite or Pro raises the daily allowance so you hit the limit far less often.</p></details>
         <details><summary>Can I upgrade today?</summary><p>Choosing a paid plan opens Payments AI's hosted checkout in your browser, where the card details are entered and never pass through Calvras. The plan is put on the account whose email you enter there, so use the address you sign in to Calvras with.</p></details>
         <details><summary>Does local mean my prompts stay on my computer?</summary><p>Your desktop projects are local, but AI requests may send prompts and selected project context to external model providers. Read the Privacy Policy before sharing sensitive information.</p></details>

@@ -107,7 +107,7 @@
     <!-- SIDEBAR -->
     <aside class="sidebar collapsed" id="sidebar">
       <div class="sidebar-topbar">
-        <button class="icon-btn" id="search-btn" title="Search conversations">
+        <button class="icon-btn" id="search-btn" aria-label="Search conversations">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="11" cy="11" r="8"></circle>
             <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
@@ -147,11 +147,11 @@
           </svg>
           <span>Library</span>
         </a>
-        <a href="#" class="nav-item" id="btn-projects-nav">
+        <a href="#" class="nav-item" id="btn-projects-nav" title="Open workspace folder">
           <svg class="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
           </svg>
-          <span>Projects</span>
+          <span>Open Folder</span>
         </a>
         <a href="#" class="nav-item" id="btn-plugins-nav">
           <svg class="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -254,6 +254,7 @@
               <p class="usage-limit-title">You're out of Calvras usage</p>
               <p class="usage-limit-sub">Upgrade for more now, or wait <span class="usage-limit-days"></span> — unlocks <span class="usage-limit-reset"></span></p>
             </div>
+            <button type="button" class="usage-limit-chat">Chat for free</button>
             <button type="button" class="usage-limit-upgrade">✦ Upgrade</button>
           </div>
               <input type="file" id="workspace-folder-picker" webkitdirectory directory style="display: none;">
@@ -381,6 +382,30 @@
                 </div>
 
                 <div class="card-right-actions">
+                  <div class="mode-dropdown-container">
+                    <button class="mode-selector-btn dark-mode-btn chat-mode-btn" id="chat-mode-btn" title="Build or Chat mode">
+                      <svg class="chat-mode-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="16 18 22 12 16 6"></polyline>
+                        <polyline points="8 6 2 12 8 18"></polyline>
+                      </svg>
+                      <span class="selected-mode-name" id="chat-mode-label">Build</span>
+                      <span class="chat-free-pill" hidden><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="12" cy="12" r="9"></circle></svg>Free</span>
+                      <svg class="chevron-icon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="6 9 12 15 18 9"></polyline>
+                      </svg>
+                    </button>
+                    <div class="mode-dropdown-menu chat-mode-menu" id="chat-mode-menu">
+                      <div class="mode-option active" data-chat-mode="build">
+                        <div class="mode-option-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg></div>
+                        <div class="mode-option-content"><div class="mode-option-title">Build</div><div class="mode-option-desc">Make changes directly</div></div>
+                        <div class="mode-option-check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>
+                      </div>
+                      <div class="mode-option" data-chat-mode="chat">
+                        <div class="mode-option-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg></div>
+                        <div class="mode-option-content"><div class="mode-option-title">Chat<span class="chat-free-pill"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="12" cy="12" r="9"></circle></svg>Free</span></div><div class="mode-option-desc">Ask anything, explore ideas</div></div>
+                      </div>
+                    </div>
+                  </div>
                   <button class="voice-btn-dark" id="voice-btn" title="Voice input">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                       <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
@@ -428,6 +453,7 @@
                 <p class="usage-limit-title">You're out of Calvras usage</p>
                 <p class="usage-limit-sub">Upgrade for more now, or wait <span class="usage-limit-days"></span> — unlocks <span class="usage-limit-reset"></span></p>
               </div>
+              <button type="button" class="usage-limit-chat">Chat for free</button>
               <button type="button" class="usage-limit-upgrade">✦ Upgrade</button>
             </div>
             <details class="composer-task-dock" id="composer-task-dock" hidden>
@@ -485,6 +511,30 @@
                 </div>
 
                 <div class="capsule-right-actions">
+                  <div class="mode-dropdown-container">
+                    <button class="capsule-model-btn capsule-chat-mode-btn" id="capsule-chat-mode-btn" title="Build or Chat mode">
+                      <svg class="chat-mode-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="16 18 22 12 16 6"></polyline>
+                        <polyline points="8 6 2 12 8 18"></polyline>
+                      </svg>
+                      <span class="capsule-model-name" id="capsule-chat-mode-label">Build</span>
+                      <span class="chat-free-pill" hidden><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="12" cy="12" r="9"></circle></svg>Free</span>
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="6 9 12 15 18 9"></polyline>
+                      </svg>
+                    </button>
+                    <div class="mode-dropdown-menu chat-mode-menu" id="capsule-chat-mode-menu">
+                      <div class="mode-option active" data-chat-mode="build">
+                        <div class="mode-option-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg></div>
+                        <div class="mode-option-content"><div class="mode-option-title">Build</div><div class="mode-option-desc">Make changes directly</div></div>
+                        <div class="mode-option-check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>
+                      </div>
+                      <div class="mode-option" data-chat-mode="chat">
+                        <div class="mode-option-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg></div>
+                        <div class="mode-option-content"><div class="mode-option-title">Chat<span class="chat-free-pill"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="12" cy="12" r="9"></circle></svg>Free</span></div><div class="mode-option-desc">Ask anything, explore ideas</div></div>
+                      </div>
+                    </div>
+                  </div>
                   <button class="circle-btn voice-btn" id="capsule-voice-btn" title="Voice input">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                       <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
@@ -837,7 +887,7 @@
               <div class="settings-card-item">
                 <div class="settings-item-text">
                   <div class="settings-item-title" id="account-plan-name">Your Plan: Calvras Free</div>
-                  <div class="settings-item-desc">Free includes 100k tokens a day. Lite ($12/month) doubles it and Pro ($30/month) quadruples it — upgrade on calvras.com/pricing.</div>
+                  <div class="settings-item-desc">Free includes 200k tokens a day. Lite ($12/month) gives you 500k and Pro ($30/month) 800k — upgrade on calvras.com/pricing.</div>
                   <div class="quota-meter" id="quota-meter" hidden>
                     <div class="quota-track"><div class="quota-fill" id="quota-usage-bar"></div></div>
                     <span class="quota-label" id="quota-usage-label"></span>

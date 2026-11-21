@@ -5,7 +5,7 @@
  */
 export const REPO = "Calvras/calvras";
 
-export const RELEASE_VERSION = "9.7.4";
+export const RELEASE_VERSION = "9.7.5";
 
 export const UPDATE_FEED_PATH = "/update.json";
 export const UPDATE_FEED_URL = `https://calvras.com${UPDATE_FEED_PATH}`;

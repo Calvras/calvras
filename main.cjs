@@ -104,7 +104,7 @@ function postSession(payload) {
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(payload),
-        'User-Agent': 'Calvras/9.7.0',
+        'User-Agent': 'Calvras/9.7.5',
       },
       timeout: 12000,
     }, (res) => {
@@ -875,6 +875,9 @@ function loadSignIn() {
   }
   getBrowserTools();
   mainWindow.loadFile(path.join(__dirname, 'signin.html'));
+  // Show immediately so there's no blank delay (Bug 8)
+  mainWindow.show();
+  mainWindow.focus();
   mainWindow.webContents.on('did-finish-load', () => {
     mainWindow.show();
     mainWindow.focus();
@@ -891,10 +894,11 @@ function loadMainApp(user) {
     mainWindow.on('closed', () => { commandGeneration++; executionPolicy.cancel(); desktopPet?.dispose(); desktopPet = null; githubConnection?.dispose(); githubConnection = null; browserTools?.dispose(); browserTools = null; mainWindow = null; });
   }
   getBrowserTools();
+  // Show the window immediately with the dark background so there's no blank delay (Bug 8)
+  mainWindow.show();
+  mainWindow.focus();
   mainWindow.loadFile(path.join(__dirname, 'app.html'));
   mainWindow.webContents.on('did-finish-load', () => {
-    mainWindow.show();
-    mainWindow.focus();
     mainWindow.setAlwaysOnTop(true);
     setTimeout(() => {
       if (mainWindow && !mainWindow.isDestroyed()) {

@@ -925,6 +925,25 @@ body { display: flex; flex-direction: column; }
   margin-top: 2px;
   flex-shrink: 0;
 }
+
+.chat-free-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 7px;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  background: #2563eb;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  vertical-align: middle;
+}
+.chat-free-pill[hidden] { display: none; }
+.chat-free-pill svg { flex: none; }
+.chat-mode-btn .chat-free-pill, .capsule-chat-mode-btn .chat-free-pill { margin-left: 2px; padding: 1px 6px; font-size: 10px; }
+.card-right-actions .mode-dropdown-menu, .capsule-right-actions .mode-dropdown-menu { right: 0; }
 .model-dropdown-container {
   position: relative;
 }
@@ -1966,8 +1985,12 @@ body.preview-dragging .preview-site-view {
 .approval-actions > span { flex: 1; font-size: 10px; color: #aaa6a1; }
 .approval-actions button { border: 0; background: transparent; color: #ccc; border-radius: 7px; padding: 7px 12px; cursor: pointer; font: inherit; }
 .approval-actions .approval-allow { background: #eee; color: #222; }
+.approval-actions .approval-allow-task { background: #2a4a2a; color: #7fcf7f; font-size: 11px; }
+.approval-actions .approval-allow-task:hover { background: #2e5a2e; }
 .approval-actions .holding { background: #a54239; color: white; transition: background 900ms linear; }
 .approval-actions button:disabled { opacity: .5; cursor: default; }
+/* Show a short error reason inline on a failed chip (Bug 7) */
+.agent-tool-fail-reason { color: #ef4444; font-size: 11px; font-style: italic; }
 
 .code-lang-label {
   display: inline-flex;
@@ -4715,6 +4738,8 @@ html, body { background-color: #181818; color: #e8e8e8; }
 .usage-limit-reset { color: #c9cdd3; }
 .usage-limit-upgrade { flex: none; display: inline-flex; align-items: center; gap: 6px; border: 0; border-radius: 9999px; background: #3f4854; color: #e8ecf1; padding: 9px 18px; font-size: 13px; font-weight: 600; cursor: pointer; }
 .usage-limit-upgrade:hover { background: #4a5462; }
+.usage-limit-chat { flex: none; display: inline-flex; align-items: center; gap: 6px; border: 0; border-radius: 9999px; background: #2563eb; color: #ffffff; padding: 9px 18px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.usage-limit-chat:hover { background: #1d4ed8; }
 body.usage-locked .codex-home-composer > :not(.usage-limit-banner),
 body.usage-locked .capsule-input-container > :not(.usage-limit-banner) { display: none !important; }
 

@@ -49,7 +49,7 @@ try {
     window.AudioContext = FakeAudioCtx;
   });
   await page.route('https://api.together.xyz/**', route => route.fulfill({ status: 200, contentType: 'text/event-stream', body: sse(ASK) }));
-  await page.route('https://calvras.com/api/site/quota', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ quota: { used: 0, limit: 100000, exhausted: false } }) }));
+  await page.route('https://calvras.com/api/site/quota', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ quota: { used: 0, limit: 200000, exhausted: false } }) }));
 
   await page.goto(pathToFileURL(path.resolve('app.html')).href);
   await page.waitForSelector('#prompt-input');

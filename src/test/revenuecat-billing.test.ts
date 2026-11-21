@@ -48,7 +48,7 @@ async function purchased(amount = 12) {
 }
 
 describe("Payments AI account upgrades", () => {
-  it.each([[12, "lite", 200_000], [30, "pro", 400_000]] as const)("grants a $%s purchase as %s with %s tokens", async (amount, plan, limit) => {
+  it.each([[12, "lite", 700_000], [30, "pro", 1_200_000]] as const)("grants a $%s purchase as %s with %s tokens", async (amount, plan, limit) => {
     await purchased(amount);
     expect(await findByEmail(db, EMAIL)).toMatchObject({ plan, plan_set_by: "payments-ai" });
     expect((await quotaStatus(db, EMAIL, Date.now())).limit).toBe(limit);
@@ -129,11 +129,11 @@ describe("Payments AI account upgrades", () => {
 
   it("lifts a Free exhaustion lock after a paid upgrade without erasing spent tokens", async () => {
     await recordSignIn(db, { email: EMAIL, at: Date.now() });
-    expect((await debitTokens(db, EMAIL, 100_000, Date.now())).exhausted).toBe(true);
+    expect((await debitTokens(db, EMAIL, 300_000, Date.now())).exhausted).toBe(true);
     await customer();
     await delivery(payment());
     await delivery(subscription("active"));
-    expect(await quotaStatus(db, EMAIL, Date.now())).toMatchObject({ limit: 200_000, used: 100_000, allowed: true, lockDays: 0 });
+    expect(await quotaStatus(db, EMAIL, Date.now())).toMatchObject({ limit: 700_000, used: 300_000, allowed: true, lockDays: 0 });
   });
 
   it("waits for a paid-through period instead of granting permanent payment access", async () => {
@@ -307,5 +307,35 @@ describe("metered provider streaming", () => {
     expect(stream).toContain('"used":1234');
     expect(stream.match(/data: \[DONE\]/g)).toHaveLength(1);
     expect(stream.indexOf('"quota"')).toBeLessThan(stream.indexOf("data: [DONE]"));
+  });
+
+  it("chat mode runs the free chat model and debits nothing", async () => {
+    await recordSignIn(db, { email: EMAIL, at: Date.now() });
+    const session = await issueSession(await signingKey(db), EMAIL, Date.now());
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response('data: {"choices":[{"delta":{"content":"Hello"}}]}\n\ndata: {"usage":{"total_tokens":1234}}\n\ndata: [DONE]\n\n'));
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await handleSiteApi(new Request("https://calvras.com/api/site/chat", { method: "POST", body: JSON.stringify({ session, mode: "chat", messages: [{ role: "user", content: "Hi" }] }) }), { CALVRAS_DB: db, CALVRAS_AI_KEY: "fixture_provider_key", CALVRAS_AI_MODEL: "deepseek-ai/DeepSeek-V4.1-Flash-1017" });
+    expect(response?.status).toBe(200);
+    const stream = await response!.text();
+    expect(fetchMock.mock.calls[0]![0]).toBe("https://api.together.xyz/v1/chat/completions");
+    expect(JSON.parse(fetchMock.mock.calls[0]![1]!.body as string).model).toBe("Prism-ML/Ternary-Bonsai-27B");
+    expect((await quotaStatus(db, EMAIL, Date.now())).used).toBe(0);
+    expect(stream).toContain('"used":0');
+    expect(stream.match(/data: \[DONE\]/g)).toHaveLength(1);
+  });
+
+  it("chat mode keeps answering through a build lock that still blocks Build", async () => {
+    await recordSignIn(db, { email: EMAIL, at: Date.now() });
+    expect((await debitTokens(db, EMAIL, 300_000, Date.now())).exhausted).toBe(true);
+    const session = await issueSession(await signingKey(db), EMAIL, Date.now());
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response('data: {"choices":[{"delta":{"content":"Hello"}}]}\n\ndata: [DONE]\n\n'));
+    vi.stubGlobal("fetch", fetchMock);
+    const env = { CALVRAS_DB: db, CALVRAS_AI_KEY: "fixture_provider_key" };
+    const chat = await handleSiteApi(new Request("https://calvras.com/api/site/chat", { method: "POST", body: JSON.stringify({ session, mode: "chat", messages: [{ role: "user", content: "Hi" }] }) }), env);
+    expect(chat?.status).toBe(200);
+    await chat!.text();
+    const build = await handleSiteApi(new Request("https://calvras.com/api/site/chat", { method: "POST", body: JSON.stringify({ session, messages: [{ role: "user", content: "Hi" }] }) }), env);
+    expect(build?.status).toBe(429);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

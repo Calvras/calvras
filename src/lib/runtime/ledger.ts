@@ -407,10 +407,10 @@ export async function deleteAccount(db: D1Database, email: string): Promise<void
 
 // ── Daily token quota + multi-day lock ────────────────────────────────────
 
-export const DEFAULT_DAILY_TOKENS = 100_000;
+export const DEFAULT_DAILY_TOKENS = 300_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const TOKEN_WINDOW_MS = DAY_MS;
-export const PLAN_DAILY_TOKENS: Record<string, number> = { free: 100_000, lite: 200_000, pro: 400_000 };
+export const PLAN_DAILY_TOKENS: Record<string, number> = { free: 300_000, lite: 700_000, pro: 1_200_000 };
 export const LOCK_DAYS_MIN = 3;
 export const LOCK_DAYS_MAX = 10;
 

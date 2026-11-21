@@ -16,7 +16,7 @@ const app = await electron.launch({ executablePath: packaged || path.resolve('no
 
 try {
   await app.evaluate(({ ipcMain }) => {
-    global.__quotaFixture = { ok: true, signedIn: true, used: 12345, limit: 100000, percent: 12, exhausted: false, resetAt: 0, lockDays: 0 };
+    global.__quotaFixture = { ok: true, signedIn: true, used: 12345, limit: 200000, percent: 6, exhausted: false, resetAt: 0, lockDays: 0 };
     ipcMain.removeHandler('quota:status');
     ipcMain.handle('quota:status', () => global.__quotaFixture);
     ipcMain.removeHandler('browser:open-external');
@@ -34,12 +34,12 @@ try {
   const version = packaged ? await app.evaluate(({ app }) => app.getVersion()) : JSON.parse(await fs.readFile(path.resolve('electron-builder.kraken.json'), 'utf8')).extraMetadata.version;
   check('renderer reports the actual build version', await page.evaluate(() => getElectronIpc().invoke('app:get-version')) === version);
   await page.evaluate(() => refreshQuota());
-  check('Free meter displays spent tokens, not chat count', await page.locator('#quota-usage-label').textContent() === '12.3k / 100k tokens used today');
-  check('meter percentage reflects 12% token usage', await page.evaluate(() => document.getElementById('quota-usage-bar').style.width === '12%'));
+  check('Free meter displays spent tokens, not chat count', await page.locator('#quota-usage-label').textContent() === '12.3k / 200k tokens used today');
+  check('meter percentage reflects 6% token usage', await page.evaluate(() => document.getElementById('quota-usage-bar').style.width === '6%'));
   check('token formatting preserves 10k, 100k, and sub-1k values', await page.evaluate(() => formatTokens(10000) === '10k' && formatTokens(100000) === '100k' && formatTokens(999) === '999'));
   check('unlocked composer is visible', await page.locator('#prompt-input').isVisible());
 
-  await app.evaluate(() => { global.__quotaFixture = { ok: true, signedIn: true, used: 100000, limit: 100000, percent: 100, exhausted: true, resetAt: Date.now() + 5 * 86400000, lockDays: 5 }; });
+  await app.evaluate(() => { global.__quotaFixture = { ok: true, signedIn: true, used: 200000, limit: 200000, percent: 100, exhausted: true, resetAt: Date.now() + 5 * 86400000, lockDays: 5 }; });
   await page.evaluate(() => refreshQuota());
   check('token exhaustion locks both composer layouts', await page.evaluate(() => document.body.classList.contains('usage-locked') && [...document.querySelectorAll('.usage-limit-banner')].every(el => !el.hidden)));
   check('composer is hidden while locked', !await page.locator('#prompt-input').isVisible());
@@ -57,17 +57,91 @@ try {
   await activeUpgrade.click();
   check('active-chat Upgrade receives the click', await app.evaluate(() => global.__openedPricing === 'https://calvras.com/pricing'));
 
-  await app.evaluate(() => { global.__quotaFixture = { ok: true, signedIn: true, used: 100000, limit: 200000, percent: 50, exhausted: false, resetAt: 0, lockDays: 0 }; });
+  await app.evaluate(() => { global.__quotaFixture = { ok: true, signedIn: true, used: 100000, limit: 500000, percent: 20, exhausted: false, resetAt: 0, lockDays: 0 }; });
   await page.evaluate(() => refreshQuota());
-  check('Lite refresh clears the old lock and preserves spent tokens', await page.evaluate(() => !document.body.classList.contains('usage-locked') && quotaLockedUntil === 0 && document.getElementById('quota-usage-label').textContent === '100k / 200k tokens used today'));
+  check('Lite refresh clears the old lock and preserves spent tokens', await page.evaluate(() => !document.body.classList.contains('usage-locked') && quotaLockedUntil === 0 && document.getElementById('quota-usage-label').textContent === '100k / 500k tokens used today'));
   check('active composer returns after upgrade', await page.locator('#capsule-prompt-input').isVisible());
   await page.screenshot({ path: path.join(out, 'upgraded-active.png') });
 
-  await app.evaluate(() => { global.__quotaFixture = { ok: true, signedIn: true, used: 100000, limit: 400000, percent: 25, exhausted: false, resetAt: 0, lockDays: 0 }; });
+  await app.evaluate(() => { global.__quotaFixture = { ok: true, signedIn: true, used: 100000, limit: 800000, percent: 13, exhausted: false, resetAt: 0, lockDays: 0 }; });
   await page.evaluate(() => refreshQuota());
-  check('Pro displays the 400k allowance', await page.locator('#quota-usage-label').textContent() === '100k / 400k tokens used today');
+  check('Pro displays the 800k allowance', await page.locator('#quota-usage-label').textContent() === '100k / 800k tokens used today');
   const planCopy = await page.locator('#account-plan-name').locator('..').textContent();
-  check('settings explains 100k, $12 Lite 2x, and $30 Pro 4x', /100k tokens/.test(planCopy) && /\$12\/month/.test(planCopy) && /\$30\/month/.test(planCopy) && !/Starter|Ultra|unlimited/i.test(planCopy));
+  check('settings explains 200k, $12 Lite 500k, and $30 Pro 800k', /200k tokens/.test(planCopy) && /500k/.test(planCopy) && /800k/.test(planCopy) && /\$12\/month/.test(planCopy) && /\$30\/month/.test(planCopy) && !/Starter|Ultra|unlimited/i.test(planCopy));
+
+  await page.locator('#capsule-chat-mode-btn').click();
+  check('mode menu beside the mic lists Build and Chat with a blue Free pill', await page.evaluate(() => {
+    const menu = document.getElementById('capsule-chat-mode-menu');
+    const rows = [...menu.querySelectorAll('.mode-option')].map(o => o.getAttribute('data-chat-mode'));
+    const pill = menu.querySelector('[data-chat-mode="chat"] .chat-free-pill');
+    return menu.classList.contains('show') && rows.join(',') === 'build,chat' && Boolean(pill) && pill.textContent.trim() === 'Free' && getComputedStyle(pill).backgroundColor === 'rgb(37, 99, 235)';
+  }));
+  await page.screenshot({ path: path.join(out, 'chat-mode-menu.png') });
+  await page.locator('#capsule-chat-mode-menu [data-chat-mode="chat"]').click();
+  check('selecting Chat labels both composers and shows the Free pill', await page.evaluate(() => document.getElementById('chat-mode-label').textContent === 'Chat' && document.getElementById('capsule-chat-mode-label').textContent === 'Chat' && !document.querySelector('#capsule-chat-mode-btn .chat-free-pill').hidden));
+  check('chat mode refuses edits, commands, git and documents', await page.evaluate(async () => {
+    for (const kind of ['write', 'edit', 'replace', 'run', 'git', 'document', 'image', 'video']) {
+      try { await executeAgentBlock({ kind, arg: 'x.txt', body: '{}' }, {}, null); return false; }
+      catch (error) { if (!/read-only/.test(error.message)) return false; }
+    }
+    return true;
+  }));
+  check('chat mode can search the web and fetch pages to confirm', await page.evaluate(async () => {
+    const os = window.performWebSearch; const of = window.performPageFetch;
+    window.performWebSearch = async () => 'fixture results';
+    window.performPageFetch = async (url) => ({ url, text: 'fixture page' });
+    try {
+      const a = await executeAgentBlock({ kind: 'web', arg: 'calvras' }, {}, null);
+      const b = await executeAgentBlock({ kind: 'fetch', arg: 'https://example.com' }, {}, null);
+      return !a.failed && !b.failed && /fixture results/.test(a.resultText) && /fixture page/.test(b.resultText);
+    } finally { window.performWebSearch = os; window.performPageFetch = of; }
+  }));
+  check('chat mode browses read-only but refuses clicks and logins', await page.evaluate(async () => {
+    const original = window.performBrowserAction;
+    window.performBrowserAction = async () => ({ ok: true });
+    try {
+      const ok = await executeAgentBlock({ kind: 'browser', arg: 'open https://example.com' }, {}, null);
+      let refused = false; let loginRefused = false;
+      try { await executeAgentBlock({ kind: 'browser', arg: 'click #buy' }, {}, null); } catch (e) { refused = /look at pages/.test(e.message); }
+      try { await executeAgentBlock({ kind: 'browser', arg: 'login' }, {}, null); } catch (e) { loginRefused = /look at pages/.test(e.message); }
+      return !ok.failed && refused && loginRefused;
+    } finally { window.performBrowserAction = original; }
+  }));
+  await app.evaluate(() => { global.__quotaFixture = { ok: true, signedIn: true, used: 200000, limit: 200000, percent: 100, exhausted: true, resetAt: Date.now() + 5 * 86400000, lockDays: 5 }; });
+  await page.evaluate(() => refreshQuota());
+  if (await page.locator('#upgrade-modal').isVisible()) await page.locator('#upgrade-close-btn').click();
+  check('a locked account keeps chatting in free Chat mode', await page.locator('#capsule-prompt-input').isVisible() && await page.evaluate(() => !document.body.classList.contains('usage-locked')));
+  check('lock banner still explains the build lock during free chat', await page.evaluate(() => [...document.querySelectorAll('.usage-limit-banner')].some(b => !b.hidden)));
+  await page.screenshot({ path: path.join(out, 'locked-chat.png') });
+  await page.locator('#capsule-chat-mode-btn').click();
+  await page.locator('#capsule-chat-mode-menu [data-chat-mode="build"]').click();
+  check('switching back to Build restores the lock screen', await page.evaluate(() => document.body.classList.contains('usage-locked')) && !await page.locator('#capsule-prompt-input').isVisible());
+  await page.locator('.capsule-input-container .usage-limit-chat').click();
+  check('the lock banner offers a way into free Chat', await page.locator('#capsule-prompt-input').isVisible() && await page.evaluate(() => composerMode === 'chat'));
+
+  const chatSys = await page.evaluate(async () => {
+    const msgs = await buildApiMessagesWithCompression({ messages: [{ role: 'user', content: 'hi' }] }, [], null);
+    return { role: msgs[0].role, isChat: msgs[0].content === CHAT_SYSTEM_PROMPT, head: msgs[0].content.slice(0, 40) };
+  });
+  check('chat requests carry the strict Calvras chat system prompt', chatSys.role === 'system' && chatSys.isChat && chatSys.head.startsWith('You are Calvras'));
+  await page.evaluate(() => window.setComposerMode('build'));
+  const buildSys = await page.evaluate(async () => {
+    const msgs = await buildApiMessagesWithCompression({ messages: [{ role: 'user', content: 'hi' }] }, [], null);
+    return { differs: msgs[0].content !== CHAT_SYSTEM_PROMPT, len: msgs[0].content.length };
+  });
+  check('build mode keeps the agent system prompt', buildSys.differs && buildSys.len > 200);
+  await page.evaluate(() => window.setComposerMode('chat'));
+  const smallTalk = await page.evaluate(async () => {
+    const original = window.streamCompletion;
+    let captured = null;
+    window.streamCompletion = async (msgs) => { captured = msgs; return { content: 'Hey.' }; };
+    try {
+      currentChat = { id: 'prompt-fixture', messages: [] };
+      await handleSend('hey');
+    } finally { window.streamCompletion = original; }
+    return Boolean(captured) && captured[0].content === CHAT_SYSTEM_PROMPT;
+  });
+  check('chat small-talk also uses the strict prompt', smallTalk === true);
 
   await page.route('https://calvras.com/api/site/chat', route => route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"fixture unavailable"}' }));
   let fallback = false;
