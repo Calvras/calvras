@@ -128,6 +128,8 @@ const currentModelId = 'deepseek-ai/DeepSeek-V4.1-Flash-1017';
 const CHAT_MODEL_ID = 'Prism-ML/Ternary-Bonsai-27B';
 let composerMode = 'build';
 try { composerMode = localStorage.getItem('calvras_composer_mode') === 'chat' ? 'chat' : 'build'; } catch {}
+let buildEffort = 'high';
+try { buildEffort = localStorage.getItem('calvras_build_effort') === 'low' ? 'low' : 'high'; } catch {}
 
 let activeWorkspaceName = '';
 let activeWorkspaceDir = '';
@@ -1873,7 +1875,8 @@ async function generatePlanDocument({ text, currentChat, workflow, controller, t
         if (!prose) {
           emptyResponses += 1;
           phase.finalize();
-          if (emptyResponses <= 3) {
+          if (emptyResponses <= 25) {
+            await new Promise(r => setTimeout(r, 800));
             messages.push({ role: 'user', content: 'The last response was empty. Continue planning the original request and return the full plan document.' });
             continue;
           }
@@ -2873,8 +2876,41 @@ function setupEventListeners() {
     document.querySelectorAll('.prompt-textarea, .capsule-text-input, .react-prompt-mount-point textarea').forEach(el => {
       el.placeholder = placeholderText;
     });
+    // Hide effort button in Chat mode (Chat is always free)
+    document.querySelectorAll('.effort-dropdown-container, .capsule-effort-container').forEach(el => {
+      el.style.display = composerMode === 'chat' ? 'none' : '';
+    });
     refreshUsageLock();
   }
+
+  function setActiveEffort(effort) {
+    buildEffort = effort === 'low' ? 'low' : 'high';
+    try { localStorage.setItem('calvras_build_effort', buildEffort); } catch {}
+    const homeLabel = document.getElementById('effort-name-label');
+    const homeFreePill = document.getElementById('effort-free-pill');
+    if (homeLabel) homeLabel.textContent = buildEffort === 'low' ? 'Low' : 'High';
+    if (homeFreePill) homeFreePill.hidden = buildEffort !== 'low';
+    const capsuleLabel = document.getElementById('capsule-effort-label');
+    const capsuleFreePill = document.getElementById('capsule-effort-free-pill');
+    if (capsuleLabel) capsuleLabel.textContent = buildEffort === 'low' ? 'Low' : 'High';
+    if (capsuleFreePill) capsuleFreePill.hidden = buildEffort !== 'low';
+    document.querySelectorAll('#effort-dropdown-menu .mode-option, #capsule-effort-menu .mode-option').forEach(o => {
+      const check = o.querySelector('.mode-option-check');
+      if (check) check.remove();
+      if (o.getAttribute('data-effort') === buildEffort) {
+        o.classList.add('active');
+        const checkDiv = document.createElement('div');
+        checkDiv.className = 'mode-option-check';
+        checkDiv.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+        o.appendChild(checkDiv);
+      } else {
+        o.classList.remove('active');
+      }
+    });
+    refreshUsageLock();
+    refreshSendIcons();
+  }
+  window.setActiveEffort = setActiveEffort;
 
   [[chatModeBtn, chatModeMenu, capsuleChatModeMenu], [capsuleChatModeBtn, capsuleChatModeMenu, chatModeMenu]].forEach(([btn, menu, other]) => {
     if (!btn || !menu) return;
@@ -2896,6 +2932,31 @@ function setupEventListeners() {
   setActiveComposerMode(composerMode);
   window.setComposerMode = setActiveComposerMode;
 
+  const effortBtn = document.getElementById('effort-selector-btn');
+  const effortMenu = document.getElementById('effort-dropdown-menu');
+  const capEffortBtn = document.getElementById('capsule-effort-btn');
+  const capEffortMenu = document.getElementById('capsule-effort-menu');
+  [[effortBtn, effortMenu, capEffortMenu], [capEffortBtn, capEffortMenu, effortMenu]].forEach(([btn, menu, other]) => {
+    if (!btn || !menu) return;
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      menu.classList.toggle('show');
+      if (other) other.classList.remove('show');
+      if (modeMenu) modeMenu.classList.remove('show');
+      if (capsuleModeMenu) capsuleModeMenu.classList.remove('show');
+      if (chatModeMenu) chatModeMenu.classList.remove('show');
+      if (capsuleChatModeMenu) capsuleChatModeMenu.classList.remove('show');
+    });
+    menu.querySelectorAll('.mode-option').forEach(opt => {
+      opt.addEventListener('click', (e) => {
+        e.stopPropagation();
+        setActiveEffort(opt.getAttribute('data-effort'));
+        menu.classList.remove('show');
+      });
+    });
+  });
+  setActiveEffort(buildEffort);
+
   setActiveMode(currentMode);
 
   document.addEventListener('click', () => {
@@ -2903,6 +2964,10 @@ function setupEventListeners() {
     if (capsuleModeMenu) capsuleModeMenu.classList.remove('show');
     if (chatModeMenu) chatModeMenu.classList.remove('show');
     if (capsuleChatModeMenu) capsuleChatModeMenu.classList.remove('show');
+    const em1 = document.getElementById('effort-dropdown-menu');
+    if (em1) em1.classList.remove('show');
+    const em2 = document.getElementById('capsule-effort-menu');
+    if (em2) em2.classList.remove('show');
   });
 
   initCodexUI();
@@ -3398,7 +3463,7 @@ function initCodexUI() {
       'shortcuts': () => { window.openSettingsDialog(); document.querySelector('.settings-nav-item[data-tab="shortcuts"]')?.click(); },
       'release-notes': () => window.open('https://github.com/Calvras/calvras/releases', '_blank'),
       'report-issue': () => window.open('https://github.com/Calvras/calvras/issues', '_blank'),
-      'about': () => codexToast('Calvras 9.7.6 — autonomous coding agent'),
+      'about': () => codexToast('Calvras 9.7.7 — autonomous coding agent'),
     };
     menubar.querySelectorAll('.menubar-action').forEach(item => {
       item.addEventListener('click', (e) => {
@@ -3487,7 +3552,7 @@ function refreshSendIcons() {
   const capStop = document.getElementById('capsule-stop-icon');
   const hasAtt = pendingAttachments.length > 0;
   // Chat mode is always free — never lock the send button when in chat mode
-  const locked = composerMode !== 'chat' && !!(quotaLockedUntil && Date.now() < quotaLockedUntil);
+  const locked = composerMode !== 'chat' && buildEffort !== 'low' && !!(quotaLockedUntil && Date.now() < quotaLockedUntil);
   const capHas = !!(capInput && capInput.value.trim()) || hasAtt;
   const homeHas = !!(homeInput && homeInput.value.trim()) || hasAtt;
   if (capBtn && capArrow && capStop) {
@@ -5139,7 +5204,7 @@ async function streamCompletion(messages, { signal, onReasoning, onContent } = {
     response = await fetch('https://calvras.com/api/site/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session, messages, stream: true, mode: composerMode }),
+      body: JSON.stringify({ session, messages, stream: true, mode: composerMode, effort: buildEffort }),
       signal,
     });
     if (response.status === 429) {
@@ -5158,7 +5223,7 @@ async function streamCompletion(messages, { signal, onReasoning, onContent } = {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: composerMode === 'chat' ? CHAT_MODEL_ID : (currentModelId || 'deepseek-ai/DeepSeek-V4.1-Flash-1017'),
+        model: (composerMode === 'chat' || buildEffort === 'low') ? CHAT_MODEL_ID : (currentModelId || 'deepseek-ai/DeepSeek-V4.1-Flash-1017'),
         stream: true,
         messages,
       }),
@@ -5272,13 +5337,13 @@ let usageLockPrev = null;
 function refreshUsageLock() {
   const locked = !!(quotaLockedUntil && Date.now() < quotaLockedUntil);
   // Chat mode is free, so a drawn build lock keeps the composer usable in Chat only.
-  document.body.classList.toggle('usage-locked', locked && composerMode !== 'chat');
+  document.body.classList.toggle('usage-locked', locked && composerMode !== 'chat' && buildEffort !== 'low');
   const when = locked
     ? new Date(quotaLockedUntil).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
     : '';
   const daysLeft = locked ? Math.max(1, Math.ceil((quotaLockedUntil - Date.now()) / 86400000)) : 0;
   document.querySelectorAll('.usage-limit-banner').forEach(banner => {
-    banner.hidden = !locked;
+    banner.hidden = !locked || composerMode === 'chat' || buildEffort === 'low';
     const reset = banner.querySelector('.usage-limit-reset');
     if (reset && when) reset.textContent = when;
     const days = banner.querySelector('.usage-limit-days');
@@ -7456,7 +7521,7 @@ async function handleSend(rawText) {
     return;
   }
 
-  if (composerMode !== 'chat' && quotaLockedUntil && Date.now() < quotaLockedUntil) {
+  if (composerMode !== 'chat' && buildEffort !== 'low' && quotaLockedUntil && Date.now() < quotaLockedUntil) {
     codexToast('Token limit reached — locked for ' + quotaLockDays + ' days');
     window.openUpgradeDialog();
     refreshUsageLock();
@@ -7891,7 +7956,8 @@ async function handleSend(rawText) {
         if (!blocks.length && !stripToolBlocks(raw)) {
           emptyResponses += 1;
           phase.finalize();
-          if (emptyResponses <= 3) {
+          if (emptyResponses <= 50) {
+            await new Promise(r => setTimeout(r, 800));
             apiMessages.push({ role: 'user', content: 'The last response contained no usable message or tool action. Continue the original task from the actual results already present. Do not repeat completed actions. Emit the next required tool or a concise, evidence-based final summary if finished.' });
             continue;
           }
@@ -7982,7 +8048,7 @@ async function handleSend(rawText) {
       const note = document.createElement('div');
       note.className = 'agent-stop-note';
       const reason = stopped === 'aborted' ? 'Stopped by you.' : stopped === 'provider-empty'
-        ? 'The provider stayed unresponsive after three recovery attempts.'
+        ? 'The provider stayed unresponsive after multiple recovery attempts.'
         : stopped === 'quota' ? 'Daily token limit reached.'
         : finalText;
       const tools = phases.flatMap(item => item.getRecord().tools || []);

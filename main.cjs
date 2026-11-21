@@ -104,7 +104,7 @@ function postSession(payload) {
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(payload),
-        'User-Agent': 'Calvras/9.7.6',
+        'User-Agent': 'Calvras/9.7.7',
       },
       timeout: 12000,
     }, (res) => {

@@ -942,7 +942,10 @@ body { display: flex; flex-direction: column; }
 }
 .chat-free-pill[hidden] { display: none; }
 .chat-free-pill svg { flex: none; }
-.chat-mode-btn .chat-free-pill, .capsule-chat-mode-btn .chat-free-pill { margin-left: 2px; padding: 1px 6px; font-size: 10px; }
+.chat-mode-btn .chat-free-pill, .capsule-chat-mode-btn .chat-free-pill, .effort-free-pill, .capsule-effort-free-pill { margin-left: 2px; padding: 1px 6px; font-size: 10px; }
+.effort-dropdown-container { position: relative; }
+.effort-selector-btn, .capsule-effort-btn { display: inline-flex; align-items: center; gap: 4px; }
+.effort-icon { flex: none; opacity: 0.85; }
 .card-right-actions .mode-dropdown-menu, .capsule-right-actions .mode-dropdown-menu { right: 0; }
 .model-dropdown-container {
   position: relative;

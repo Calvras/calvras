@@ -379,6 +379,30 @@
                       </div>
                     </div>
                   </div>
+
+                  <div class="mode-dropdown-container effort-dropdown-container">
+                    <button type="button" class="mode-selector-btn dark-mode-btn effort-selector-btn" id="effort-selector-btn" title="Model Effort">
+                      <svg class="effort-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path>
+                      </svg>
+                      <span class="selected-effort-name" id="effort-name-label">High</span>
+                      <span class="chat-free-pill effort-free-pill" id="effort-free-pill" hidden><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="12" cy="12" r="9"></circle></svg>Free</span>
+                      <svg class="chevron-icon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="6 9 12 15 18 9"></polyline>
+                      </svg>
+                    </button>
+                    <div class="mode-dropdown-menu effort-dropdown-menu" id="effort-dropdown-menu">
+                      <div class="mode-option active" data-effort="high">
+                        <div class="mode-option-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path></svg></div>
+                        <div class="mode-option-content"><div class="mode-option-title">High</div><div class="mode-option-desc">DeepSeek V4.1 Flash (Full power)</div></div>
+                        <div class="mode-option-check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>
+                      </div>
+                      <div class="mode-option" data-effort="low">
+                        <div class="mode-option-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></div>
+                        <div class="mode-option-content"><div class="mode-option-title">Low <span class="chat-free-pill"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="12" cy="12" r="9"></circle></svg>Free</span></div><div class="mode-option-desc">Ternary-Bonsai-27B (Free coding)</div></div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 <div class="card-right-actions">
@@ -505,6 +529,30 @@
                         <div class="mode-option-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg></div>
                         <div class="mode-option-content"><div class="mode-option-title">Full access</div><div class="mode-option-desc">Run local commands; confirm sensitive actions.</div></div>
                         <div class="mode-option-check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="mode-dropdown-container effort-dropdown-container capsule-effort-container">
+                    <button type="button" class="mode-selector-btn dark-mode-btn effort-selector-btn capsule-effort-btn" id="capsule-effort-btn" title="Model Effort">
+                      <svg class="effort-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path>
+                      </svg>
+                      <span class="selected-effort-name" id="capsule-effort-label">High</span>
+                      <span class="chat-free-pill effort-free-pill" id="capsule-effort-free-pill" hidden><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="12" cy="12" r="9"></circle></svg>Free</span>
+                      <svg class="chevron-icon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="6 9 12 15 18 9"></polyline>
+                      </svg>
+                    </button>
+                    <div class="mode-dropdown-menu effort-dropdown-menu" id="capsule-effort-menu">
+                      <div class="mode-option active" data-effort="high">
+                        <div class="mode-option-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path></svg></div>
+                        <div class="mode-option-content"><div class="mode-option-title">High</div><div class="mode-option-desc">DeepSeek V4.1 Flash (Full power)</div></div>
+                        <div class="mode-option-check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>
+                      </div>
+                      <div class="mode-option" data-effort="low">
+                        <div class="mode-option-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></div>
+                        <div class="mode-option-content"><div class="mode-option-title">Low <span class="chat-free-pill"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="12" cy="12" r="9"></circle></svg>Free</span></div><div class="mode-option-desc">Ternary-Bonsai-27B (Free coding)</div></div>
                       </div>
                     </div>
                   </div>
